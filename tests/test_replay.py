@@ -96,6 +96,25 @@ def test_objection_blocks_then_revision_lands(tmp_path):
     assert chain.proposals[blocked.id].status == "objected"
 
 
+def test_late_approval_of_objected_push_does_not_rewrite_history(tmp_path):
+    w = World.create(tmp_path)
+    g = w.genesis({"app.py": "a = 1\n"})
+    blocked = w.edit("@alice", g, "app.py", "a = 2\n", intent="bad")
+    w.test(blocked)
+    w.object("@lead", blocked, "nope")
+    revised = w.edit("@alice", g, "app.py", "a = 3\n", intent="good")
+    w.approve("@lead", revised)
+    w.test(revised)
+    assert run(w).tip.message_id == revised.id
+
+    w.tick(5)
+    w.approve("@lead", blocked)
+    w.tick(120)
+    chain = run(w)
+    assert [l.message_id for l in chain.links] == [g.id, revised.id]
+    assert chain.proposals[blocked.id].status == "superseded"
+
+
 def test_owner_approval_overrides_objection(tmp_path):
     w = World.create(tmp_path)
     g = w.genesis({"app.py": "a = 1\n"})

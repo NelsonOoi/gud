@@ -87,34 +87,40 @@ def replay(emails: list[Email], window: float, now: float) -> Chain:
             break
 
     proposals: dict[str, ProposalState] = {}
+    cache: dict = {}
     while links:
         parent = links[-1]
         kids = by_parent.get(parent.message_id, [])
-        evals = [
-            _evaluate(kid, parent, parsed, by_message, agent_by_target, human_by_reply, window, now)
-            for kid in kids
-        ]
-        winner = blocker = None
-        for idx, ev in enumerate(evals):
-            if ev.outcome == "never":
-                continue
-            if ev.outcome == "qualified":
-                winner = idx
-            else:
-                blocker = idx
-            break
+
+        def evaluate_at(t: float) -> list[_Eval]:
+            return [
+                _evaluate(kid, parent, parsed, by_message, agent_by_target, human_by_reply, window, t, cache)
+                for kid in kids if kid.received_at <= t
+            ]
+
+        # The next link is decided at the earliest moment it could have been, using only mail received
+        # by then, so later mail (say, a late approval of an objected push) never rewrites a link.
+        winner = None
+        for t in _decision_times(parent, kids, parsed, agent_by_target, human_by_reply, window, now):
+            at_t = evaluate_at(t)
+            idx = _walk(at_t)[0]
+            if idx is not None:
+                winner = (kids[idx], at_t[idx])
+                break
+        evals = evaluate_at(now)
         if winner is not None:
-            links.append(_link_from(kids[winner], evals[winner], parent))
-            win_id = kids[winner].message_id
-            for idx, ev in enumerate(evals):
-                if idx == winner:
-                    continue
+            win_email, win_eval = winner
+            links.append(_link_from(win_email, win_eval, parent))
+            for ev in evals:
                 prop = ev.proposal
+                if prop.message_id == win_email.message_id:
+                    continue
                 if ev.outcome != "never":
                     prop.status = "superseded"
-                    prop.reason = f"superseded by {win_id}"
+                    prop.reason = f"superseded by {win_email.message_id}"
                 proposals[prop.message_id] = prop
             continue
+        blocker = _walk(evals)[1]
         if blocker is not None:
             block_id = kids[blocker].message_id
             for idx, ev in enumerate(evals):
@@ -145,6 +151,28 @@ def replay(emails: list[Email], window: float, now: float) -> Chain:
             task=body.get("Gud-Task") or None,
         )
     return Chain(links, proposals, {link.message_id: link for link in links}, visible, by_message)
+
+
+def _walk(evals: list[_Eval]) -> tuple[int | None, int | None]:
+    """(winner, blocker) index: the first child that is not `never` decides."""
+    for idx, ev in enumerate(evals):
+        if ev.outcome == "never":
+            continue
+        return (idx, None) if ev.outcome == "qualified" else (None, idx)
+    return None, None
+
+
+def _decision_times(parent: LinkState, kids: list[Email], parsed: dict,
+                    agent_by_target: dict[str, list[Email]], human_by_reply: dict[str, list[Email]],
+                    window: float, now: float) -> list[float]:
+    """Every moment the walk over `kids` can change: arrivals, replies, consent windows closing."""
+    times = {now, parent.linked_at}
+    for kid in kids:
+        times.add(kid.received_at)
+        times.add(kid.received_at + window)
+        for reply in agent_by_target.get(kid.message_id, []) + human_by_reply.get(kid.message_id, []):
+            times.add(reply.received_at)
+    return sorted(t for t in times if parent.linked_at <= t <= now)
 
 
 def _visible(emails: list[Email], now: float) -> list[Email]:
@@ -218,7 +246,9 @@ def _try_genesis(email: Email, body) -> LinkState | None:
 
 def _collect(push_id: str, push_tree: str, members: dict[str, Member], consent_ids: list[str],
              agent_emails: list[Email], human_emails: list[Email], by_message: dict[str, Email],
-             parsed: dict) -> _Replies:
+             parsed: dict, now: float, valid) -> _Replies:
+    agent_emails = [e for e in agent_emails if e.received_at <= now]
+    human_emails = [e for e in human_emails if e.received_at <= now]
     approvals: dict[str, float] = {}
     objections: list[dict] = []
     vetoes: list[tuple[float, str]] = []
@@ -230,7 +260,7 @@ def _collect(push_id: str, push_tree: str, members: dict[str, Member], consent_i
 
     for email in agent_emails:
         body = parsed[email.message_id]
-        member = _valid_agent(email, body.trailers, body.diff, members)
+        member = valid(email)
         if member is None:
             continue
         if body.kind == "approve" and member.votes:
@@ -265,12 +295,12 @@ def _collect(push_id: str, push_tree: str, members: dict[str, Member], consent_i
 
     for cid in consent_ids:
         cited = by_message.get(cid)
-        if cited is None:
+        if cited is None or cited.received_at > now:
             continue
         body = parsed[cited.message_id]
         if body.kind != "approve" or body.get("Gud-Target") != push_id:
             continue
-        member = _valid_agent(cited, body.trailers, body.diff, members)
+        member = valid(cited)
         if member is not None and member.votes:
             add_approval(member.handle, cited.received_at)
 
@@ -353,47 +383,34 @@ def _veto_reason(vetoes: list[tuple[float, str]], qualify_at: float | None) -> s
 
 def _evaluate(email: Email, parent: LinkState, parsed: dict, by_message: dict[str, Email],
               agent_by_target: dict[str, list[Email]], human_by_reply: dict[str, list[Email]],
-              window: float, now: float) -> _Eval:
+              window: float, now: float, cache: dict | None = None) -> _Eval:
+    cache = {} if cache is None else cache
     body = parsed[email.message_id]
     author = body.get("Gud-Author") or ""
     diff = body.diff
     task = body.get("Gud-Task") or None
     consent_ids = parse_list(body.get("Gud-Consent"))
-    auth_reason = _auth_failure(email, body.trailers, diff, parent.members)
-    base_ok = body.get("Gud-Base") == parent.state
+    key = (email.message_id, parent.message_id)
+    if key not in cache:
+        cache[key] = _static(email, body, parent, consent_ids)
+    auth_reason, base_ok, new_tree, state, digest, apply_reason, owners, rule, voters = cache[key]
 
-    new_tree = None
-    state = None
-    digest = None
-    apply_reason = None
-    if auth_reason is None and base_ok:
-        try:
-            new_tree = apply_diff(parent.tree, diff)
-        except PatchError as exc:
-            apply_reason = f"diff does not apply: {exc}"
-        else:
-            state = state_hash(parent.state, author, consent_ids, diff)
-            digest = tree_hash(new_tree)
-            if body.get("Gud-State") != state or body.get("Gud-Tree") != digest:
-                apply_reason = "state or tree hash does not match the diff"
-
-    try:
-        owners = affected_owners(parent, diff, author)
-        rule = protection(parent, diff)
-    except PatchError:
-        owners = []
-        rule = None
+    def valid(reply: Email) -> Member | None:
+        vkey = ("valid", reply.message_id, parent.message_id)
+        if vkey not in cache:
+            rb = parsed[reply.message_id]
+            cache[vkey] = _valid_agent(reply, rb.trailers, rb.diff, parent.members)
+        return cache[vkey]
 
     replies = _collect(
         email.message_id, body.get("Gud-Tree") or "", parent.members, consent_ids,
         agent_by_target.get(email.message_id, []), human_by_reply.get(email.message_id, []),
-        by_message, parsed,
+        by_message, parsed, now, valid,
     )
 
     quorum_needed = quorum_have = None
     quorum_times: list[float] | None = None
-    if rule == "quorum" and new_tree is not None:
-        voters = quorum_voters(parent, new_tree)
+    if rule == "quorum" and voters is not None:
         quorum_needed = len(voters) // 2 + 1
         quorum_times = []
         for handle in voters:
@@ -445,6 +462,32 @@ def _evaluate(email: Email, parent: LinkState, parsed: dict, by_message: dict[st
     return _Eval(outcome, proposal, author, body.text, diff, task, new_tree, state, digest, qualify_at)
 
 
+def _static(email: Email, body, parent: LinkState, consent_ids: list[str]) -> tuple:
+    """The parts of an evaluation that do not depend on time."""
+    author = body.get("Gud-Author") or ""
+    diff = body.diff
+    auth_reason = _auth_failure(email, body.trailers, diff, parent.members)
+    base_ok = body.get("Gud-Base") == parent.state
+    new_tree = state = digest = apply_reason = None
+    if auth_reason is None and base_ok:
+        try:
+            new_tree = apply_diff(parent.tree, diff)
+        except PatchError as exc:
+            apply_reason = f"diff does not apply: {exc}"
+        else:
+            state = state_hash(parent.state, author, consent_ids, diff)
+            digest = tree_hash(new_tree)
+            if body.get("Gud-State") != state or body.get("Gud-Tree") != digest:
+                apply_reason = "state or tree hash does not match the diff"
+    try:
+        owners = affected_owners(parent, diff, author)
+        rule = protection(parent, diff)
+    except PatchError:
+        owners, rule = [], None
+    voters = quorum_voters(parent, new_tree) if rule == "quorum" and new_tree is not None else None
+    return auth_reason, base_ok, new_tree, state, digest, apply_reason, owners, rule, voters
+
+
 def _link_from(email: Email, ev: _Eval, parent: LinkState) -> LinkState:
     assert ev.new_tree is not None and ev.state is not None and ev.tree_hash is not None
     assert ev.qualify_at is not None
@@ -453,5 +496,5 @@ def _link_from(email: Email, ev: _Eval, parent: LinkState) -> LinkState:
         tree_hash=ev.tree_hash, tree=ev.new_tree,
         blame=update_blame(parent.tree, parent.blame, ev.new_tree, ev.author, email.message_id),
         members=members_of(ev.new_tree), received_at=email.received_at, subject=email.subject,
-        task=ev.task, linked_at=ev.qualify_at, intent=ev.intent, diff=ev.diff,
+        task=ev.task, linked_at=max(ev.qualify_at, parent.linked_at), intent=ev.intent, diff=ev.diff,
     )
