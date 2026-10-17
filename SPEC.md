@@ -5,7 +5,8 @@ This is the contract every module builds against. If code and this file disagree
 ## Concepts
 
 - **Mailbox.** The repo is the set of emails delivered to the repo address (`GUD_REPO_ADDRESS`). Emails are stored by Primitive in production, or by `gud.mail_fake.FileMailbox` locally. Nothing else is a record.
-- **Member.** A line in `.gud/members` in the tree at some state. Agents sign; humans are trusted by verified sender address.
+- **Host.** Whoever owns the repo address's mailbox. The host serves a read-only mirror of that mailbox to members (see "Hosting and member accounts"). The host can withhold or retime mail but cannot forge it, because everything that changes the chain is signed.
+- **Member.** A line in `.gud/members` in the tree at some state. Agents sign; humans are trusted by verified sender address. Each member uses **their own** mail account and credentials; nobody shares an API key.
 - **Push.** An email with `Gud-Kind: push` carrying a unified diff against its parent push.
 - **Link.** A push that satisfies the four link rules. The chain of links from genesis is the history.
 - **Tip.** The last link. Its tree is the repo.
@@ -39,6 +40,7 @@ Parsing rules (`gud.wire.parse_body`):
 | `subtask` | Author, Task, Parent-Task, Assignee, Sig | | yes |
 | `task-done` | Author, Task, Tip, Sig | | yes |
 | `notify` | Author | Task, Target | no (informational, never affects the chain) |
+| `join` | Author, Role, Address, Key, Sig | Sponsor, Reason | yes, by `Key` itself (no chain effect; input to a membership push) |
 
 Field meanings:
 
@@ -52,6 +54,8 @@ Field meanings:
 - `Gud-Result`: `pass` or `fail`.
 - `Gud-Task`: task id like `T7`, or subtask id like `T7.1`.
 - `Gud-Sig`: `ed25519:<base64 signature>`.
+- `Gud-Role`, `Gud-Address`, `Gud-Key`, `Gud-Sponsor` (join only): the requested member line. `Gud-Author` is the requested handle. `Gud-Key` is the requester's public key, and `Gud-Sig` must verify with it.
+- `Gud-Join` (optional on a membership push): message id of the join request it admits.
 
 ## Human replies
 
@@ -145,6 +149,39 @@ Consent holds at a time: the window close, the last required approval's received
 - A subtask is **done** when a link carries `Gud-Task: T<n>.<m>`.
 - A task is **done** when the lead sends `task-done`; the requester is then notified by email (`notify` kind, To the human's address, CC repo).
 
+## Hosting and member accounts
+
+Requirement: members never share the host's mail API key.
+
+**Identity is the signature, not the account.** Every message that affects the chain is signed with the member's own Ed25519 key, and replay verifies it against `.gud/members`. Which mail account sent it does not matter, as long as `From` equals the member's address and the receiving mailbox marks it `sender_verified`. So a member may send from:
+
+- their own Primitive account, at their own address (recommended for outside agents; any address under `primitive.email` can mail any other), or
+- a Primitive **agent connection** the host creates for them at an address on the host's domain. The member claims the invitation and gets a credential bound to that one address; the host's org key is never handed over. (Org API keys cannot create connections; a human creates them in Primitive.)
+
+**Reading: the host's mailbox is the reference copy.** Each member's inbox gets a CC of agent mail, but inboxes disagree on received times, humans reply only to the repo address, and late joiners lack history. So replay always runs over the **repo mailbox as served by the host**:
+
+- `GET /api/mail?since=<float>` on the host returns the repo mailbox's raw emails (every `Email` field, including `received_at` and `sender_verified`), oldest first. See `api_contract.md`.
+- A member reads it with `gud.mail_remote.RemoteMailbox(host_url, identity, send_via=<their own Mailbox>)`. `list`/`wait` read the host mirror; `send` goes through the member's own mailbox (their Primitive key or connection credential), To the repo address, CC the other agent members, exactly as today.
+- Members verify every signature locally, so the host cannot forge pushes, approvals, objections or tests. The host is trusted only for received times and for `sender_verified` on unsigned human replies.
+
+**Mirror access.** Requests to the mirror (and to every read endpoint) from outside the host's loopback interface must be signed by a current member:
+
+- Headers `X-Gud-Handle`, `X-Gud-Time` (unix seconds), `X-Gud-Sig` = `ed25519:<b64>` over the bytes `"{METHOD} {path_with_query} {time}"`.
+- The host accepts it if the handle is a member at the tip with a public key that verifies it, and `|now - time| <= 300`. A removed member loses mirror access when the removal links.
+- Mutating demo endpoints (`POST /api/tasks`, `/api/members`, `/api/reply`, `/api/approve`) accept only loopback requests.
+
+**Audit.** `gud audit` compares the host mirror with the member's own inbox: every gud email in the member's inbox that was sent to the repo address must appear in the mirror with the same body, and the mirror's received time must be within `GUD_AUDIT_SKEW` (default 120 s) of the member's copy. It reports missing, altered, and retimed messages, and exits non-zero if any.
+
+**Joining.**
+
+1. The newcomer runs `gud join <host_url> --handle @x --address x@their.domain [--role agent] [--sponsor @h]`. This creates a key locally (never sent anywhere) and sends a signed `join` email from their own account to the repo address.
+2. Any member (in the demo, `@console` via the UI) answers with a membership push that adds the requested line, cites `Gud-Join`, and lands by quorum like any other `.gud/members` change. A `join` with a bad self-signature, or whose `From` is not `Gud-Address`, is ignored.
+3. When it lands, the welcome email (To the new address) carries the host URL and a checkpoint (tip id, state hash, tree hash, seq). The new member replays the mirror from genesis and checks it reaches that checkpoint.
+
+**Leaving.** A removal push revokes the key at the chain level. For a connected agent the host also excludes the address from Primitive's agent network.
+
+**Config per member:** `GUD_HOST_URL` (absent means "I am the host"), `GUD_HANDLE`, `GUD_ADDRESS`, `GUD_REPO_ADDRESS`, and their own `PRIMITIVE_API_KEY` (or connection credential). The private key lives at `GUD_HOME/keys/<handle>.key`.
+
 ## Transport interfaces
 
 Defined in `gud/types.py`:
@@ -154,4 +191,4 @@ Defined in `gud/types.py`:
 - `Mailbox.wait(recipient, since, timeout) -> list[Email]` long-polls for new mail.
 - `Runner.run(tree) -> RunResult` runs the test suite on a tree.
 
-Implementations: `gud.mail_fake.FileMailbox` (local, JSONL), `gud.mail_primitive.PrimitiveMailbox` (production); `gud.build.LocalRunner`, `gud.build.InstaBoxRunner`.
+Implementations: `gud.mail_fake.FileMailbox` (local, JSONL), `gud.mail_primitive.PrimitiveMailbox` (the host, or a member sending from their own account), `gud.mail_remote.RemoteMailbox` (a member reading the host mirror); `gud.build.LocalRunner`, `gud.build.InstaBoxRunner`.

@@ -45,6 +45,22 @@ class Repo:
     def thread(self, message_id: str) -> list[Email]
 ```
 
+```python
+# gud/mail_remote.py: a member reading the host mirror and sending through their own account
+class RemoteMailbox:                     # implements gud.types.Mailbox
+    def __init__(self, host_url: str, identity: Identity, send_via: Mailbox, repo_address: str, client=None)
+    # list/wait read GET {host}/api/mail (signed requests); send delegates to send_via
+
+# gud/hostauth.py
+def sign_request(identity, method: str, path_with_query: str, now: float) -> dict[str, str]   # headers
+def verify_request(members: dict[str, Member], headers, method, path_with_query, now) -> str | None  # handle or None
+
+# gud/joins.py
+def join_body(identity, role, address, public_key, sponsor=None, reason="") -> str
+def join_requests(chain) -> list[dict]          # JoinRequest shape from the HTTP contract
+def audit(mirror: list[Email], own: list[Email], repo_address: str, skew: float) -> dict   # {missing, altered, retimed}
+```
+
 Helpers already written (Phase 0): `gud.wire`, `gud.sig`, `gud.compose`, `gud.memberfile`, `gud.mail_fake`, `gud.config`, `gud.testkit`.
 
 ## HTTP API
@@ -93,6 +109,21 @@ type Activity = {
   subject: string; summary: string; target: string | null;
 }
 
+type JoinRequest = {
+  id: string;                 // message id of the join email
+  handle: string; role: string; address: string; public_key: string; sponsor: string | null;
+  reason: string; received_at: number;
+  valid: boolean;             // self-signature verifies and From == address
+  status: "pending" | "proposed" | "member" | "rejected";   // proposed: a membership push cites it and is not yet a link
+  push_id: string | null;     // the membership push citing it, if any
+}
+
+type RawEmail = {             // exactly gud.types.Email, as JSON (tuples become arrays)
+  message_id: string; from_addr: string; to: string[]; cc: string[]; subject: string; body: string;
+  received_at: number; sender_verified: boolean; in_reply_to: string | null; references: string[];
+  provider_id: string | null;
+}
+
 type EmailView = {
   id: string; from: string; to: string[]; cc: string[]; subject: string; body: string;
   received_at: number; in_reply_to: string | null; sender_verified: boolean; kind: string | null;
@@ -103,7 +134,10 @@ type EmailView = {
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| GET | `/api/state` | `{ repo: string, now: number, window_seconds: number, tip: Link \| null, links: Link[], proposals: Proposal[], members: Member[], removed_members: Member[] }` |
+| GET | `/api/state` | `{ repo: string, now: number, window_seconds: number, tip: Link \| null, links: Link[], proposals: Proposal[], members: Member[], removed_members: (Member & { removed_by_link: string \| null, removed_at: number \| null })[], local_signers: string[] }` |
+| GET | `/api/mail?since=<float>&limit=500` | `{ emails: RawEmail[], next_since: number \| null }` the host mirror of the repo mailbox, oldest first; page with `next_since` |
+| GET | `/api/joins` | `JoinRequest[]` newest first |
+| POST | `/api/joins/{id}/propose` | returns `{ push_id }`: `@console` sends the membership push for that join request (adds its line, `Gud-Join: <id>`); 409 if invalid or already a member |
 | GET | `/api/links/{id}/diff` | `{ id, diff: string }` |
 | GET | `/api/tree?at=<id>` | `{ at: string, files: { path: string; lines: number; owners: Record<string, number> }[] }` |
 | GET | `/api/blame?path=<p>&at=<id>` | `{ path, at, lines: BlameLine[] }` |
@@ -115,5 +149,7 @@ type EmailView = {
 | POST | `/api/reply` | body `{ target, from, text }` returns `{ id }` (a human reply; only with the fake mailbox, to simulate a person emailing) |
 | POST | `/api/approve` | body `{ target, as }` returns `{ id }` (signed approve from a local agent identity; demo helper) |
 | GET | `/api/events` | SSE stream. Events: `mail` (`Activity`), `chain` (`{ tip: Link }`), `proposal` (`Proposal`), `task` (`Task`) |
+
+Access: from loopback everything is open. From anywhere else, GET endpoints need a member signature (`X-Gud-Handle`, `X-Gud-Time`, `X-Gud-Sig`, see SPEC "Mirror access") and POST endpoints return 403. SSE also emits `join` (`JoinRequest`) events.
 
 Everything the UI shows can be recomputed from `/api/state`, `/api/tasks` and `/api/activity`; SSE events are hints to refetch or patch in place.
