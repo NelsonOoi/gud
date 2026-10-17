@@ -115,7 +115,9 @@ A push P with parent X is a **link** when all hold:
 3. **Consent** (below).
 4. **Tested.** There is a `test` email from a `tester` member at X targeting P with `Result: pass` and a matching `Tree`. A `fail` result means P never qualifies.
 
-Then, among X's children that qualify, the one with the **earliest received time** is X's next link. If an earlier-received child is still pending (it might qualify later), X has no next link yet.
+Then, among X's children that qualify, the one with the **earliest received time** is X's next link. If an earlier-received child is still pending (it might qualify later), X has no next link yet, with one limit: a child waiting on people (`needs_approval`, `needs_quorum`, or `objected`) holds its later siblings back only until `received + W`. After that it is **parked**: it can still qualify, but a later sibling may link first, and then it is superseded and must be re-pushed on the new tip.
+
+The next link is decided at the earliest moment the rule above picks one, using only mail received by that moment. Mail that arrives later never changes an existing link.
 
 ## Consent
 

@@ -15,6 +15,8 @@ from .wire import ZERO, parse_body, parse_list, state_hash, tree_hash
 
 _PUNCT = ".,!?;:\"'`()[]{}*_"
 _VERBS = frozenset({"approve", "veto", "object"})
+# A push waiting on people holds its siblings back for one window at most, so a slow vote cannot freeze the repo.
+_PARKABLE = frozenset({"needs_approval", "needs_quorum", "objected"})
 
 
 @dataclass
@@ -125,7 +127,7 @@ def replay(emails: list[Email], window: float, now: float) -> Chain:
             block_id = kids[blocker].message_id
             for idx, ev in enumerate(evals):
                 prop = ev.proposal
-                if idx > blocker and ev.outcome != "never":
+                if idx > blocker and ev.outcome in ("pending", "qualified"):
                     if ev.outcome == "qualified":
                         prop.status = "qualified"
                     prop.reason = f"waiting on earlier proposal {block_id}"
@@ -154,9 +156,9 @@ def replay(emails: list[Email], window: float, now: float) -> Chain:
 
 
 def _walk(evals: list[_Eval]) -> tuple[int | None, int | None]:
-    """(winner, blocker) index: the first child that is not `never` decides."""
+    """(winner, blocker) index: the first child that is not `never` or `parked` decides."""
     for idx, ev in enumerate(evals):
-        if ev.outcome == "never":
+        if ev.outcome in ("never", "parked"):
             continue
         return (idx, None) if ev.outcome == "qualified" else (None, idx)
     return None, None
@@ -445,6 +447,9 @@ def _evaluate(email: Email, parent: LinkState, parsed: dict, by_message: dict[st
             outcome = "never" if terminal else "pending"
             status = consent_status or "window"
             reason = consent_reason
+            if outcome == "pending" and status in _PARKABLE and now >= email.received_at + window:
+                outcome = "parked"
+                reason += "; no longer holding the chain"
         elif replies.test_time is None:
             outcome, status, reason = "pending", "testing", "waiting for a passing test"
         else:

@@ -57,6 +57,8 @@ export type Member = {
   votes: boolean
   lines_owned: number
   added_by_link: string | null
+  removed_by_link?: string | null
+  removed_at?: number | null
 }
 
 export type BlameLine = {
@@ -121,6 +123,8 @@ export type RepoState = {
   proposals: Proposal[]
   members: Member[]
   removed_members: Member[]
+  /** Handles whose private keys are on the API host; only these can approve from the UI. */
+  local_signers?: string[]
 }
 
 export type TreeFile = {

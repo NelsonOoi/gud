@@ -42,8 +42,12 @@ export function DetailSheet() {
   const link = state?.links.find((item) => item.id === openId) ?? null
   const agents = useMemo(
     () =>
-      (state?.members ?? []).filter((member) => member.role === "agent" || member.role === "lead"),
-    [state?.members],
+      (state?.members ?? []).filter(
+        (member) =>
+          (member.role === "agent" || member.role === "lead") &&
+          (!state?.local_signers || state.local_signers.includes(member.handle)),
+      ),
+    [state?.members, state?.local_signers],
   )
 
   useEffect(() => {

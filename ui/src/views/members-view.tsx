@@ -186,6 +186,10 @@ export function MembersView() {
 }
 
 function removalLink(member: Member, links: Link[]): Link | undefined {
+  if (member.removed_by_link) {
+    const exact = links.find((link) => link.id === member.removed_by_link)
+    if (exact) return exact
+  }
   return [...links]
     .reverse()
     .find((link) => /remove/i.test(link.subject) && link.subject.includes(member.handle))
@@ -196,7 +200,7 @@ function AddMemberDialog({ onCreated }: { onCreated: (id: string) => Promise<voi
   const [handle, setHandle] = useState("@sub-3")
   const [role, setRole] = useState<MemberRole>("agent")
   const [address, setAddress] = useState("sub-3@gud.primitive.email")
-  const [publicKey, setPublicKey] = useState("ed25519:c3ViLTMta2V5")
+  const [publicKey, setPublicKey] = useState("")
   const [sponsor, setSponsor] = useState("@nelson")
   const [busy, setBusy] = useState(false)
 
@@ -259,7 +263,12 @@ function AddMemberDialog({ onCreated }: { onCreated: (id: string) => Promise<voi
           </label>
           <label className="grid gap-1 text-xs">
             Public key
-            <Input value={publicKey} onChange={(event) => setPublicKey(event.target.value)} className="font-mono" />
+            <Input
+              value={publicKey}
+              onChange={(event) => setPublicKey(event.target.value)}
+              placeholder="blank: generate a key on the server"
+              className="font-mono"
+            />
           </label>
           <label className="grid gap-1 text-xs">
             Sponsor

@@ -115,6 +115,26 @@ def test_late_approval_of_objected_push_does_not_rewrite_history(tmp_path):
     assert chain.proposals[blocked.id].status == "superseded"
 
 
+def test_slow_quorum_push_stops_holding_the_chain_after_one_window(tmp_path):
+    w = World.create(tmp_path)
+    g = w.genesis({"app.py": "a = 1\n"})
+    members = dict(w.members)
+    members["@dave"] = Member("@dave", "agent", "dave@gud.local", sig.generate()[1], "@nelson")
+    tree = {**g.tree, MEMBERS: format_members(members)}
+    vote = w.push("@lead", parent=g, tree=tree, intent="add dave")
+    w.test(vote)
+    work = w.edit("@alice", g, "new.py", "n = 1\n", intent="unrelated work")
+    w.test(work)
+    chain = run(w)
+    assert chain.tip.message_id == g.id
+    assert chain.proposals[work.id].reason.startswith("waiting on earlier proposal")
+
+    w.tick(61)
+    chain = run(w)
+    assert chain.tip.message_id == work.id
+    assert chain.proposals[vote.id].status == "superseded"
+
+
 def test_owner_approval_overrides_objection(tmp_path):
     w = World.create(tmp_path)
     g = w.genesis({"app.py": "a = 1\n"})

@@ -145,14 +145,27 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
                     seen.add(h)
                     added_by[h] = l.message_id
         current = tip.members if tip else {}
-        removed = [m for h, m in all_members(c).items() if h not in current]
+        removed_by: dict[str, LinkState] = {}
+        for prev, l in zip(c.links, c.links[1:]):
+            for h in prev.members:
+                if h not in l.members:
+                    removed_by[h] = l
+        removed = []
+        for h, m in all_members(c).items():
+            if h not in current:
+                link = removed_by.get(h)
+                removed.append(member_json(m, tip, added_by) | {
+                    "removed_by_link": link.message_id if link else None,
+                    "removed_at": link.linked_at if link else None})
+        local = sorted(f"@{p.stem}" for p in ctx.cfg.keys_dir.glob("*.key")) if ctx.cfg.keys_dir.exists() else []
         return {"repo": ctx.mailbox.repo_address, "now": ctx.clock(), "window_seconds": ctx.cfg.window_seconds,
                 "tip": link_json(tip) if tip else None,
                 "links": [link_json(l) for l in reversed(c.links)],
                 "proposals": sorted((proposal_json(p) for p in c.proposals.values()),
                                     key=lambda p: p["received_at"], reverse=True),
                 "members": [member_json(m, tip, added_by) for m in current.values()],
-                "removed_members": [member_json(m, tip, added_by) for m in removed]}
+                "removed_members": removed,
+                "local_signers": [h for h in local if h in current]}
 
     @app.get("/api/links/{id:path}/diff")
     def link_diff(id: str):
@@ -221,7 +234,11 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
         if body.action == "add":
             if not (body.role and body.address):
                 raise HTTPException(400, "role and address are required")
-            m = Member(body.handle, body.role, body.address.lower(), body.public_key, body.sponsor)
+            public_key = body.public_key
+            if not public_key and body.role != "human":
+                from .keys import create_identity
+                _, public_key = create_identity(ctx.cfg, body.handle)
+            m = Member(body.handle, body.role, body.address.lower(), public_key, body.sponsor)
             email = memberlib.propose_add(ctx.mailbox, console, c.tip, m)
         elif body.action == "remove":
             email = memberlib.propose_remove(ctx.mailbox, console, c.tip, body.handle)
