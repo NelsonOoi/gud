@@ -7,3 +7,4 @@ node_modules/
 ui/dist/
 .pytest_cache/
 *.key
+*.egg-info/

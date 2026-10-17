@@ -129,8 +129,10 @@ Rule by case:
 
 - **Unprotected, no affected owners**: consent holds.
 - **Unprotected, with affected owners (lazy consensus)**: consent holds at `received(P) + W` if no affected owner sent an `object` (or human `object` reply) targeting P with received time before `received(P) + W`. It holds immediately if every affected owner has approved (an `approve` targeting P, or an approval cited in `Gud-Consent`).
-- **`explicit`**: every affected owner approved. Objections are irrelevant; missing approvals keep it pending.
-- **`quorum`**: approvals from more than half of X's voters, excluding any voter whose membership line this push adds or removes.
+- **`explicit`**: every affected owner approved. Objections are irrelevant; missing approvals keep it pending. If there are no affected owners (for example a new file under a protected glob), one approval from any voter other than the author is required.
+- **`quorum`**: approvals from more than half of X's voters (`len(voters) // 2 + 1`), excluding any voter whose membership line this push adds, removes or changes. The author counts as approving if they are an eligible voter.
+
+Consent holds at a time: the window close, the last required approval's received time, or the push's own received time. A push **qualifies** at the later of its consent time and its passing test's received time.
 
 `W` is `GUD_WINDOW_SECONDS` (default 60). Everything is judged on mailbox received times, so rebuild is deterministic once windows have closed.
 

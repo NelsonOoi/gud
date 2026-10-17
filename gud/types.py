@@ -72,6 +72,9 @@ class LinkState:
     received_at: float
     subject: str = ""
     task: str | None = None
+    linked_at: float = 0.0      # qualify time; genesis uses received_at
+    intent: str = ""
+    diff: str = ""
 
 
 ProposalStatus = Literal[
