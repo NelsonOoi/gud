@@ -27,7 +27,8 @@ def _signed(identity: Identity, text: str, trailers: dict[str, str], diff: str =
 
 def push_body(identity: Identity, *, parent: str | None, parent_state: str | None, parent_tree: Tree,
               new_tree: Tree, intent: str, task: str | None = None,
-              consent: list[str] | None = None) -> tuple[str, str, str]:
+              consent: list[str] | None = None,
+              extra_trailers: dict[str, str] | None = None) -> tuple[str, str, str]:
     """Returns (body, new state hash, new tree hash). Genesis passes parent=None."""
     diff = diff_trees(parent_tree, new_tree)
     consent = list(consent or [])
@@ -40,6 +41,9 @@ def push_body(identity: Identity, *, parent: str | None, parent_state: str | Non
         trailers["Gud-Task"] = task
     if consent:
         trailers["Gud-Consent"] = ", ".join(consent)
+    for key, value in (extra_trailers or {}).items():
+        if value:
+            trailers[key] = value
     return _signed(identity, intent, trailers, diff), new_state, new_hash
 
 
@@ -76,6 +80,12 @@ def notify_body(identity: Identity, text: str, task: str | None = None, target: 
     if target:
         trailers["Gud-Target"] = target
     return render_body(text, trailers)
+
+
+def join_body(identity, role, address, public_key, sponsor=None, reason=""):
+    """Signed ``join`` body. Implemented in :func:`gud.joins.join_body`."""
+    from .joins import join_body as _join_body
+    return _join_body(identity, role, address, public_key, sponsor=sponsor, reason=reason)
 
 
 def send(mailbox: Mailbox, identity: Identity, members: dict[str, Member], subject: str, body: str,

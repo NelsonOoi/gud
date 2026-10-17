@@ -192,10 +192,10 @@ def main(argv: list[str] | None = None) -> None:
     key_path = cfg.key_path(handle)
     if not key_path.exists():
         sys.exit(f"no private key at {key_path}; run `gud init` first")
-    from .mailbox import open_mailbox  # written alongside the core; imported only when the CLI runs
+    from .mailbox import open_member_mailbox  # written alongside the core; imported only when the CLI runs
 
     identity = compose.Identity(handle, cfg.address(handle), sig.load_private(key_path))
-    Tester(open_mailbox(cfg), identity, make_runner(cfg), cfg.window_seconds).run_forever()
+    Tester(open_member_mailbox(cfg), identity, make_runner(cfg), cfg.window_seconds).run_forever()
 
 
 if __name__ == "__main__":

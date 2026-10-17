@@ -14,7 +14,7 @@ from .build import make_runner
 from .config import load
 from .keys import load_identity
 from .lead import LLMPlanner, Lead, ScriptedPlanner
-from .mailbox import open_mailbox
+from .mailbox import open_member_mailbox
 from .tester import Tester
 from .worker import LLMCoder, ScriptedCoder, Worker
 
@@ -197,7 +197,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--workers", type=int, default=4)
     args = parser.parse_args(argv)
     cfg = load()
-    Swarm(cfg, open_mailbox(cfg), mode=args.mode, workers=args.workers).run()
+    Swarm(cfg, open_member_mailbox(cfg), mode=args.mode, workers=args.workers).run()
 
 
 if __name__ == "__main__":

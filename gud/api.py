@@ -7,36 +7,55 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import threading
 import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from . import compose, config, sig, tasks as tasklib
 from .chain import Repo
+from .config import domain_address
+from .hostauth import verify_request
+from .joins import join_requests
 from .memberfile import by_address
 from .patch import diffstat
 from .types import Email, LinkState, Member, ProposalState
 from .wire import parse_body, short
 
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "testclient"})
+
 
 class Ctx:
-    def __init__(self, cfg: config.Config, mailbox=None, clock=time.time):
+    def __init__(self, cfg: config.Config, mailbox=None, clock=time.time, *,
+                 host_url: str | None = None, loopback_hosts: set[str] | None = None,
+                 auto_welcome: bool = True, welcome_interval: float = 1.0,
+                 start_welcome_thread: bool = True):
         from .mailbox import open_mailbox
         self.cfg = cfg
         self.clock = clock
         self.mailbox = mailbox or open_mailbox(cfg)
         self.repo = Repo(self.mailbox, cfg.window_seconds, clock=clock)
+        self.loopback_hosts = set(LOOPBACK_HOSTS if loopback_hosts is None else loopback_hosts)
+        self.host_url = host_url if host_url is not None else (os.environ.get("GUD_PUBLIC_URL") or "http://127.0.0.1:8787")
+        self.auto_welcome = auto_welcome
+        self.welcome_interval = welcome_interval
+        self.start_welcome_thread = start_welcome_thread
+        self._welcome_lock = threading.Lock()
+        self._welcomed: set[str] = set()
+        self._welcome_thread: threading.Thread | None = None
 
     def identity(self, handle: str) -> compose.Identity:
         path = self.cfg.key_path(handle)
         if not path.exists():
             raise HTTPException(400, f"no local key for {handle}")
-        return compose.Identity(handle, self.cfg.address(handle), sig.load_private(path))
+        return compose.Identity(handle, domain_address(self.cfg.domain, handle), sig.load_private(path))
 
 
 def link_json(l: LinkState) -> dict:
@@ -103,6 +122,15 @@ def email_json(chain, e: Email) -> dict:
             "in_reply_to": e.in_reply_to, "sender_verified": e.sender_verified, "kind": parse_body(e.body).kind}
 
 
+def raw_email(e: Email) -> dict:
+    return {
+        "message_id": e.message_id, "from_addr": e.from_addr, "to": list(e.to), "cc": list(e.cc),
+        "subject": e.subject, "body": e.body, "received_at": e.received_at,
+        "sender_verified": e.sender_verified, "in_reply_to": e.in_reply_to,
+        "references": list(e.references), "provider_id": e.provider_id,
+    }
+
+
 class TaskIn(BaseModel):
     title: str
     description: str = ""
@@ -118,20 +146,102 @@ class MemberIn(BaseModel):
     sponsor: str | None = None
 
 
+def _signed_path(request) -> str:
+    path = request.scope.get("path") or request.url.path
+    raw = request.scope.get("query_string") or b""
+    query = raw.decode() if isinstance(raw, bytes) else str(raw)
+    return f"{path}?{query}" if query else path
+
+
+def _tip_members(ctx: Ctx) -> dict:
+    chain = ctx.repo.refresh()
+    tip = chain.tip
+    return dict(tip.members) if tip is not None else {}
+
+
+def _welcome_once(ctx: Ctx, chain=None) -> list:
+    if not ctx.auto_welcome:
+        return []
+    with ctx._welcome_lock:
+        if not ctx.cfg.key_path("@console").exists():
+            return []
+        identity = ctx.identity("@console")
+        if chain is None:
+            chain = ctx.repo.refresh()
+        from .joins import welcome_new_members
+        return welcome_new_members(chain, ctx.mailbox, identity, ctx.host_url, ctx._welcomed)
+
+
+def _start_welcome(ctx: Ctx) -> None:
+    if ctx._welcome_thread is not None or not ctx.auto_welcome or not ctx.start_welcome_thread:
+        return
+
+    def loop() -> None:
+        while True:
+            try:
+                _welcome_once(ctx)
+            except Exception:
+                pass
+            time.sleep(max(0.2, float(ctx.welcome_interval)))
+
+    thread = threading.Thread(target=loop, name="gud-welcome", daemon=True)
+    ctx._welcome_thread = thread
+    thread.start()
+
+
+def _roster_has(tip: LinkState, join: dict) -> bool:
+    handle = join.get("handle") or ""
+    if handle and handle in tip.members:
+        return True
+    address = (join.get("address") or "").lower()
+    if not address:
+        return False
+    return any(member.address.lower() == address for member in tip.members.values())
+
+
 def create_app(ctx: Ctx | None = None) -> FastAPI:
     ctx = ctx or Ctx(config.load())
     app = FastAPI(title="gud")
     app.state.ctx = ctx
+
+    @app.middleware("http")
+    async def require_member(request, call_next):
+        host = request.client.host if request.client else ""
+        if host in ctx.loopback_hosts:
+            return await call_next(request)
+        if request.method == "GET" and request.url.path == "/api/info":
+            return await call_next(request)
+        if request.method != "GET":
+            return JSONResponse({"detail": "mutating endpoints are loopback-only"}, status_code=403)
+        members = _tip_members(ctx)
+        handle = verify_request(members, request.headers, request.method, _signed_path(request), ctx.clock())
+        if handle is None:
+            return JSONResponse({"detail": "member signature required"}, status_code=401)
+        return await call_next(request)
+
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
     def chain():
-        return ctx.repo.refresh()
+        current = ctx.repo.refresh()
+        if ctx.auto_welcome:
+            _welcome_once(ctx, current)
+        return current
 
     def link_or_tip(c, at: str | None) -> LinkState:
         l = c.by_id.get(at) if at else c.tip
         if l is None:
             raise HTTPException(404, "no such link")
         return l
+
+    @app.get("/api/info")
+    def info():
+        current = ctx.repo.refresh()
+        tip = current.tip
+        return {
+            "repo": ctx.mailbox.repo_address,
+            "window_seconds": ctx.cfg.window_seconds,
+            "tip_seq": tip.seq if tip else None,
+        }
 
     @app.get("/api/state")
     def state():
@@ -166,6 +276,50 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
                 "members": [member_json(m, tip, added_by) for m in current.values()],
                 "removed_members": removed,
                 "local_signers": [h for h in local if h in current]}
+
+    @app.get("/api/mail")
+    def get_mail(since: float | None = None, limit: int = 500):
+        chain()
+        if limit < 0:
+            limit = 0
+        emails = ctx.mailbox.list(recipient=ctx.mailbox.repo_address, since=since)
+        if since is not None:
+            emails = [email for email in emails if email.received_at > since]
+        emails.sort(key=lambda email: (email.received_at, email.message_id))
+        page = emails[:limit] if limit else []
+        next_since = page[-1].received_at if limit and len(page) == limit else None
+        return {"emails": [raw_email(email) for email in page], "next_since": next_since}
+
+    @app.get("/api/joins")
+    def get_joins():
+        return join_requests(chain())
+
+    @app.post("/api/joins/{id:path}/propose")
+    def propose_join(id: str):
+        from .members import propose_add
+        current = chain()
+        if current.tip is None:
+            raise HTTPException(409, "no genesis yet")
+        found = next((row for row in join_requests(current) if row["id"] == id), None)
+        if found is None:
+            raise HTTPException(404, "no such join request")
+        if not found["valid"]:
+            raise HTTPException(409, "join request is not valid")
+        if found["status"] == "proposed":
+            raise HTTPException(409, "join request is already proposed")
+        if found["status"] == "member" or _roster_has(current.tip, found):
+            raise HTTPException(409, "handle or address is already a member")
+        console = ctx.identity("@console")
+        member = Member(
+            found["handle"], found["role"], found["address"], found["public_key"] or None, found["sponsor"],
+        )
+        try:
+            email = propose_add(
+                ctx.mailbox, console, current.tip, member, reason=found["reason"], join_id=found["id"],
+            )
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"push_id": email.message_id}
 
     @app.get("/api/links/{id:path}/diff")
     def link_diff(id: str):
@@ -281,6 +435,7 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
             seen = 0
             last_tip = None
             last_props: dict[str, str] = {}
+            seen_joins: set[str] = set()
             while True:
                 c = await asyncio.to_thread(chain)
                 for a in reversed(activity(c, 10_000)[: max(0, len(c.emails) + len(c.links) - 1 - seen)]):
@@ -293,9 +448,14 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
                     if last_props.get(pid) != p.status:
                         last_props[pid] = p.status
                         yield {"event": "proposal", "data": json.dumps(proposal_json(p))}
+                for join in join_requests(c):
+                    if join["id"] not in seen_joins:
+                        seen_joins.add(join["id"])
+                        yield {"event": "join", "data": json.dumps(join)}
                 await asyncio.sleep(1.0)
         return EventSourceResponse(gen())
 
+    _start_welcome(ctx)
     dist = Path(__file__).resolve().parent.parent / "ui" / "dist"
     if dist.exists():
         app.mount("/", StaticFiles(directory=dist, html=True), name="ui")

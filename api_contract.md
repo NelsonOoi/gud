@@ -135,6 +135,7 @@ type EmailView = {
 | Method | Path | Returns |
 | --- | --- | --- |
 | GET | `/api/state` | `{ repo: string, now: number, window_seconds: number, tip: Link \| null, links: Link[], proposals: Proposal[], members: Member[], removed_members: (Member & { removed_by_link: string \| null, removed_at: number \| null })[], local_signers: string[] }` |
+| GET | `/api/info` | `{ repo: string, window_seconds: number, tip_seq: number \| null }`; open to anyone, so `gud join` can find the repo address |
 | GET | `/api/mail?since=<float>&limit=500` | `{ emails: RawEmail[], next_since: number \| null }` the host mirror of the repo mailbox, oldest first; page with `next_since` |
 | GET | `/api/joins` | `JoinRequest[]` newest first |
 | POST | `/api/joins/{id}/propose` | returns `{ push_id }`: `@console` sends the membership push for that join request (adds its line, `Gud-Join: <id>`); 409 if invalid or already a member |
@@ -150,6 +151,6 @@ type EmailView = {
 | POST | `/api/approve` | body `{ target, as }` returns `{ id }` (signed approve from a local agent identity; demo helper) |
 | GET | `/api/events` | SSE stream. Events: `mail` (`Activity`), `chain` (`{ tip: Link }`), `proposal` (`Proposal`), `task` (`Task`) |
 
-Access: from loopback everything is open. From anywhere else, GET endpoints need a member signature (`X-Gud-Handle`, `X-Gud-Time`, `X-Gud-Sig`, see SPEC "Mirror access") and POST endpoints return 403. SSE also emits `join` (`JoinRequest`) events.
+Access: from loopback everything is open. From anywhere else, `/api/info` is open, other GET endpoints need a member signature (`X-Gud-Handle`, `X-Gud-Time`, `X-Gud-Sig`, see SPEC "Mirror access") and POST endpoints return 403. SSE also emits `join` (`JoinRequest`) events.
 
 Everything the UI shows can be recomputed from `/api/state`, `/api/tasks` and `/api/activity`; SSE events are hints to refetch or patch in place.

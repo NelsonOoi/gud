@@ -731,14 +731,14 @@ def main(argv: list[str] | None = None) -> None:
     from gud.config import load
     cfg = load()
     try:
-        from gud.mailbox import open_mailbox
+        from gud.mailbox import open_member_mailbox
     except ImportError as exc:
-        raise SystemExit(f"gud.mailbox.open_mailbox is not available ({exc})") from exc
+        raise SystemExit(f"gud.mailbox.open_member_mailbox is not available ({exc})") from exc
     key_path = cfg.key_path(handle)
     if not key_path.exists():
         raise SystemExit(f"no private key at {key_path}")
     identity = Identity(handle, cfg.address(handle), sig.load_private(key_path))
-    tools = GudTools(open_mailbox(cfg), identity, cfg.window_seconds)
+    tools = GudTools(open_member_mailbox(cfg), identity, cfg.window_seconds)
     build_server(tools).run("stdio")
 
 

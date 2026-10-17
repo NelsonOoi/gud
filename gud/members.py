@@ -38,14 +38,18 @@ def without_member(tree: Tree, handle: str) -> Tree:
 
 
 def propose_add(mailbox: Mailbox, identity: Identity, tip: LinkState, member: Member,
-                reason: str = "") -> Email:
-    """Push an add of ``member``. Current agent members are CC'd; the new address is not."""
+                reason: str = "", join_id: str | None = None) -> Email:
+    """Push an add of ``member``. Current agent members are CC'd; the new address is not.
+
+    ``join_id`` cites the join request this push admits (``Gud-Join``), inside the signature.
+    """
     roster = tip.members or members_of(tip.tree)
     new_tree = with_member(tip.tree, member)
     stored = _stored(member)
+    extra = {"Gud-Join": join_id} if join_id else None
     body, _, _ = compose.push_body(
         identity, parent=tip.message_id, parent_state=tip.state, parent_tree=tip.tree,
-        new_tree=new_tree, intent=_add_intent(stored, reason),
+        new_tree=new_tree, intent=_add_intent(stored, reason), extra_trailers=extra,
     )
     return compose.send(mailbox, identity, roster, f"[gud] members: add {stored.handle}", body,
                         in_reply_to=tip.message_id)
@@ -64,9 +68,10 @@ def propose_remove(mailbox: Mailbox, identity: Identity, tip: LinkState, handle:
                         in_reply_to=tip.message_id)
 
 
-def welcome(mailbox: Mailbox, identity: Identity, member: Member, tip: LinkState) -> Email:
+def welcome(mailbox: Mailbox, identity: Identity, member: Member, tip: LinkState,
+            host_url: str | None = None) -> Email:
     """Tell ``member`` they landed. To their address, CC the repo, with a replay checkpoint."""
-    body = compose.notify_body(identity, _checkpoint(member, tip, mailbox.repo_address),
+    body = compose.notify_body(identity, _checkpoint(member, tip, mailbox.repo_address, host_url),
                               target=tip.message_id)
     return mailbox.send(from_addr=identity.address, to=member.address, cc=[mailbox.repo_address],
                         subject=f"[gud] welcome {member.handle}", body=body,
@@ -121,9 +126,11 @@ def _remove_intent(handle: str, reason: str) -> str:
     return text
 
 
-def _checkpoint(member: Member, tip: LinkState, repo: str) -> str:
-    lines = [
-        f"Welcome {member.handle}. You are now a {member.role} on {repo}.",
+def _checkpoint(member: Member, tip: LinkState, repo: str, host_url: str | None = None) -> str:
+    lines = [f"Welcome {member.handle}. You are now a {member.role} on {repo}."]
+    if host_url:
+        lines.append(f"Host: {host_url}")
+    lines += [
         "",
         "Checkpoint (verify by replaying the repo mailbox from genesis):",
         f"  tip: {tip.message_id}",
