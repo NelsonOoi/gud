@@ -1,4 +1,4 @@
-import type { MemberRole, ProposalStatus } from "@/lib/types"
+import type { JoinRequest, MemberRole, ProposalStatus } from "@/lib/types"
 import { STATUS_LABEL } from "@/lib/status"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
@@ -42,6 +42,37 @@ export function RoleBadge({ role }: { role: MemberRole }) {
   )
 }
 
+const JOIN_TONE: Record<JoinRequest["status"], string> = {
+  pending: "border-amber-400/40 bg-amber-400/15 text-amber-200",
+  proposed: "border-violet-400/40 bg-violet-400/15 text-violet-200",
+  member: "border-emerald-400/40 bg-emerald-400/15 text-emerald-200",
+  rejected: "border-red-400/40 bg-red-400/15 text-red-200",
+}
+
+export function JoinStatusBadge({ status }: { status: JoinRequest["status"] }) {
+  return (
+    <Badge variant="outline" className={cn("uppercase", JOIN_TONE[status])}>
+      {status}
+    </Badge>
+  )
+}
+
+export function SignatureBadge({ valid }: { valid: boolean }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "uppercase",
+        valid
+          ? "border-emerald-400/40 bg-emerald-400/15 text-emerald-200"
+          : "border-orange-400/40 bg-orange-400/15 text-orange-200",
+      )}
+    >
+      {valid ? "valid" : "invalid signature"}
+    </Badge>
+  )
+}
+
 const KIND_TONE: Record<string, string> = {
   push: "border-sky-400/40 text-sky-200",
   object: "border-red-400/40 text-red-200",
@@ -52,6 +83,7 @@ const KIND_TONE: Record<string, string> = {
   "task-done": "border-emerald-400/40 text-emerald-200",
   notify: "border-pink-400/40 text-pink-200",
   human: "border-pink-400/40 text-pink-200",
+  join: "border-sky-400/40 text-sky-200",
   link: "border-amber-400/40 text-amber-200",
   reply: "border-zinc-500/40 text-zinc-300",
 }

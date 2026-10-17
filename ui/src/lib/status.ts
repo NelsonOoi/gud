@@ -37,5 +37,6 @@ export const ACTIVITY_KINDS = [
   "task-done",
   "notify",
   "human",
+  "join",
   "link",
 ] as const

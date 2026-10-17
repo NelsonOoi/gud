@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { toast } from "sonner"
-import { bootApi, getActivity, getState, getTasks, subscribe, type ApiMode } from "@/lib/api"
+import { bootApi, getActivity, getJoins, getState, getTasks, subscribe, type ApiMode } from "@/lib/api"
 import { serverNow, setServerNow } from "@/lib/format"
-import type { Activity, RepoState, Task } from "@/lib/types"
+import type { Activity, JoinRequest, RepoState, Task } from "@/lib/types"
 
 type GudContextValue = {
   mode: ApiMode
@@ -10,6 +10,7 @@ type GudContextValue = {
   state: RepoState | null
   tasks: Task[]
   activity: Activity[]
+  joins: JoinRequest[]
   now: number
   refresh: () => Promise<void>
   openId: string | null
@@ -24,20 +25,23 @@ export function GudProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<RepoState | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [activity, setActivity] = useState<Activity[]>([])
+  const [joins, setJoins] = useState<JoinRequest[]>([])
   const [now, setNow] = useState(() => Date.now() / 1000)
   const [openId, setOpenId] = useState<string | null>(null)
   const refreshRef = useRef<() => Promise<void>>(async () => {})
 
   const refresh = useCallback(async () => {
-    const [nextState, nextTasks, nextActivity] = await Promise.all([
+    const [nextState, nextTasks, nextActivity, nextJoins] = await Promise.all([
       getState(),
       getTasks(),
       getActivity(200),
+      getJoins(),
     ])
     setServerNow(nextState.now)
     setState(nextState)
     setTasks(nextTasks)
     setActivity(nextActivity)
+    setJoins(nextJoins)
     setNow(serverNow())
   }, [])
 
@@ -71,6 +75,8 @@ export function GudProvider({ children }: { children: ReactNode }) {
           toast.error("Objection", { description: `${event.data.subject} — ${event.data.reason}` })
         } else if (event.event === "task" && event.data.status === "done") {
           toast.success("Task done", { description: event.data.title })
+        } else if (event.event === "join") {
+          toast(`Join request from ${event.data.handle}`)
         }
         schedule()
       })
@@ -90,8 +96,8 @@ export function GudProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo(
-    () => ({ mode, loading, state, tasks, activity, now, refresh, openId, setOpenId }),
-    [mode, loading, state, tasks, activity, now, refresh, openId],
+    () => ({ mode, loading, state, tasks, activity, joins, now, refresh, openId, setOpenId }),
+    [mode, loading, state, tasks, activity, joins, now, refresh, openId],
   )
 
   return <GudContext.Provider value={value}>{children}</GudContext.Provider>

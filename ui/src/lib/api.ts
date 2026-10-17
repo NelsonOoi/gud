@@ -5,6 +5,7 @@ import type {
   BlameResponse,
   DiffResponse,
   EmailView,
+  JoinRequest,
   RepoState,
   ServerEvent,
   Task,
@@ -16,7 +17,9 @@ import {
   mockBlame,
   mockCreateTask,
   mockDiff,
+  mockJoins,
   mockMembers,
+  mockProposeJoin,
   mockReply,
   mockState,
   mockTasks,
@@ -115,6 +118,11 @@ function mockDispatch<T>(path: string, init?: RequestInit): T {
 
   const thread = /^\/api\/thread\/(.+)$/.exec(pathname)
   if (method === "GET" && thread?.[1]) return mockThread(decodePath(thread[1])) as T
+
+  if (method === "GET" && pathname === "/api/joins") return mockJoins() as T
+
+  const joinPropose = /^\/api\/joins\/(.+)\/propose$/.exec(pathname)
+  if (method === "POST" && joinPropose?.[1]) return mockProposeJoin(decodePath(joinPropose[1])) as T
 
   if (method === "POST" && pathname === "/api/tasks") {
     return mockCreateTask(body as { title?: string; description?: string; requester?: string }) as T
@@ -218,6 +226,19 @@ export async function postReply(body: {
   return request("/api/reply", { method: "POST", body: JSON.stringify(body) })
 }
 
+export async function getJoins(): Promise<JoinRequest[]> {
+  try {
+    return await request<JoinRequest[]>("/api/joins")
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403)) return []
+    throw error
+  }
+}
+
+export async function proposeJoin(id: string): Promise<{ push_id: string }> {
+  return request(`/api/joins/${encodeURIComponent(id)}/propose`, { method: "POST" })
+}
+
 export function subscribe(onEvent: (event: ServerEvent) => void): () => void {
   if (apiMode !== "live") {
     const unsubscribe = onMockEvent((event) => {
@@ -225,7 +246,8 @@ export function subscribe(onEvent: (event: ServerEvent) => void): () => void {
         event.event === "mail" ||
         event.event === "chain" ||
         event.event === "proposal" ||
-        event.event === "task"
+        event.event === "task" ||
+        event.event === "join"
       ) {
         onEvent(event as ServerEvent)
       }
@@ -240,7 +262,7 @@ export function subscribe(onEvent: (event: ServerEvent) => void): () => void {
   let stopped = false
   let source: EventSource | null = null
   let delay = 1000
-  const types = ["mail", "chain", "proposal", "task"] as const
+  const types = ["mail", "chain", "proposal", "task", "join"] as const
 
   const connect = () => {
     if (stopped) return

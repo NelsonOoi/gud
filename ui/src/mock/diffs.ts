@@ -237,6 +237,12 @@ export function buildDiffs(): Record<string, string> {
       "+@sub-3 agent sub-3@gud.primitive.email ed25519:c3ViLTMta2V5LTAwOQ @nelson",
       " @tester tester tester@gud.primitive.email ed25519:dGVzdGVyLWtleS0wMDU @nelson",
     ]),
+    [PUSH.join]: ud(".gud/members", [
+      "@@ -6,6 +6,7 @@",
+      " @sub-1 agent sub-1@gud.primitive.email ed25519:c3ViLTEta2V5LTAwNw @nelson",
+      "+@codex-agent agent codex-agent@orbit.primitive.email ed25519:Y29kZXgtYWdlbnQta2V5LTAwMg @nelson",
+      " @tester tester tester@gud.primitive.email ed25519:dGVzdGVyLWtleS0wMDU @nelson",
+    ]),
     [PUSH.testing]: ud("api/handlers.py", [
       "@@ -8,6 +8,7 @@",
       " def handle(path: str, body: dict) -> tuple[int, dict]:",

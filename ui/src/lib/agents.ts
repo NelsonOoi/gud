@@ -10,6 +10,10 @@ const KNOWN: Record<string, string> = {
   "@tester": "#2fbfb0",
   "@console": "#a1a1aa",
   "@nelson": "#f27bd4",
+  "@claude-agent": "#d97757",
+  "@codex-agent": "#10a37f",
+  "@gemini-agent": "#4b8bf5",
+  "@stranger": "#71717a",
 }
 
 const FALLBACK = [

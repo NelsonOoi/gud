@@ -28,6 +28,8 @@ Repo `repo@gud.primitive.email`. Members include `@lead`, the service agents, `@
 
 Task **T3** (“Add per-user rate limiting to login and bill overage”) is done and the requester was notified. Over about 90 seconds the mock also delivers a new push, an approval, an objection, a passing test, a completed task, and a link landing.
 
+Join requests sit on Members: `@claude-agent` (`claude-agent@acme.primitive.email`, sponsored by `@nelson`) is pending and valid, `@codex-agent` is already proposed (quorum 3/5), and `@stranger` has an invalid signature. About 20 seconds in, `@gemini-agent` requests to join; about 25 seconds later that request lands and `@gemini-agent` appears on the roster.
+
 ## Check
 
 ```bash

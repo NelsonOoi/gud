@@ -1,11 +1,13 @@
-import { useState } from "react"
-import { MoreHorizontal } from "lucide-react"
+import { useState, type ComponentProps } from "react"
+import { Copy, MoreHorizontal } from "lucide-react"
 import { toast } from "sonner"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { ConsentMeter } from "@/components/consent-meter"
-import { RoleBadge, StatusBadge } from "@/components/status-badge"
+import { copyText, joinCommand } from "@/components/share-repo"
+import { JoinStatusBadge, RoleBadge, SignatureBadge, StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   Dialog,
   DialogContent,
@@ -38,21 +40,44 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useGud } from "@/hooks/use-gud"
-import { postMember } from "@/lib/api"
+import { postMember, proposeJoin } from "@/lib/api"
 import { ApiError } from "@/lib/errors"
-import { relativeTime, shortId } from "@/lib/format"
-import type { Link, Member, MemberRole } from "@/lib/types"
+import { relativeTime, shortHash, shortId } from "@/lib/format"
+import type { JoinRequest, Link, Member, MemberRole } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
 const ROLES: MemberRole[] = ["agent", "lead", "tester", "console", "human"]
 
+const INVALID_JOIN_REASON =
+  "Self-signature does not verify, or From is not the requested address."
+
+function isMemberRole(role: string): role is MemberRole {
+  return (ROLES as readonly string[]).includes(role)
+}
+
 export function MembersView() {
-  const { state, now, refresh, setOpenId } = useGud()
+  const { state, joins, loading, now, refresh, setOpenId } = useGud()
+  const [busyJoin, setBusyJoin] = useState<string | null>(null)
   const members = state?.members ?? []
   const removed = state?.removed_members ?? []
   const links = state?.links ?? []
   const pending = (state?.proposals ?? []).filter(
     (proposal) => proposal.protected_rule === "quorum" && /^(Add|Remove) @/.test(proposal.subject),
   )
+
+  async function propose(id: string) {
+    setBusyJoin(id)
+    try {
+      const result = await proposeJoin(id)
+      await refresh()
+      setOpenId(result.push_id)
+      toast.success("Membership push sent")
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Could not propose membership")
+    } finally {
+      setBusyJoin(null)
+    }
+  }
 
   async function remove(handle: string) {
     try {
@@ -79,6 +104,14 @@ export function MembersView() {
             }}
           />
         </div>
+        <JoinRequests
+          joins={joins}
+          now={now}
+          loading={loading}
+          busyId={busyJoin}
+          onPropose={(id) => void propose(id)}
+          onOpen={setOpenId}
+        />
         {pending.length > 0 ? (
           <section className="space-y-2">
             <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Pending membership</h2>
@@ -282,5 +315,137 @@ function AddMemberDialog({ onCreated }: { onCreated: (id: string) => Promise<voi
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function JoinRequests({
+  joins,
+  now,
+  loading,
+  busyId,
+  onPropose,
+  onOpen,
+}: {
+  joins: JoinRequest[]
+  now: number
+  loading: boolean
+  busyId: string | null
+  onPropose: (id: string) => void
+  onOpen: (id: string) => void
+}) {
+  return (
+    <Card size="sm">
+      <CardContent className="space-y-3">
+        <div>
+          <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Join requests</h2>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            An outside agent mails a self-signed join. A member proposes, and the push lands by quorum.
+          </p>
+        </div>
+        {loading && joins.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Loading join requests…</p>
+        ) : joins.length === 0 ? (
+          <EmptyJoins />
+        ) : (
+          <div className="space-y-2">
+            {joins.map((join) =>
+              join.valid ? (
+                <JoinRow key={join.id} join={join} now={now} busy={busyId === join.id} onPropose={onPropose} onOpen={onOpen} />
+              ) : (
+                <Tooltip key={join.id}>
+                  <TooltipTrigger asChild>
+                    <JoinRow join={join} now={now} busy={busyId === join.id} onPropose={onPropose} onOpen={onOpen} />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-left">{INVALID_JOIN_REASON}</TooltipContent>
+                </Tooltip>
+              ),
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function JoinRow({
+  join,
+  now,
+  busy,
+  onPropose,
+  onOpen,
+  className,
+  ...props
+}: {
+  join: JoinRequest
+  now: number
+  busy: boolean
+  onPropose: (id: string) => void
+  onOpen: (id: string) => void
+} & ComponentProps<"div">) {
+  const canPropose = join.valid && join.status === "pending"
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-3 rounded-md border border-border px-3 py-2",
+        !join.valid && "cursor-help opacity-50",
+        className,
+      )}
+      {...props}
+    >
+      <AgentAvatar handle={join.handle} />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium">{join.handle}</span>
+          {isMemberRole(join.role) ? (
+            <RoleBadge role={join.role} />
+          ) : (
+            <span className="text-xs uppercase text-muted-foreground">{join.role}</span>
+          )}
+          <SignatureBadge valid={join.valid} />
+          <JoinStatusBadge status={join.status} />
+        </div>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          <span className="font-mono">{join.address}</span>
+          <span> · </span>
+          <span className="font-mono" title={join.public_key}>
+            {shortHash(join.public_key)}
+          </span>
+          <span> · </span>
+          <span>{join.sponsor ?? "—"}</span>
+          <span> · </span>
+          <time className="font-mono">{relativeTime(join.received_at, now)}</time>
+        </p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{join.reason || "—"}</p>
+      </div>
+      {canPropose ? (
+        <Button size="sm" className="shrink-0" disabled={busy} onClick={() => onPropose(join.id)}>
+          Propose membership
+        </Button>
+      ) : null}
+      {join.status === "proposed" && join.push_id ? (
+        <Button variant="outline" size="sm" className="shrink-0" onClick={() => onOpen(join.push_id ?? "")}>
+          View push
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+function EmptyJoins() {
+  const command = joinCommand()
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">
+        An outside agent joins from their own mail account, without the host's API key.
+      </p>
+      <div className="flex items-start gap-2">
+        <pre className="min-w-0 flex-1 overflow-x-auto rounded-md border border-border bg-muted/40 px-2 py-1.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-foreground">
+          {command}
+        </pre>
+        <Button variant="outline" size="icon-sm" aria-label="Copy join command" onClick={() => void copyText(command)}>
+          <Copy />
+        </Button>
+      </div>
+    </div>
   )
 }

@@ -5,6 +5,7 @@ import type {
   Activity,
   BlameResponse,
   EmailView,
+  JoinRequest,
   Link,
   Proposal,
   RepoState,
@@ -12,6 +13,7 @@ import type {
   TreeResponse,
 } from "@/lib/types"
 import { FILES, linesAt, membersAtSeq } from "@/mock/files"
+import { geminiJoin, joinMailBody, joinSummary } from "@/mock/joins"
 import {
   PUSH,
   REPO,
@@ -74,6 +76,8 @@ function tick() {
   if (elapsed >= 22 && !current.flags.objected) objectNonce(current, now)
   if (elapsed >= 28 && !current.flags.tested) passRetry(current, now)
   if (elapsed >= 36 && !current.flags.task) completeTask(current, now)
+  if (elapsed >= 20 && !current.flags.gemini) arriveGemini(current, now)
+  if (elapsed >= 45 && !current.flags.geminiLanded) landGemini(current, now)
   advanceWindow(current, now)
 }
 
@@ -81,6 +85,63 @@ function tipOf(current: World): Link {
   const tip = current.links[current.links.length - 1]
   if (!tip) throw new ApiError(409, "repo has no tip")
   return tip
+}
+
+function arriveGemini(current: World, now: number) {
+  current.flags.gemini = true
+  const join = geminiJoin(now)
+  current.joins.unshift(join)
+  rememberMail(current, {
+    id: join.id,
+    handle: join.handle,
+    fromAddr: join.address,
+    subject: `Join ${join.handle}`,
+    body: joinMailBody(join),
+    at: now,
+    kind: "join",
+    summary: joinSummary(join),
+    target: join.id,
+  })
+  emit("join", join)
+}
+
+function landGemini(current: World, now: number) {
+  current.flags.geminiLanded = true
+  const join = current.joins.find((item) => item.handle === "@gemini-agent")
+  if (!join || !join.valid || join.status !== "pending") return
+  join.status = "member"
+  current.members.push({
+    handle: join.handle,
+    role: "agent",
+    address: join.address,
+    fingerprint: fakeHash(join.public_key).slice(0, 16),
+    sponsor: join.sponsor,
+    votes: true,
+    lines_owned: 0,
+    added_by_link: null,
+  })
+  const tip = tipOf(current)
+  const host = window.location.origin
+  rememberMail(current, {
+    id: mid("welcome-gemini"),
+    handle: "@console",
+    subject: "Welcome @gemini-agent",
+    body: trailer(`You are on the roster. Replay ${host} from the checkpoint below.`, [
+      ["Kind", "notify"],
+      ["Author", "@console"],
+      ["Host", host],
+      ["Tip", tip.id],
+      ["State", tip.state],
+      ["Tree", tip.tree_hash],
+    ]),
+    at: now,
+    kind: "notify",
+    summary: "welcomed @gemini-agent with the host URL and a checkpoint",
+    target: join.id,
+    to: [join.address, REPO],
+  })
+  const welcome = current.activity[0]
+  if (welcome) emit("mail", welcome)
 }
 
 function arriveNonce(current: World, now: number) {
@@ -405,7 +466,7 @@ function baseProposal(
   }
 }
 
-function commitProposal(current: World, proposal: Proposal, diff: string) {
+function commitProposal(current: World, proposal: Proposal, diff: string, extra: [string, string][] = []) {
   current.proposals.push(proposal)
   current.diffs[proposal.id] = diff
   const parent = current.links.find((link) => link.id === proposal.parent)
@@ -421,6 +482,7 @@ function commitProposal(current: World, proposal: Proposal, diff: string) {
       ["State", fakeHash(`pstate:${proposal.id}`)],
       ["Tree", fakeHash(`ptree:${proposal.id}`)],
       ["Sig", sig(proposal.id)],
+      ...extra,
     ], diff),
     at: proposal.received_at,
     kind: "push",
@@ -489,6 +551,59 @@ export function mockBlame(path: string, at: string | null): BlameResponse {
 
 export function mockTasks(): Task[] {
   return structuredClone(getWorld().tasks)
+}
+
+export function mockJoins(): JoinRequest[] {
+  return structuredClone(getWorld().joins).sort((a, b) => b.received_at - a.received_at || b.id.localeCompare(a.id))
+}
+
+export function mockProposeJoin(id: string): { push_id: string } {
+  const current = getWorld()
+  const join = current.joins.find((item) => item.id === id)
+  if (!join) throw new ApiError(404, "unknown join request")
+  if (!join.valid || join.status === "rejected") throw new ApiError(409, "join request is invalid")
+  if (join.status === "member") throw new ApiError(409, "already a member")
+  if (join.status === "proposed") throw new ApiError(409, "membership push already exists")
+  const tip = tipOf(current)
+  const voters = current.members.filter((member) => member.votes)
+  const needed = Math.floor(voters.length / 2) + 1
+  const pushId = mid(`push-join-${current.emails.length + 1}`)
+  const sponsor = join.sponsor ?? "-"
+  const subject = `Add ${join.handle}`
+  const intent = `Membership push. ${join.handle} joins as ${join.role}, sponsored by ${join.sponsor ?? "no one"}, citing ${join.id}.`
+  const diff = [
+    "diff --git a/.gud/members b/.gud/members",
+    "--- a/.gud/members",
+    "+++ b/.gud/members",
+    "@@ -6,6 +6,7 @@",
+    " @sub-1 agent sub-1@gud.primitive.email ed25519:c3ViLTEta2V5LTAwNw @nelson",
+    `+${join.handle} ${join.role} ${join.address} ${join.public_key} ${sponsor}`,
+    " @tester tester tester@gud.primitive.email ed25519:dGVzdGVyLWtleS0wMDU @nelson",
+  ].join("\n")
+  const proposal: Proposal = {
+    id: pushId,
+    parent: tip.id,
+    author: "@console",
+    subject,
+    received_at: Date.now() / 1000,
+    status: "needs_quorum",
+    reason: `quorum 0/${needed}; @console does not vote`,
+    affected_owners: ["@lead"],
+    approvals: [],
+    objections: [],
+    window_closes_at: null,
+    protected_rule: "quorum",
+    quorum_needed: needed,
+    quorum_have: 0,
+    test_result: null,
+    task: null,
+  }
+  current.intents[pushId] = intent
+  commitProposal(current, proposal, diff, [["Join", join.id]])
+  join.status = "proposed"
+  join.push_id = pushId
+  emit("proposal", proposal)
+  return { push_id: pushId }
 }
 
 export function mockActivity(limit: number): Activity[] {
@@ -776,11 +891,12 @@ function rememberMail(
     target?: string | null
     human?: boolean
     to?: string[]
+    fromAddr?: string
   },
 ) {
   current.emails.push({
     id: opts.id,
-    from: addressOf(opts.handle),
+    from: opts.fromAddr ?? addressOf(opts.handle),
     to: opts.to ?? [REPO],
     cc: opts.human ? [] : agentCc(opts.handle),
     subject: opts.subject,

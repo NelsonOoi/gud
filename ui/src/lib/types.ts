@@ -101,6 +101,20 @@ export type Activity = {
   target: string | null
 }
 
+export type JoinRequest = {
+  id: string
+  handle: string
+  role: string
+  address: string
+  public_key: string
+  sponsor: string | null
+  reason: string
+  received_at: number
+  valid: boolean
+  status: "pending" | "proposed" | "member" | "rejected"
+  push_id: string | null
+}
+
 export type EmailView = {
   id: string
   from: string
@@ -144,3 +158,4 @@ export type ServerEvent =
   | { event: "chain"; data: { tip: Link } }
   | { event: "proposal"; data: Proposal }
   | { event: "task"; data: Task }
+  | { event: "join"; data: JoinRequest }

@@ -13,6 +13,7 @@ export const PUSH = {
   window: mid("push-window"),
   approval: mid("push-approval"),
   quorum: mid("push-quorum"),
+  join: mid("push-join-codex"),
   testing: mid("push-testing"),
   qualified: mid("push-qualified"),
   objected: mid("push-objected"),

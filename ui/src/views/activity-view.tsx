@@ -9,6 +9,7 @@ import {
   Mail,
   OctagonX,
   Split,
+  UserPlus,
   UserRound,
   type LucideIcon,
 } from "lucide-react"
@@ -39,6 +40,7 @@ const ICONS: Record<string, LucideIcon> = {
   "task-done": CircleCheck,
   notify: Bell,
   human: UserRound,
+  join: UserPlus,
   link: Link2,
 }
 

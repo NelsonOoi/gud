@@ -2,6 +2,7 @@ import { diffstat } from "@/lib/diff"
 import type {
   Activity,
   EmailView,
+  JoinRequest,
   Link,
   Member,
   MemberRole,
@@ -11,6 +12,7 @@ import type {
 } from "@/lib/types"
 import { FILES, linesAt } from "@/mock/files"
 import { buildDiffs } from "@/mock/diffs"
+import { JOIN_CODEX, joinMailBody, joinSummary, seedJoins } from "@/mock/joins"
 import {
   ADDR,
   REPO,
@@ -31,6 +33,7 @@ export type World = {
   proposals: Proposal[]
   members: Member[]
   removed: Member[]
+  joins: JoinRequest[]
   tasks: Task[]
   emails: EmailView[]
   diffs: Record<string, string>
@@ -46,6 +49,8 @@ export type World = {
     tested: boolean
     task: boolean
     landed: boolean
+    gemini: boolean
+    geminiLanded: boolean
   }
   nonceId: string | null
   retryId: string | null
@@ -82,6 +87,7 @@ type ProposalSpec = {
   quorumNeeded: number | null
   test: "pass" | "fail" | null
   badSig?: boolean
+  joinId?: string
 }
 
 function lineCounts(seq: number): Record<string, number> {
@@ -355,6 +361,25 @@ export function createWorld(now: number): World {
       test: null,
     },
     {
+      id: PUSH.join,
+      parentSeq: 12,
+      author: "@console",
+      subject: "Add @codex-agent",
+      intent: "Membership push citing the join from @codex-agent. Lands by quorum.",
+      ago: 90,
+      status: "needs_quorum",
+      reason: "quorum 3/5",
+      affected: ["@lead"],
+      approvals: ["@lead", "@auth-agent", "@nelson"],
+      objections: [],
+      window: false,
+      rule: "quorum",
+      quorumHave: 3,
+      quorumNeeded: 5,
+      test: null,
+      joinId: JOIN_CODEX,
+    },
+    {
       id: PUSH.testing,
       parentSeq: 12,
       author: "@api-agent",
@@ -564,6 +589,7 @@ export function createWorld(now: number): World {
       ["Tree", tree],
       ["Sig", spec.badSig ? "ed25519:bm90LWEtcmVhbC1zaWduYXR1cmU" : sig(spec.id)],
     ]
+    if (spec.joinId) pairs.push(["Join", spec.joinId])
     addMail(emails, activity, {
       id: spec.id,
       handle: spec.author,
@@ -668,6 +694,21 @@ export function createWorld(now: number): World {
   const tasks = buildTasks(now)
   addTaskMail(emails, activity, tasks)
 
+  const joins = seedJoins(now)
+  for (const join of joins) {
+    addMail(emails, activity, {
+      id: join.id,
+      handle: join.handle,
+      fromAddr: join.address,
+      subject: `Join ${join.handle}`,
+      body: joinMailBody(join),
+      at: join.received_at,
+      kind: "join",
+      summary: joinSummary(join),
+      target: join.id,
+    })
+  }
+
   activity.sort((a, b) => b.at - a.at || a.id.localeCompare(b.id))
 
   const counts = lineCounts(12)
@@ -682,6 +723,7 @@ export function createWorld(now: number): World {
     proposals,
     members: active,
     removed,
+    joins,
     tasks,
     emails,
     diffs,
@@ -697,6 +739,8 @@ export function createWorld(now: number): World {
       tested: false,
       task: false,
       landed: false,
+      gemini: false,
+      geminiLanded: false,
     },
     nonceId: null,
     retryId: null,
@@ -751,12 +795,13 @@ type MailOpts = {
   target?: string | null
   human?: boolean
   to?: string[]
+  fromAddr?: string
 }
 
 function addMail(emails: EmailView[], activity: Activity[], opts: MailOpts) {
   emails.push({
     id: opts.id,
-    from: addressOf(opts.handle),
+    from: opts.fromAddr ?? addressOf(opts.handle),
     to: opts.to ?? [REPO],
     cc: opts.human ? [] : agentCc(opts.handle),
     subject: opts.subject,

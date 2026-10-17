@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Activity, Files, GitCommitHorizontal, ListTodo, Users } from "lucide-react"
 import { DetailSheet } from "@/components/detail-sheet"
+import { ShareRepo } from "@/components/share-repo"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { useGud } from "@/hooks/use-gud"
@@ -101,17 +102,20 @@ export function Shell() {
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
+        <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-4">
           <h1 className="text-sm font-medium">{title}</h1>
-          {mode === "mock" ? (
-            <Badge variant="outline" className="border-amber-400/40 text-[10px] tracking-wide text-amber-200 uppercase">
-              mock data
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="text-[10px] uppercase">
-              live
-            </Badge>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            <ShareRepo repo={state?.repo} />
+            {mode === "mock" ? (
+              <Badge variant="outline" className="border-amber-400/40 text-[10px] tracking-wide text-amber-200 uppercase">
+                mock data
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[10px] uppercase">
+                live
+              </Badge>
+            )}
+          </div>
         </header>
         <main className="min-h-0 flex-1">
           {view === "chain" ? <ChainView /> : null}
