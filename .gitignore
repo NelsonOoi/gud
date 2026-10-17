@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.gud-home/
+node_modules/
+ui/dist/
+.pytest_cache/
+*.key
