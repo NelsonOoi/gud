@@ -145,6 +145,7 @@ class Lead:
         self.clock = clock
         self.stale_after = stale_after
         self.pool = pool
+        self._starved: set[tuple[str, str]] = set()
 
     def step(self) -> list:
         chain, now = self._chain()
@@ -187,7 +188,9 @@ class Lead:
                 avoid = _owners_of(tip, files) if "gud-conflict" in description else set()
                 handle, start = _pick(pool, busy | avoid, start)
                 if handle is None:
-                    print(f"lead: no free worker for {task.id} {title}", flush=True)
+                    if (task.id, title) not in self._starved:
+                        self._starved.add((task.id, title))
+                        print(f"lead: no free worker for {task.id} {title}", flush=True)
                     break
                 email = self._send_subtask(tip, task, title, text, handle, _next_sub_id(task, sent))
                 sent.append(email)

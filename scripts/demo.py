@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 import traceback
@@ -179,6 +180,13 @@ def main(argv: list[str] | None = None) -> None:
 
     try:
         print(OPENING, flush=True)
+        if (cfg.mailbox or "fake").strip().lower() == "fake" and not args.keep:
+            # Truncate rather than delete, so a running `gud.api` on the same GUD_HOME keeps reading.
+            shutil.rmtree(cfg.home / "keys", ignore_errors=True)
+            mail = cfg.home / "mailbox.jsonl"
+            if mail.exists():
+                mail.write_text("")
+                print(f"demo: cleared {cfg.home} (pass --keep to reuse it)", flush=True)
         mailbox = open_mailbox(cfg)
         if not mailbox.list(recipient=cfg.repo_address):
             print("demo: mailbox empty, running gud init from demo_repo", flush=True)
@@ -488,6 +496,7 @@ def _args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--interactive", action="store_true", help="wait for Enter between beats")
     parser.add_argument("--fast", action="store_true", help="2s consent window, no pauses")
     parser.add_argument("--llm", action="store_true", help="plan and code with OpenRouter instead of the script")
+    parser.add_argument("--keep", action="store_true", help="reuse the existing fake mailbox instead of clearing it")
     return parser.parse_args(argv)
 
 
