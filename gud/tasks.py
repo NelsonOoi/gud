@@ -1,4 +1,8 @@
-"""Task state, derived from `task`, `subtask`, `task-done` and `notify` emails plus the chain."""
+"""Task state, derived from `task`, `subtask`, `task-done` and `notify` emails plus the chain.
+
+A later `subtask` email with the same id overrides the assignee (and the title,
+description, and message id). That is how the lead reassigns a stale subtask.
+"""
 
 from __future__ import annotations
 
@@ -59,13 +63,27 @@ def derive(chain) -> list[Task]:
         if kind == "task" and tid not in tasks:
             tasks[tid] = Task(tid, _title(e.subject), p.text, p.get("Gud-Requester") or "",
                               e.received_at, message_id=e.message_id)
-        elif kind == "subtask" and tid not in subs:
+        elif kind == "subtask":
             parent = tasks.get(p.get("Gud-Parent-Task") or "")
-            if parent is None:
+            if parent is None or not tid:
                 continue
-            st = Subtask(tid, p.get("Gud-Assignee") or "", _title(e.subject), p.text, message_id=e.message_id)
-            subs[tid] = st
-            parent.subtasks.append(st)
+            if tid in subs:
+                # Latest assignment wins. The subtask stays one row on the parent task.
+                st = subs[tid]
+                assignee = p.get("Gud-Assignee")
+                if assignee:
+                    st.assignee = assignee
+                title = _title(e.subject)
+                if title:
+                    st.title = title
+                if p.text:
+                    st.description = p.text
+                st.message_id = e.message_id
+            else:
+                st = Subtask(tid, p.get("Gud-Assignee") or "", _title(e.subject), p.text,
+                             message_id=e.message_id)
+                subs[tid] = st
+                parent.subtasks.append(st)
         elif kind == "task-done" and tid in tasks:
             tasks[tid].done_link = p.get("Gud-Tip")
             tasks[tid].status = "done"
