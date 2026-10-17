@@ -10,6 +10,7 @@ dependencies = [
   "uvicorn>=0.29",
   "sse-starlette>=2.0",
   "mcp>=1.0",
+  "armature-mcp-analytics>=0.1.42",
   "pytest>=8",
 ]
 

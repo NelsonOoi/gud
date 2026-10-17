@@ -1,0 +1,51 @@
+{
+  "id": "subtask-email",
+  "title": "A subtask assigned by email is found and landed",
+  "note": "The harness delivers a task and a subtask before the agent starts. Gud must push with that task id. Git is told the same edit in the prompt because git has no task mail.",
+  "window_seconds": 5,
+  "limits": {"max_turns": 10, "wait_seconds": 20},
+  "min_links": 2,
+  "task_landed": "T3.1",
+  "tasks": {
+    "id": "T3",
+    "title": "helpers",
+    "description": "Small helpers for lib.py",
+    "requester": "@nelson",
+    "subtasks": [
+      {
+        "id": "T3.1",
+        "assignee": "@alice",
+        "title": "add sub()",
+        "description": "Add def sub() that returns 0 to lib.py. Keep ready()."
+      }
+    ]
+  },
+  "tree": {
+    "lib.py": "def ready():\n    return True\n"
+  },
+  "expect": {
+    "lib.py": "def ready():\n    return True\n\ndef sub():\n    return 0\n"
+  },
+  "agents": [
+    {
+      "handle": "@alice",
+      "instructions": "Check tasks and status. Complete the open subtask assigned to you. Push the full file with that subtask's task id and wait until it lands.",
+      "git_instructions": "Add def sub() that returns 0 to lib.py. Keep ready(). Land the change on the shared repo.",
+      "gud_script": [
+        {"tool": "tasks"},
+        {"tool": "status"},
+        {"tool": "read", "args": {"path": "lib.py"}},
+        {"tool": "push", "args": {"intent": "add sub()", "task": "T3.1", "edits": [{"path": "lib.py", "content": "def ready():\n    return True\n\ndef sub():\n    return 0\n"}]}},
+        {"settle": "gud"},
+        {"expect_prefix": "landed"}
+      ],
+      "git_script": [
+        {"tool": "read", "args": {"path": "lib.py"}},
+        {"tool": "write", "args": {"path": "lib.py", "content": "def ready():\n    return True\n\ndef sub():\n    return 0\n"}},
+        {"tool": "git_commit", "args": {"message": "add sub()"}},
+        {"settle": "git"},
+        {"expect_prefix": "pushed"}
+      ]
+    }
+  ]
+}

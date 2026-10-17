@@ -8,3 +8,4 @@ ui/dist/
 .pytest_cache/
 *.key
 *.egg-info/
+DEMO.md
