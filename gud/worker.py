@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -223,29 +224,48 @@ class ScriptedCoder:
 class LLMCoder:
     """OpenRouter coder. `edit` returns full file contents; `review` is approve or object."""
 
-    def __init__(self, api_key: str, model: str):
+    def __init__(self, api_key: str, model: str, clock=time.monotonic):
         self.api_key = api_key
         self.model = model
+        self.clock = clock
+        self._failed: dict[str, tuple[int, float]] = {}
 
     def edit(self, subtask, tip_tree, blame, feedback=None):
         files = _relevant(subtask, tip_tree)
         prompt = _edit_prompt(subtask, files, blame, feedback)
-        try:
-            raw = _chat(self.api_key, self.model, [
-                {"role": "system", "content": (
-                    "You edit a repository for one subtask. Reply with JSON only: "
-                    "{\"files\": {\"path\": \"full new file text\"}}. "
-                    "Use null to delete a file. Include only files you change. "
-                    "Paths are repo-relative. Keep every file valid UTF-8 source. "
-                    "Use the exact values the task gives (names, prices, addresses, numbers). "
-                    "Keep content other agents already wrote unless your subtask says to replace it."
-                )},
-                {"role": "user", "content": prompt},
-            ])
-            return _parse_edits(raw, tip_tree)
-        except Exception as exc:
-            print(f"coder {getattr(subtask, 'id', '')} edit failed: {exc}", flush=True)
+        key = hashlib.sha256(prompt.encode()).hexdigest()
+        count, until = self._failed.get(key, (0, 0.0))
+        if self.clock() < until:
             return {}
+        messages = [
+            {"role": "system", "content": (
+                "You edit a repository for one subtask. Reply with JSON only: "
+                "{\"files\": {\"path\": \"full new file text\"}}. "
+                "Use null to delete a file. Include only files you change. "
+                "Paths are repo-relative. Keep every file valid UTF-8 source. "
+                "Use the exact values the task gives (names, prices, addresses, numbers). "
+                "Keep content other agents already wrote unless your subtask says to replace it."
+            )},
+            {"role": "user", "content": prompt},
+        ]
+        error = None
+        # At temperature 0 a truncated reply repeats verbatim, so the retry changes the input.
+        for attempt in range(2):
+            try:
+                if attempt:
+                    messages.append({"role": "user", "content": (
+                        f"Your last reply was not complete JSON ({error}). Reply again with the complete "
+                        "JSON object only, and include only the files you must change."
+                    )})
+                raw = _chat(self.api_key, self.model, messages, temperature=0.3 if attempt else 0)
+                edits = _parse_edits(raw, tip_tree)
+                self._failed.pop(key, None)
+                return edits
+            except Exception as exc:
+                error = str(exc)[:160]
+        self._failed[key] = (count + 1, self.clock() + min(30.0 * 2 ** count, 300.0))
+        print(f"coder {getattr(subtask, 'id', '')} edit failed: {error}", flush=True)
+        return {}
 
     def review(self, diff, context=""):
         """`(approve|object, reason)`, or `("abstain", why)` when the model gave no usable answer."""
@@ -890,12 +910,12 @@ def _load_json(raw: str):
     return json.loads(text)
 
 
-def _chat(api_key: str, model: str, messages: list[dict]) -> str:
+def _chat(api_key: str, model: str, messages: list[dict], temperature: float = 0) -> str:
     import httpx
     response = httpx.post(
         "https://openrouter.ai/api/v1/chat/completions",
         headers={"Authorization": f"Bearer {api_key}"},
-        json={"model": model, "messages": messages, "temperature": 0},
+        json={"model": model, "messages": messages, "temperature": temperature},
         timeout=120,
     )
     response.raise_for_status()

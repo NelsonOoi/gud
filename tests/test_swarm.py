@@ -65,6 +65,34 @@ def test_scripted_planner_splits_demo_tasks_and_llm_classes_construct():
     assert llm_coder.api_key == "sk-test"
 
 
+def test_llm_coder_retries_a_truncated_reply_then_backs_off(monkeypatch):
+    import gud.worker as worker_mod
+
+    calls = []
+    replies = iter(['{"files": {"a.txt": "unterminated', '{"files": {"a.txt": "fixed\\n"}}'])
+
+    def chat(api_key, model, messages, temperature=0):
+        calls.append(temperature)
+        return next(replies)
+
+    monkeypatch.setattr(worker_mod, "_chat", chat)
+    now = [0.0]
+    coder = LLMCoder("sk-test", "test-model", clock=lambda: now[0])
+    sub = SimpleNamespace(id="T1.1", title="write a", description="", files=["a.txt"])
+    assert coder.edit(sub, {"a.txt": "old\n"}, {}) == {"a.txt": "fixed\n"}
+    assert calls == [0, 0.3]
+
+    calls.clear()
+    monkeypatch.setattr(worker_mod, "_chat", lambda *a, **k: calls.append(1) or "not json")
+    assert coder.edit(sub, {"a.txt": "old\n"}, {}) == {}
+    assert len(calls) == 2
+    assert coder.edit(sub, {"a.txt": "old\n"}, {}) == {}
+    assert len(calls) == 2
+    now[0] = 31.0
+    coder.edit(sub, {"a.txt": "old\n"}, {})
+    assert len(calls) == 4
+
+
 def test_scripted_swarm_lands_a_two_subtask_task(tmp_path):
     window = 60
     w = World.create(tmp_path)
