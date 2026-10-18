@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 from .blame import genesis_blame, update_blame
 from .memberfile import by_address, members_of
+from .members import only_members, touches_members
 from .patch import PatchError, apply_diff
 from .rules import affected_owners, protection, quorum_voters
 from .sig import verify
@@ -105,7 +106,7 @@ def replay(emails: list[Email], window: float, now: float) -> Chain:
         # The next link is decided at the earliest moment it could have been, using only mail received
         # by then, so later mail (say, a late approval of an objected push) never rewrites a link.
         winner = None
-        for t in _decision_times(parent, kids, parsed, agent_by_target, human_by_reply, window, now):
+        for t in _decision_times(parent, kids, parsed, by_message, agent_by_target, human_by_reply, window, now):
             at_t = evaluate_at(t)
             idx = _walk(at_t)[0]
             if idx is not None:
@@ -168,7 +169,7 @@ def _walk(evals: list[_Eval]) -> tuple[int | None, int | None]:
     return None, None
 
 
-def _decision_times(parent: LinkState, kids: list[Email], parsed: dict,
+def _decision_times(parent: LinkState, kids: list[Email], parsed: dict, by_message: dict[str, Email],
                     agent_by_target: dict[str, list[Email]], human_by_reply: dict[str, list[Email]],
                     window: float, now: float) -> list[float]:
     """Every moment the walk over `kids` can change: arrivals, replies, consent windows closing."""
@@ -178,6 +179,10 @@ def _decision_times(parent: LinkState, kids: list[Email], parsed: dict,
         times.add(kid.received_at + window)
         for reply in agent_by_target.get(kid.message_id, []) + human_by_reply.get(kid.message_id, []):
             times.add(reply.received_at)
+        source_id = parsed[kid.message_id].get("Gud-Source")
+        source = by_message.get(source_id) if source_id else None
+        if source is not None:
+            times.add(source.received_at)
     return sorted(t for t in times if parent.linked_at <= t <= now)
 
 
@@ -213,6 +218,12 @@ def _auth_failure(email: Email, trailers: dict[str, str], diff: str, members: di
         return "author is not an agent member"
     if email.from_addr.lower() != member.address:
         return "From does not match the member address"
+    # Any key may sign as a lead. The registered key is not checked; the user starts one lead.
+    if member.role == "lead":
+        signature = trailers.get("Gud-Sig") or ""
+        if signature.startswith("ed25519:"):
+            return None
+        return "signature does not verify"
     if not verify(member.public_key, trailers, diff):
         return "signature does not verify"
     return None
@@ -376,6 +387,67 @@ def _consent(rule: str | None, owners: list[str], approvals: dict[str, float], o
     return None, "window", False, "waiting for the consensus window"
 
 
+def _bare_addr(value: str) -> str:
+    text = (value or "").strip().lower()
+    if "<" in text and ">" in text:
+        text = text[text.rfind("<") + 1:text.rfind(">")].strip()
+    return text
+
+
+def _member_fields(member: Member) -> tuple:
+    return (member.role, member.address.lower(), member.public_key, member.sponsor)
+
+
+def _humans_only_cc_add(before: dict[str, Member], after: dict[str, Member], cc: tuple[str, ...]) -> bool:
+    """True when `after` only adds humans and every new address is in `cc`."""
+    cc_addrs = {_bare_addr(item) for item in cc if item}
+    if any(handle not in after for handle in before):
+        return False
+    added: list[Member] = []
+    for handle, member in after.items():
+        prev = before.get(handle)
+        if prev is None:
+            added.append(member)
+            continue
+        if _member_fields(prev) != _member_fields(member):
+            return False
+    if not added:
+        return False
+    return all(member.role == "human" and member.address.lower() in cc_addrs for member in added)
+
+
+def _cc_source_approval(push_body, parent: LinkState, by_message: dict[str, Email], parsed: dict,
+                        now: float, new_tree: Tree | None) -> float | None:
+    """Received time of a human CC that approves this humans-only membership add.
+
+    The source counts when it is sender-verified, From a human on the parent roster, not itself
+    a gud message, and every address the push adds is a human in that message's CC.
+    """
+    if new_tree is None:
+        return None
+    source_id = push_body.get("Gud-Source")
+    if not source_id:
+        return None
+    source = by_message.get(source_id)
+    if source is None or source.received_at > now or not source.sender_verified or not source.to:
+        return None
+    source_body = parsed.get(source.message_id)
+    if source_body is None or source_body.kind or source_body.get("Gud-Sig"):
+        return None
+    human = by_address(parent.members, _bare_addr(source.from_addr))
+    if human is None or human.role != "human":
+        return None
+    if not _humans_only_cc_add(parent.members, members_of(new_tree), source.cc):
+        return None
+    return source.received_at
+
+
+def _human_approval(approvals: dict[str, float], humans: set[str]) -> float | None:
+    """Earliest verified approve from a human on the parent roster."""
+    times = [approvals[handle] for handle in humans if handle in approvals]
+    return min(times) if times else None
+
+
 def _veto_reason(vetoes: list[tuple[float, str]], qualify_at: float | None) -> str | None:
     if not vetoes:
         return None
@@ -443,7 +515,30 @@ def _evaluate(email: Email, parent: LinkState, parsed: dict, by_message: dict[st
             consent_rule, owners, replies.approvals, replies.objections, author,
             email.received_at, window, now, humans, quorum_times, quorum_needed,
         )
-        q = max(consent_time, replies.test_time) if consent_time is not None and replies.test_time is not None else None
+        # `.gud/members` is not a quorum file. One verified human approve is the consent,
+        # on top of whatever the rest of the diff still needs. A human CC of a new address
+        # is that approve when the push only adds those humans.
+        if touches_members(diff) and consent_time is not None:
+            human_at = _human_approval(replies.approvals, humans)
+            source_at = _cc_source_approval(body, parent, by_message, parsed, now, new_tree)
+            if source_at is not None:
+                human_at = source_at if human_at is None else min(human_at, source_at)
+            if human_at is None:
+                consent_time = None
+                consent_status, terminal = "needs_approval", False
+                consent_reason = "needs approval from a human member"
+            else:
+                consent_time = max(consent_time, human_at)
+            if rule is None and not owners:
+                rule = "human"
+        # A roster-only push changes no code, so there is nothing for a tester to run.
+        untested = replies.test_time is None and only_members(diff)
+        if consent_time is None:
+            q = None
+        elif untested:
+            q = consent_time
+        else:
+            q = max(consent_time, replies.test_time) if replies.test_time is not None else None
         veto_reason = _veto_reason(replies.vetoes, q)
         if veto_reason:
             outcome, status, reason = "never", "vetoed", veto_reason
@@ -454,7 +549,7 @@ def _evaluate(email: Email, parent: LinkState, parsed: dict, by_message: dict[st
             if outcome == "pending" and status in _PARKABLE and now >= email.received_at + window:
                 outcome = "parked"
                 reason += "; no longer holding the chain"
-        elif replies.test_time is None:
+        elif replies.test_time is None and not untested:
             outcome, status, reason = "pending", "testing", "waiting for a passing test"
         else:
             outcome, status, reason, qualify_at = "qualified", "qualified", "qualified", q

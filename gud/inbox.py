@@ -56,23 +56,43 @@ def kinds(emails: list[Email]) -> list[str]:
     return [parse_body(email.body).kind or "" for email in emails]
 
 
+_WINDOW_STATUSES = frozenset({"window", "testing", "qualified"})
+
+
+def next_window_close(chain) -> float | None:
+    """When the next consent window closes, or None when nothing is waiting on one."""
+    times = [
+        prop.window_closes_at
+        for prop in chain.proposals.values()
+        if prop.window_closes_at is not None and prop.status in _WINDOW_STATUSES
+    ]
+    return min(times) if times else None
+
+
 class Gate:
     """Replay the repo when the inbox brought something relevant, or on a timer.
 
     ``busy_every`` applies while the agent has open work (a pending push, an assignment
     waiting on another subtask, an untested push); ``idle_every`` otherwise. Zero means
     every step replays, which is what tests that drive ``step`` by hand expect.
+
+    ``wake_at`` is the next push's ``window_closes_at``. The gate replays once when that
+    time arrives, so a push nobody objected to lands then instead of at the next idle tick.
     """
 
     def __init__(self, busy_every: float = 0.0, idle_every: float = 0.0):
         self.busy_every = busy_every
         self.idle_every = idle_every
         self._last: float | None = None
+        self._woken_at: float | None = None
 
-    def due(self, relevant: bool, busy: bool) -> bool:
+    def due(self, relevant: bool, busy: bool, wake_at: float | None = None) -> bool:
         now = time.monotonic()
         every = self.busy_every if busy else self.idle_every
-        if relevant or self._last is None or now - self._last >= every:
+        closed = wake_at is not None and time.time() >= wake_at and wake_at != self._woken_at
+        if relevant or self._last is None or now - self._last >= every or closed:
+            if closed:
+                self._woken_at = wake_at
             self._last = now
             return True
         return False

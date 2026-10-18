@@ -164,6 +164,26 @@ def test_llm_coder_can_say_the_subtask_needs_no_change(monkeypatch):
     assert '"done"' in seen["system"]
 
 
+def test_llm_coder_reviews_with_the_review_model(monkeypatch):
+    import gud.worker as worker_mod
+
+    models = []
+
+    def chat(api_key, model, messages, temperature=0):
+        models.append(model)
+        if "review" in messages[0]["content"] or "vote" in messages[0]["content"]:
+            return '{"action": "object", "reason": "keep KEEP"}'
+        return '{"files": {"a.txt": "new\\n"}}'
+
+    monkeypatch.setattr(worker_mod, "_chat", chat)
+    coder = LLMCoder("sk-test", "edit-model", review_model="review-model")
+    assert coder.review("-KEEP = 1\n", "ctx") == ("object", "keep KEEP")
+    sub = SimpleNamespace(id="T1.1", title="write a.txt", description="a.txt", files=["a.txt"])
+    coder.edit(sub, {"a.txt": "old\n"}, {})
+    assert models == ["review-model", "edit-model"]
+    assert LLMCoder("sk-test", "edit-model").review_model == "edit-model"
+
+
 def test_a_coder_that_changes_nothing_is_asked_once_then_signs_no_change(tmp_path):
     window = 60
     w = World.create(tmp_path)
@@ -393,6 +413,226 @@ def test_objection_triggers_a_revision_that_lands(tmp_path):
     assert w.clock.t - started < window
 
 
+def _clash(tmp_path, edit, review, window=60):
+    """@alice lands shared.py; @bob is assigned to rewrite it. Nothing of @bob's is pushed yet."""
+    from gud.tester import Tester
+
+    w = World.create(tmp_path)
+    w.genesis({"app.py": "VALUE = 1\n"})
+    planner = ScriptedPlanner({
+        "widget": [
+            ("Plant the flag", "write shared.py with KEEP = 1; KEEP must stay 1", ["shared.py"]),
+            ("Conflict the flag", "rewrite shared.py and add EXTRA = 1", ["shared.py"]),
+        ],
+    })
+    coder = ScriptedCoder(edit_fn=edit, review_fn=review)
+    lead = Lead(w.mailbox, w.ids["@lead"], window, planner, clock=w.clock,
+                pool=["@alice", "@bob"], stale_after=10_000)
+    alice = Worker(w.mailbox, w.ids["@alice"], window, coder, clock=w.clock)
+    bob = Worker(w.mailbox, w.ids["@bob"], window, coder, clock=w.clock)
+    tester = Tester(w.mailbox, w.ids["@tester"], OkRunner(), window, clock=w.clock)
+    send_task(w, "Build the widget")
+    lead.step()
+    alice.step()
+    tester.step()
+    assert snap(w, window).tip.tree["shared.py"] == "KEEP = 1\n"
+    return SimpleNamespace(w=w, lead=lead, alice=alice, bob=bob, tester=tester, window=window)
+
+
+def _bob_pushes(w, window):
+    props = [prop for prop in snap(w, window).proposals.values() if prop.author == "@bob"]
+    return sorted(props, key=lambda prop: prop.received_at)
+
+
+def test_review_context_has_the_file_after_own_requirements_and_earlier_objections(tmp_path):
+    contexts = []
+
+    def edit(subtask, tree, blame, feedback=None):
+        if "plant" in subtask.title.lower():
+            return {"shared.py": "KEEP = 1\n"}
+        return {"shared.py": "KEEP = 1  # kept\nEXTRA = 1\n" if feedback else "KEEP = 0\n"}
+
+    def review(diff, context=""):
+        contexts.append(context)
+        if "+KEEP = 0" in diff:
+            return "object", "keep KEEP = 1; do not replace it"
+        return "approve", "KEEP stays"
+
+    c = _clash(tmp_path, edit, review)
+    c.bob.step()
+    c.alice.step()
+    first = contexts[-1]
+    assert "----- shared.py before this push -----\nKEEP = 1\n" in first
+    assert "----- shared.py after this push -----\nKEEP = 0\n" in first
+    assert "KEEP must stay 1" in first
+    assert "The push is for" in first and "add EXTRA = 1" in first
+    assert "consent window closes" in first
+    assert "Earlier objections" not in first
+
+    c.bob.step()
+    c.alice.step()
+    second = contexts[-1]
+    assert len(contexts) == 2
+    assert "Earlier objections on this subtask" in second
+    assert "@alice objected to @bob's push" in second
+    assert "keep KEEP = 1; do not replace it" in second
+    assert "EXTRA = 1" in second.split("after this push", 1)[1]
+
+
+def test_abstained_review_retries_within_the_window_and_never_votes_late(tmp_path, capsys):
+    from gud.worker import REVIEW_RETRY
+
+    window = 60
+    w = World.create(tmp_path)
+    genesis = w.genesis({"app.py": "VALUE = 1\n"})
+    planted = w.edit("@alice", genesis, "shared.py", "KEEP = 1\n", intent="plant")
+    w.test(planted)
+    bad = w.edit("@bob", planted, "shared.py", "KEEP = 0\n", intent="replace")
+    assert snap(w, window).proposals[bad.id].window_closes_at is not None
+
+    calls = []
+
+    def abstain(diff, context=""):
+        calls.append(diff)
+        return "abstain", "model gave no answer"
+
+    alice = Worker(w.mailbox, w.ids["@alice"], window, ScriptedCoder(review_fn=abstain), clock=w.clock)
+    assert alice.step() == []
+    assert alice.step() == []
+    assert len(calls) == 1
+    w.tick(REVIEW_RETRY + 0.5)
+    assert alice.step() == []
+    assert len(calls) == 2
+    w.tick(window)
+    assert alice.step() == []
+    assert alice.step() == []
+    assert len(calls) == 2
+    out = capsys.readouterr().out
+    assert out.count(f"late review @alice {bad.id}") == 1
+
+    # A decision that comes back after the window closed is not sent either.
+    def slow(diff, context=""):
+        w.tick(window)
+        return "object", "too late to matter"
+
+    late = w.edit("@carol", planted, "shared.py", "KEEP = 2\n", intent="replace again")
+    alice = Worker(w.mailbox, w.ids["@alice"], window, ScriptedCoder(review_fn=slow), clock=w.clock)
+    assert alice.step() == []
+    assert f"late review @alice {late.id}" in capsys.readouterr().out
+    targets = {compose_target(email) for email in w.repo_mail() if compose_kind(email) in {"approve", "object"}}
+    assert bad.id not in targets and late.id not in targets
+
+
+def test_lead_review_retries_and_skips_a_late_vote(tmp_path, capsys):
+    from gud.worker import REVIEW_RETRY
+
+    window = 60
+    w = World.create(tmp_path)
+    genesis = w.genesis({"app.py": "VALUE = 1\n"})
+    push = w.edit("@bob", genesis, "app.py", "VALUE = 2\n", intent="bump")
+    assert "@lead" in snap(w, window).proposals[push.id].affected_owners
+    calls = []
+
+    def abstain(diff, context=""):
+        calls.append(context)
+        return "abstain", "no answer"
+
+    lead = Lead(w.mailbox, w.ids["@lead"], window, ScriptedPlanner({}), clock=w.clock,
+                reviewer=ScriptedCoder(review_fn=abstain))
+    lead.step()
+    lead.step()
+    assert len(calls) == 1
+    assert "You wrote the starting files" in calls[0]
+    assert "----- app.py after this push -----\nVALUE = 2\n" in calls[0]
+    w.tick(REVIEW_RETRY + 0.5)
+    lead.step()
+    assert len(calls) == 2
+    w.tick(window)
+    assert lead.step() == []
+    assert len(calls) == 2
+    assert f"late review @lead {push.id}" in capsys.readouterr().out
+
+
+def test_objection_feedback_names_the_owner_reason_and_earlier_diff(tmp_path):
+    feedback_seen = []
+
+    def edit(subtask, tree, blame, feedback=None):
+        if "plant" in subtask.title.lower():
+            return {"shared.py": "KEEP = 1\n"}
+        if feedback:
+            feedback_seen.append(feedback)
+            return {"shared.py": "KEEP = 1\nEXTRA = 1\n"}
+        return {"shared.py": "KEEP = 0\n"}
+
+    def review(diff, context=""):
+        if "+KEEP = 0" in diff:
+            return "object", "keep KEEP = 1; the plant subtask requires it"
+        return "approve", "KEEP stays"
+
+    c = _clash(tmp_path, edit, review)
+    c.bob.step()
+    c.alice.step()
+    c.bob.step()
+    assert len(feedback_seen) == 1
+    feedback = feedback_seen[0]
+    assert feedback.startswith("objected by @alice: keep KEEP = 1; the plant subtask requires it")
+    assert "owned by @alice" in feedback
+    assert "Your earlier diff:" in feedback and "+KEEP = 0" in feedback and "-KEEP = 1" in feedback
+    assert "approval from @alice" in feedback and "consent window closes" in feedback
+    assert "every requirement of" in feedback
+
+
+def test_second_objection_stops_the_worker_and_the_lead_escalates_once(tmp_path, capsys):
+    from gud.wire import parse_body
+
+    def edit(subtask, tree, blame, feedback=None):
+        if "plant" in subtask.title.lower():
+            return {"shared.py": "KEEP = 1\n"}
+        return {"shared.py": "KEEP = 2\n" if feedback else "KEEP = 0\n"}
+
+    reasons = []
+
+    def review(diff, context=""):
+        if "-KEEP = 1" in diff:
+            reasons.append(f"keep KEEP = 1 (objection {len(reasons) + 1})")
+            return "object", reasons[-1]
+        return "approve", "fine"
+
+    c = _clash(tmp_path, edit, review)
+    c.bob.step()
+    c.alice.step()
+    c.bob.step()
+    c.alice.step()
+    pushes = _bob_pushes(c.w, c.window)
+    assert [prop.status for prop in pushes] == ["objected", "objected"]
+    assert c.bob.step() == []
+    assert c.bob.step() == []
+    assert len(_bob_pushes(c.w, c.window)) == 2
+    assert "stopped revising" in capsys.readouterr().out
+
+    sent = c.lead.step()
+    notes = [email for email in sent if compose_kind(email) == "notify"]
+    assert len(notes) == 1
+    note = parse_body(notes[0].body)
+    assert note.get("Gud-Ask") == "decide"
+    assert note.get("Gud-Target") == pushes[-1].message_id
+    assert "escalated" in note.text
+    assert reasons[0] in note.text and reasons[1] in note.text
+    assert any(addr.startswith("nelson@") for addr in notes[0].to)
+    assert "lead: escalated" in capsys.readouterr().out
+
+    assert not [email for email in c.lead.step() if compose_kind(email) == "notify"]
+    restarted = Lead(c.w.mailbox, c.w.ids["@lead"], c.window, ScriptedPlanner({}), clock=c.w.clock,
+                     pool=["@alice", "@bob"], stale_after=10_000)
+    assert not [email for email in restarted.step() if compose_kind(email) == "notify"]
+    decides = [email for email in c.w.repo_mail()
+               if compose_kind(email) == "notify" and parse_body(email.body).get("Gud-Ask") == "decide"]
+    assert len(decides) == 1
+    task = derive(snap(c.w, c.window))[0]
+    assert task.status != "done"
+    assert next(sub for sub in task.subtasks if sub.assignee == "@bob").status not in {"landed", "no-change"}
+
+
 def test_kill_and_rebind_reassigns_after_stale_after(tmp_path):
     window = 60
     w = World.create(tmp_path)
@@ -513,9 +753,28 @@ def _push_edit(w, coder, parent, author, title, feedback=None):
     return w.push(author, parent=view, tree=tree, intent=title)
 
 
+def test_coder_reply_with_trailing_junk_still_parses():
+    from gud.worker import _parse_edits
+    raw = '{"files": {"a.py": "x = 2\\n"}}, "done": ""}'
+    assert _parse_edits(raw, {"a.py": "x = 1\n"}) == {"a.py": "x = 2\n"}
+
+
+def test_revision_identical_to_the_objected_push_is_detected():
+    from gud.worker import _repeats
+    objected = {"a.py": "x = 2\n", "b.py": "y\n"}
+    assert _repeats({"a.py": "x = 1\n", "b.py": "y\n"}, {"a.py": "x = 2\n"}, objected)
+    assert not _repeats({"a.py": "x = 1\n", "b.py": "y\n"}, {"a.py": "x = 3\n"}, objected)
+    assert not _repeats({"a.py": "x = 1\n"}, {"a.py": "x = 2\n"}, None)
+
+
 def compose_kind(email):
     from gud.wire import parse_body
     return parse_body(email.body).kind
+
+
+def compose_target(email):
+    from gud.wire import parse_body
+    return parse_body(email.body).get("Gud-Target")
 
 
 def _dump(w, window):

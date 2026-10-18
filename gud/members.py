@@ -1,4 +1,4 @@
-"""Membership edits. Agents and ``@console`` propose; the chain lands them by quorum."""
+"""Membership edits. Agents and ``@console`` propose; a human member approves."""
 
 from __future__ import annotations
 
@@ -104,7 +104,7 @@ def pending_membership(chain) -> list:
         email = emails.get(prop.message_id)
         if email is None:
             continue
-        if _touches_members(parse_body(email.body).diff):
+        if touches_members(parse_body(email.body).diff):
             matched.append(prop)
     matched.sort(key=lambda p: p.received_at)
     return matched
@@ -211,7 +211,7 @@ def _write(tree: Tree, members: dict[str, Member]) -> Tree:
     return out
 
 
-def _touches_members(diff: str) -> bool:
+def touches_members(diff: str) -> bool:
     for line in diff.splitlines():
         if line.startswith("diff --git "):
             parts = line.split()
@@ -222,6 +222,19 @@ def _touches_members(diff: str) -> bool:
             if token != "/dev/null" and _is_members_path(token):
                 return True
     return False
+
+
+def only_members(diff: str) -> bool:
+    """True when every file the diff changes is ``.gud/members``."""
+    paths = []
+    for line in diff.splitlines():
+        if line.startswith("diff --git "):
+            paths += line.split()[2:4]
+        elif line.startswith(("--- ", "+++ ")):
+            token = line[4:].split("\t", 1)[0].strip()
+            if token != "/dev/null":
+                paths.append(token)
+    return bool(paths) and all(_is_members_path(path) for path in paths)
 
 
 def _is_members_path(token: str) -> bool:

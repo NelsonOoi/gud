@@ -48,6 +48,14 @@ _REPLY_ONLY = (
 )
 
 
+class _Flight:
+    """One in-flight ``list`` shared by every thread asking for the same page."""
+
+    def __init__(self) -> None:
+        self.event = threading.Event()
+        self.error: BaseException | None = None
+
+
 class PrimitiveError(Exception):
     """A Primitive API error. ``code`` is the stable ``error.code`` string."""
 
@@ -74,8 +82,10 @@ class PrimitiveMailbox:
         self._bodies: dict[str, str] = {}
         self._by_provider: dict[str, Email] = {}
         self._by_message_id: dict[str, Email] = {}
+        self._sent: list[Email] = []
         self._tail_cursor: dict[str, str] = {}
         self._listed: dict[tuple[str, float | None], tuple[float, list[Email]]] = {}
+        self._inflight: dict[tuple[str, float | None], "_Flight"] = {}
         self._lock = threading.Lock()
 
     def send(self, *, from_addr: str, to: str, cc: list[str] | None = None, subject: str,
@@ -107,24 +117,70 @@ class PrimitiveMailbox:
         })
         self._remember(email)
         with self._lock:
+            self._sent.append(email)
             self._listed.clear()
         return email
 
     def list(self, *, recipient: str | None = None, since: float | None = None) -> list[Email]:
         recipient = (recipient or self.repo_address).lower()
-        if self.list_ttl > 0:
-            with self._lock:
-                hit = self._listed.get((recipient, since))
+        key = (recipient, since)
+        if self.list_ttl <= 0:
+            return self._fetch_list(recipient, since)
+        with self._lock:
+            hit = self._listed.get(key)
             if hit is not None and time.monotonic() - hit[0] < self.list_ttl:
                 return list(hit[1])
+            flight = self._inflight.get(key)
+            if flight is None:
+                flight = _Flight()
+                self._inflight[key] = flight
+                leader = True
+            else:
+                leader = False
+        if not leader:
+            flight.event.wait()
+            if flight.error is not None:
+                raise flight.error
+            with self._lock:
+                hit = self._listed.get(key)
+            return list(hit[1]) if hit is not None else []
+        try:
+            emails = self._fetch_list(recipient, since)
+            with self._lock:
+                self._listed[key] = (time.monotonic(), emails)
+            return list(emails)
+        except BaseException as exc:
+            flight.error = exc
+            raise
+        finally:
+            with self._lock:
+                self._inflight.pop(key, None)
+            flight.event.set()
+
+    def _fetch_list(self, recipient: str, since: float | None) -> list[Email]:
         emails = self._rows_to_emails(self._iter_rows(recipient, since))
         if since is not None:
             emails = [e for e in emails if e.received_at > since]
+        emails.extend(self._sent_for(recipient, since, {email.message_id for email in emails}))
         emails.sort(key=lambda e: (e.received_at, e.message_id))
-        if self.list_ttl > 0:
-            with self._lock:
-                self._listed[(recipient, since)] = (time.monotonic(), emails)
         return emails
+
+    def _sent_for(self, recipient: str, since: float | None, seen: set[str]) -> list[Email]:
+        """Sends from this process that the inbound list has not delivered yet."""
+        with self._lock:
+            sent = list(self._sent)
+        extra: list[Email] = []
+        for email in sent:
+            if not email.message_id or email.message_id in seen:
+                continue
+            addrs = {addr.lower() for addr in (*email.to, *email.cc) if addr}
+            if recipient not in addrs:
+                continue
+            if since is not None and not email.received_at > since:
+                continue
+            extra.append(email)
+            seen.add(email.message_id)
+        return extra
 
     def wait(self, *, recipient: str, since: float, timeout: float) -> list[Email]:
         """Long-poll ``GET /emails`` with ``wait`` (max 30s per call) until ``timeout``."""
@@ -198,8 +254,36 @@ class PrimitiveMailbox:
         self._remember(email)
         return email
 
-    def _iter_rows(self, recipient: str, since: float | None):
-        params: dict = {"recipient": recipient, "limit": 100}
+    def ping(self) -> None:
+        """One cheap authenticated read. Raises ``PrimitiveError`` when the key is rejected."""
+        self._request("GET", "/emails", params={"limit": 1})
+
+    def iter_headers(self):
+        """Account-wide list rows. Does not download bodies."""
+        yield from self._iter_rows(None, None)
+
+    def iter_subject_headers(self, subject: str):
+        """Inbound rows whose subject matches, without downloading bodies."""
+        params: dict = {"subject": subject, "limit": 100}
+        cursor = None
+        seen: set[str] = set()
+        while True:
+            page_params = dict(params)
+            if cursor:
+                page_params["cursor"] = cursor
+            body = self._request("GET", "/emails/search", params=page_params)
+            data = body.get("data") if isinstance(body, dict) else None
+            for row in data or []:
+                yield row
+            cursor = (body.get("meta") or {}).get("cursor") if isinstance(body, dict) else None
+            if not cursor or cursor in seen:
+                break
+            seen.add(cursor)
+
+    def _iter_rows(self, recipient: str | None, since: float | None):
+        params: dict = {"limit": 100}
+        if recipient:
+            params["recipient"] = recipient
         if since is not None:
             params["date_from"] = _iso_floor(since)
         cursor = None

@@ -4,6 +4,7 @@ Source control for agent swarms, where the email chain is the repo. Every push i
 
 - `SPEC.md`: wire format, link rules, consent.
 - `api_contract.md`: Python core API and HTTP API.
+- `docs/mcp-app.md`: run the live-feed MCP app in Claude, Codex, and Cursor.
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e .

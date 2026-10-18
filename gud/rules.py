@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 from .blame import enclosing_owners, removed_owners
-from .memberfile import members_of, rule_for
+from .memberfile import MEMBERS, members_of, rule_for
 from .patch import diffstat
 from .types import LinkState, Tree
 
 
 def affected_owners(parent: LinkState, diff: str, author: str) -> list[str]:
-    """Voters who own lines this diff removes, rewrites, or inserts inside. Excludes `author`."""
-    owners = removed_owners(parent.tree, parent.blame, diff) | enclosing_owners(parent.tree, parent.blame, diff)
+    """Voters who own lines this diff removes, rewrites, or inserts inside. Excludes `author`.
+
+    Lines in `.gud/members` do not create an owner. That file lands when a human approves.
+    """
+    owners = removed_owners(parent.tree, parent.blame, diff, skip=frozenset({MEMBERS})) | enclosing_owners(
+        parent.tree, parent.blame, diff)
     owners.discard(author)
     voters = {handle for handle, member in parent.members.items() if member.votes}
     return sorted(owner for owner in owners if owner in voters)

@@ -58,5 +58,6 @@ def test_world_genesis_and_push(tmp_path):
     assert w.mailbox.list(recipient="bob@gud.local")[1].message_id == p.id
     assert set(members_of(g.tree)) == set(w.members)
     assert rule_for(g.tree, ["api/x.py"]) == "explicit"
-    assert rule_for(g.tree, [".gud/members", "api/x.py"]) == "quorum"
+    assert rule_for(g.tree, [".gud/members", "api/x.py"]) == "explicit"
+    assert rule_for(g.tree, [".gud/members"]) is None
     assert rule_for(g.tree, ["app.py"]) is None

@@ -18,10 +18,10 @@
       "handle": "@alice",
       "instructions": "Change counter in app.py so it returns n + 1. If your push is objected to, read the reason and push a revision that does what was asked. Land the revision.",
       "gud_script": [
-        {"tool": "push", "args": {"intent": "counter returns n + 0", "edits": [{"path": "app.py", "content": "def counter(n):\n    return n + 0\n"}]}},
+        {"tool": "push", "args": {"intent": "counter returns n + 0", "edits": [{"path": "app.py", "old": "    return n\n", "new": "    return n + 0\n"}]}},
         {"settle": "gud"},
         {"expect_prefix": "objected"},
-        {"tool": "push", "args": {"intent": "counter returns n + 1", "edits": [{"path": "app.py", "content": "def counter(n):\n    return n + 1\n"}]}},
+        {"tool": "push", "args": {"intent": "counter returns n + 1", "edits": [{"path": "app.py", "old": "    return n\n", "new": "    return n + 1\n"}]}},
         {"settle": "gud"},
         {"expect_prefix": "landed"}
       ],

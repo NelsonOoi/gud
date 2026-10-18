@@ -65,8 +65,13 @@ class Swarm:
 
         def coder():
             if mode == "llm":
-                return LLMCoder(cfg.openrouter_key, cfg.agent_model)
+                return LLMCoder(cfg.openrouter_key, cfg.agent_model,
+                                review_model=getattr(cfg, "review_model", None) or cfg.agent_model)
             return ScriptedCoder()
+
+        if mode == "llm" and cfg.window_seconds < 10:
+            print(f"swarm: warning: {cfg.window_seconds:g}s consent window is short for model reviews; "
+                  "a review that misses it is dropped (use 10s or more)", flush=True)
         bugs = (getattr(cfg, "bugs_address", "") or "").strip() or bugs_address_for(mailbox.repo_address)
         self.lead = Lead(
             mailbox, _identity(cfg, "@lead", members["@lead"].address), cfg.window_seconds, planner,

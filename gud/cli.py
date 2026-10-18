@@ -205,6 +205,21 @@ def cmd_reset(cfg, args) -> None:
     print(f"removed {cfg.home}")
 
 
+def cmd_webhook_setup(cfg, args) -> None:
+    """Register the tunnel URL, store the account secret, and fire one test delivery."""
+    from .mailbox import open_mailbox
+    from .webhook import setup_endpoint
+
+    if (cfg.mailbox or "").strip().lower() != "primitive-webhook":
+        sys.exit("webhook setup needs GUD_MAILBOX=primitive-webhook")
+    hosted = open_mailbox(cfg)
+    result = setup_endpoint(hosted.send_via, args.url, cfg.home / "webhook_secret")
+    print(f"endpoint {result['id']} accepted the test delivery ({result['status']})")
+    print(f"secret stored at {result['secret_path']} (mode 0600)")
+    print("Send one real email to the repo and compare the stored row with GET /emails/{id}.")
+    print("If that row has no body, the receiver fetches the email by id before storing it.")
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="gud")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -226,8 +241,15 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("blame")
     p.add_argument("path")
     sub.add_parser("reset")
+    p = sub.add_parser("webhook")
+    webhook = p.add_subparsers(dest="webhook_cmd", required=True)
+    setup = webhook.add_parser("setup")
+    setup.add_argument("--url", required=True, help="https://<tunnel host>, the receiver's public URL")
     args = ap.parse_args(argv)
     cfg = config.load()
+    if args.cmd == "webhook":
+        cmd_webhook_setup(cfg, args)
+        return
     {"init": cmd_init, "join": cmd_join, "audit": cmd_audit, "serve": cmd_serve,
      "rebuild": cmd_rebuild, "status": cmd_status, "log": cmd_log,
      "blame": cmd_blame, "reset": cmd_reset}[args.cmd](cfg, args)

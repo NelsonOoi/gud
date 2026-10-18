@@ -6,7 +6,7 @@ clock advances with wall time so lazy-consensus windows close.
 
     python evals/run_local.py --dry-run
     python evals/run_local.py --dry-run --case parallel-functions
-    python evals/run_local.py --case parallel-functions --model x-ai/grok-4-fast
+    python evals/run_local.py --case parallel-functions --model x-ai/grok-4.3
 
 ``--dry-run`` replays the scripted agents in the case file and does not call
 OpenRouter. Without it, each agent is an OpenRouter tool loop.
@@ -280,15 +280,17 @@ def _schemas(tools, names: list[str]) -> list[dict]:
             return {"type": "boolean"}
         if ann is list or origin is list:
             args = get_args(ann)
-            item = json_type(args[0]) if args else {
+            edit = {
                 "type": "object",
-                "properties": {"path": {"type": "string"}, "content": {"type": ["string", "null"]}},
+                "properties": {
+                    "path": {"type": "string"}, "old": {"type": "string"},
+                    "new": {"type": "string"}, "delete": {"type": "boolean"},
+                },
+                "required": ["path"],
             }
+            item = json_type(args[0]) if args else edit
             if item.get("type") == "object" and "properties" not in item:
-                item = {
-                    "type": "object",
-                    "properties": {"path": {"type": "string"}, "content": {"type": ["string", "null"]}},
-                }
+                item = edit
             return {"type": "array", "items": item}
         if ann is dict or origin is dict:
             return {"type": "object"}

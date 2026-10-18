@@ -20,7 +20,7 @@ OpenRouter, model from `GUD_AGENT_MODEL` or `--model`. `OPENROUTER_KEY` is read 
 
 ```bash
 .venv/bin/python evals/run_local.py --case parallel-functions
-.venv/bin/python evals/run_local.py --model x-ai/grok-4-fast
+.venv/bin/python evals/run_local.py --model x-ai/grok-4.3
 ```
 
 Agents call the same tool methods the MCP servers register. With `ARMATURE_API_KEY` set, those calls are also shipped to Armature.
@@ -51,6 +51,6 @@ This POSTs `https://app.armature.tech/api/armature/v1/workflows/<id>/runs` with 
 ## Servers
 
 ```bash
-.venv/bin/python -m gud.mcp_server --handle @alice
+.venv/bin/python -m gud.mcp_server
 .venv/bin/python -m gud.mcp_baseline --workdir /path/to/clone --handle @alice
 ```

@@ -9,16 +9,21 @@ import time
 
 from . import compose
 from .compose import Identity
-from .inbox import Gate, Inbox
+from .inbox import Gate, Inbox, next_window_close
 from .merge import merge_edits
-from .patch import PatchError, apply_diff, diff_trees
+from .patch import PatchError, apply_diff, diff_trees, diffstat
 from .replay import replay
 from .rules import affected_owners
 from .tasks import derive, open_subtasks_for
-from .wire import normalize, parse_body
+from .wire import normalize, parse_body, test_log
 
 _WAIT = {"window", "testing", "needs_approval", "needs_quorum", "qualified"}
 _RETRY = {"superseded", "stale", "conflict"}
+_REVIEWABLE = {"window", "testing", "needs_approval", "needs_quorum"}
+# Seconds before an abstained review is asked again. A vote only counts before the window closes.
+REVIEW_RETRY = 3.0
+# Objected pushes by one author on one subtask before the author stops and the lead escalates.
+MAX_OBJECTIONS = 2
 
 _RATE_OLD = (
     'def login(username: str, password: str) -> LoginResult:\n'
@@ -36,7 +41,7 @@ _RATE_NEW = (
 _BAD_LOGIN = '''def login(username: str, password: str) -> LoginResult:
     """Check the password and start a session. Unknown user and bad password share one reason."""
     # gud-bad-edit: lockout replaces the login flow
-    if ratelimit.allow(f"login:{username}") is False:
+    if not ratelimit.allow("login"):
         return LoginResult(False, None, "rate limited")
     if _failures.get(username, 0) >= 5:
         return LoginResult(False, None, "locked")
@@ -187,9 +192,11 @@ def demo_edit(subtask, tip_tree, blame, feedback=None) -> dict:
 
 
 def demo_review(diff: str, context: str = "") -> tuple[str, str]:
-    """Object only to the scripted conflicting login rewrite. Everything else is approved."""
-    if "gud-bad-edit" in (diff or ""):
-        return "object", "keep the rate-limit check; do not replace login"
+    """Object only to a login that drops the per-user rate-limit key. Everything else is approved."""
+    added = [line for line in (diff or "").splitlines() if line.startswith("+")]
+    if "gud-bad-edit" in (diff or "") or any('ratelimit.allow("login")' in line for line in added):
+        return "object", ('keep the rate-limit check per user, ratelimit.allow(f"login:{username}"); '
+                          "one shared key lets one client rate-limit every user")
     return "approve", "Approved."
 
 
@@ -221,6 +228,8 @@ class ScriptedCoder:
         except TypeError:
             decision, reason = fn(diff)
         action = (decision or "").strip().lower()
+        if action == "abstain":
+            return action, reason or "abstained"
         if action not in {"approve", "object"}:
             action = "approve"
         if not reason:
@@ -229,11 +238,15 @@ class ScriptedCoder:
 
 
 class LLMCoder:
-    """OpenRouter coder. `edit` returns full file contents, or `NoChange`; `review` is approve or object."""
+    """OpenRouter coder. `edit` returns full file contents, or `NoChange`; `review` is approve or object.
 
-    def __init__(self, api_key: str, model: str, clock=time.monotonic):
+    `review_model` answers reviews only; it defaults to `model`.
+    """
+
+    def __init__(self, api_key: str, model: str, review_model: str | None = None, clock=time.monotonic):
         self.api_key = api_key
         self.model = model
+        self.review_model = review_model or model
         self.clock = clock
         self._failed: dict[str, tuple[int, float]] = {}
 
@@ -279,13 +292,20 @@ class LLMCoder:
     def review(self, diff, context=""):
         """`(approve|object, reason)`, or `("abstain", why)` when the model gave no usable answer."""
         try:
-            raw = _chat(self.api_key, self.model, [
+            raw = _chat(self.api_key, self.review_model, [
                 {"role": "system", "content": (
-                    "You own lines that a proposed diff changes, and you review it before it lands. "
+                    "You own lines that a proposed push changes, and you vote on it before it lands. "
+                    "What your vote does: if you stay silent, the push lands when its consent window closes "
+                    "(unless the context says it needs explicit approval). If you object, the push is blocked, "
+                    "and your reason is mailed to the author as the instruction for their revision. "
+                    "Check the requirements one by one: the push's own subtask, and your own subtasks. "
+                    "Compare the file before and after the push. "
+                    "Lines that the push's own subtask asks to replace are fine to replace, even if you wrote them. "
+                    "Object only when something that should stay is lost, or a stated requirement is broken "
+                    "(wrong values, missing parts). "
+                    "If you objected to an earlier push for this subtask and that reason is now addressed, approve. "
                     "Reply with JSON only: {\"action\": \"approve\" or \"object\", \"reason\": one sentence}. "
-                    "Object when the diff deletes or breaks work you or others did that should stay, "
-                    "or when it contradicts the stated requirements (wrong values, missing parts). "
-                    "Say exactly what to change in the reason. Approve otherwise."
+                    "When you object, say exactly what must stay or change."
                 )},
                 {"role": "user", "content": f"{context}\n\nDiff:\n{diff[:8000]}"},
             ])
@@ -322,9 +342,12 @@ class Worker:
         # Pushes sent but not yet seen in the repo mailbox: subtask id -> (message id, monotonic time).
         self._pending: dict[str, tuple[str, float]] = {}
         self._voted: set[str] = set()
+        # Push id -> clock time of the last abstained review.
         self._review_failed: dict[str, float] = {}
         # Subtask id -> (tip, feedback) the coder already left unchanged. The next step signs no-change.
         self._no_change: dict[str, tuple[str, str]] = {}
+        self._gave_up: set[str] = set()
+        self._window_at: float | None = None
 
     def step(self) -> list:
         mail = self.inbox.read()
@@ -332,10 +355,11 @@ class Worker:
             parsed = parse_body(email.body)
             if parsed.kind == "subtask" and parsed.get("Gud-Assignee") == self.identity.handle:
                 self._assigned.add(parsed.get("Gud-Task") or "")
-        busy = bool(self._assigned or self._pending)
-        if not self.gate.due(bool(mail), busy):
+        busy = bool(self._assigned or self._pending or self._review_failed)
+        if not self.gate.due(bool(mail), busy, self._window_at):
             return []
         chain, _now = self._chain()
+        self._window_at = next_window_close(chain)
         tip = chain.tip
         if tip is None:
             return []
@@ -404,16 +428,23 @@ class Worker:
         if status == "link" or status in _WAIT:
             return None
         if status == "objected":
-            return self._from_coder(tip, sub, feedback="objected: " + _objection(chain, latest.message_id))
+            if len(objected_pushes(chain, self.identity.handle, sub.id)) >= MAX_OBJECTIONS:
+                if sub.id not in self._gave_up:
+                    self._gave_up.add(sub.id)
+                    print(f"{self.identity.handle} {sub.id}: objected {MAX_OBJECTIONS} times; "
+                          "stopped revising, the lead escalates", flush=True)
+                return None
+            return self._from_coder(tip, sub, feedback=_objection_feedback(chain, latest, sub),
+                                    objected=_pushed_tree(chain, latest))
         if status == "tests_failed":
-            return self._from_coder(tip, sub, feedback="tests failed:\n" + _test_log(chain, latest.message_id))
+            return self._from_coder(tip, sub, feedback="tests failed:\n" + test_log(chain.emails, latest.message_id))
         if status in _RETRY:
             edits = self._rebase_edits(chain, latest, tip, sub)
             return self._push(tip, edits, task=sub.id, intent=_intent(sub, "rebased onto the new tip"),
                               subject=f"[gud] {sub.id}: {sub.title}")
         return None
 
-    def _from_coder(self, tip, sub, feedback):
+    def _from_coder(self, tip, sub, feedback, objected=None):
         attempt = (tip.message_id, feedback or "")
         if self._no_change.get(sub.id) == attempt:
             # Second time this tip came back unchanged. Sign it; do not ask the coder again.
@@ -421,6 +452,12 @@ class Worker:
             return self._declare(tip, sub, "no change needed")
         try:
             result = self.coder.edit(sub, tip.tree, tip.blame, feedback=feedback)
+            if _repeats(tip.tree, result, objected):
+                print(f"{self.identity.handle} {sub.id}: revision repeats the objected push; asking again",
+                      flush=True)
+                result = self.coder.edit(sub, tip.tree, tip.blame, feedback=(
+                    feedback + "\n\nYour last revision was identical to the objected push. Change the "
+                    "files so the objection is met while your subtask's requirements still hold."))
         except TypeError:
             result = self.coder.edit(sub, tip.tree, tip.blame)
         except Exception as exc:
@@ -517,32 +554,43 @@ class Worker:
     def _review(self, chain, tip) -> list:
         me = self.identity.handle
         sent = []
+        for push_id in list(self._review_failed):
+            prop = chain.proposals.get(push_id)
+            if prop is None or prop.status not in _REVIEWABLE:
+                del self._review_failed[push_id]
         for prop in list(chain.proposals.values()):
             if prop.author == me or me not in (prop.affected_owners or []):
                 continue
-            if prop.status not in {"window", "testing", "needs_approval", "needs_quorum"}:
+            if prop.status not in _REVIEWABLE:
                 continue
             if prop.message_id in self._voted or _replied(chain, me, prop.message_id):
                 continue
+            if window_closed(prop, self.clock()):
+                self._late(prop.message_id)
+                continue
             failed_at = self._review_failed.get(prop.message_id)
-            if failed_at is not None and time.monotonic() - failed_at < 20:
+            if failed_at is not None and self.clock() - failed_at < REVIEW_RETRY:
                 continue
             email = chain.by_message.get(prop.message_id)
             if email is None:
                 continue
             parsed = parse_body(email.body)
-            context = review_context(chain, prop, parsed, me)
+            context = review_context(chain, prop, parsed, me, now=self.clock())
             try:
                 decision, reason = self.coder.review(parsed.diff, context)
             except Exception as exc:
                 print(f"{me} review {prop.message_id} failed: {exc}", flush=True)
-                self._review_failed[prop.message_id] = time.monotonic()
+                self._review_failed[prop.message_id] = self.clock()
                 continue
             action = (decision or "").strip().lower()
             if action not in {"approve", "object"}:
                 # No vote: an outage must not approve. Lazy consensus still applies.
-                self._review_failed[prop.message_id] = time.monotonic()
+                self._review_failed[prop.message_id] = self.clock()
                 continue
+            if window_closed(prop, self.clock()):
+                self._late(prop.message_id)
+                continue
+            self._review_failed.pop(prop.message_id, None)
             parent = chain.by_id.get(prop.parent)
             members = parent.members if parent is not None else tip.members
             if action == "object":
@@ -556,6 +604,12 @@ class Worker:
             self._voted.add(prop.message_id)
             print(f"{action} {me} {prop.message_id} {reason}", flush=True)
         return sent
+
+    def _late(self, push_id: str) -> None:
+        """The window closed before this owner voted; a vote now would not count."""
+        self._voted.add(push_id)
+        self._review_failed.pop(push_id, None)
+        print(f"late review {self.identity.handle} {push_id}", flush=True)
 
     def _push(self, tip, edits, *, task, intent, subject):
         if not edits:
@@ -609,26 +663,69 @@ def _status(chain, email) -> str:
     return prop.status if prop is not None else "unknown"
 
 
-def _objection(chain, push_id: str) -> str:
+def _objections(chain, push_id: str) -> list[tuple[str, str]]:
+    """`(who, reason)` for each objection to `push_id`, oldest first."""
     prop = chain.proposals.get(push_id)
     if prop is not None and prop.objections:
-        last = prop.objections[-1]
-        who = last.get("by") or "owner"
-        return f"{who}: {last.get('reason') or ''}".strip()
+        return [(item.get("by") or "owner", (item.get("reason") or "").strip()) for item in prop.objections]
+    found = []
     for email in chain.emails:
         parsed = parse_body(email.body)
         if parsed.kind == "object" and parsed.get("Gud-Target") == push_id:
-            return parsed.get("Gud-Reason") or parsed.text
-    return "the owner objected"
+            found.append((parsed.get("Gud-Author") or "owner", (parsed.get("Gud-Reason") or parsed.text).strip()))
+    return found or [("owner", "")]
 
 
-def _test_log(chain, push_id: str) -> str:
-    log = ""
-    for email in chain.emails:
-        parsed = parse_body(email.body)
-        if parsed.kind == "test" and parsed.get("Gud-Target") == push_id:
-            log = parsed.text or ""
-    return log[-2000:]
+def _objection_feedback(chain, email, sub) -> str:
+    """What the author needs to revise an objected push. The first line becomes the revision's note."""
+    found = _objections(chain, email.message_id)
+    who = ", ".join(dict.fromkeys(by for by, _reason in found))
+    lines = [f"objected by {by}: {reason or 'no reason given'}" for by, reason in found]
+    lines += [
+        f"Your push changed lines owned by {who}, so the objection blocked it.",
+        f"Push a revision that still meets every requirement of {sub.id} and also meets the objection. "
+        f"It lands only with approval from {who}, or if {who} sends no objection before the consent "
+        "window closes.",
+        "Your earlier diff:\n" + parse_body(email.body).diff[:3000],
+    ]
+    return "\n".join(lines)
+
+
+def objected_pushes(chain, author: str, task_id: str) -> list:
+    """`author`'s objected pushes for `task_id`, oldest first."""
+    props = [prop for prop in chain.proposals.values()
+             if prop.author == author and prop.task == task_id and prop.status == "objected"]
+    return sorted(props, key=lambda prop: (prop.received_at, prop.message_id))
+
+
+def _pushed_tree(chain, email) -> dict | None:
+    """The tree `email`'s push would have produced on its parent."""
+    parsed = parse_body(email.body)
+    parent = chain.by_id.get(parsed.get("Gud-Parent") or "")
+    if parent is None:
+        return None
+    try:
+        return apply_diff(dict(parent.tree), parsed.diff)
+    except PatchError:
+        return None
+
+
+def _repeats(tree: dict, edits, objected: dict | None) -> bool:
+    """True when `edits` on `tree` rebuild exactly the `objected` push's tree."""
+    if not isinstance(edits, dict) or not edits or objected is None:
+        return False
+    after = dict(tree)
+    for path, content in edits.items():
+        if content is None:
+            after.pop(path, None)
+        else:
+            after[path] = content
+    return after == objected
+
+
+def window_closed(prop, now: float) -> bool:
+    """Lazy consensus only: past the window close, a vote no longer changes the outcome."""
+    return prop.window_closes_at is not None and now >= prop.window_closes_at
 
 
 def _replied(chain, author: str, target: str) -> bool:
@@ -664,25 +761,68 @@ def _ready(sub, done: set[str]) -> bool:
     return all(dep in done for dep in getattr(sub, "after", None) or [])
 
 
-def review_context(chain, prop, parsed, handle: str) -> str:
-    """What an owner needs to judge a push: its subtask, the owner's own work, the files before."""
-    lines = [f"You are {handle}, an owner of lines this push changes."]
-    subs = {sub.id: (task, sub) for task in derive(chain) for sub in task.subtasks}
+def review_context(chain, prop, parsed, handle: str, now: float | None = None) -> str:
+    """What a voter needs to judge a push: what the vote does, the requirements on both sides,
+    earlier objections on the subtask, and each changed file before and after."""
+    role = "an owner of lines this push changes" if handle in (prop.affected_owners or []) else "a voter on this push"
+    lines = [f"You are {handle}, {role}. The author is {prop.author}.", _vote_rule(prop, now)]
+    subs = {sub.id: sub for task in derive(chain) for sub in task.subtasks}
     if prop.task and prop.task in subs:
-        _task, sub = subs[prop.task]
+        sub = subs[prop.task]
         lines.append(f"The push is for {sub.id} {sub.title}. Its requirements:\n{sub.description[:3000]}")
     if parsed.text:
         lines.append(f"The author's note:\n{parsed.text[:600]}")
-    mine = [sub for _task, sub in subs.values() if sub.assignee == handle]
+    mine = [sub for sub in subs.values() if sub.assignee == handle and sub.id != prop.task][-5:]
     if mine:
-        lines.append("Your own subtasks:\n" + "\n".join(f"- {s.id} {s.title} ({s.status})" for s in mine))
+        lines.append("Your own subtasks. The lines you wrote for them must keep meeting these requirements:\n"
+                     + "\n\n".join(f"- {s.id} {s.title} ({s.status})\n{s.description[:1500]}" for s in mine))
+    if chain.links and chain.links[0].author == handle:
+        lines.append("You wrote the starting files (genesis). A subtask may ask to replace those lines.")
+    earlier = [
+        (item, other) for other in chain.proposals.values()
+        if prop.task and other.task == prop.task and other.message_id != prop.message_id
+        for item in other.objections
+    ]
+    if earlier:
+        earlier.sort(key=lambda pair: (pair[0].get("at") or 0, pair[0].get("id") or ""))
+        lines.append("Earlier objections on this subtask:\n" + "\n".join(
+            f"- {item.get('by')} objected to {other.author}'s push {other.message_id}: {item.get('reason') or ''}"
+            for item, other in earlier
+        ))
     parent = chain.by_id.get(prop.parent)
     if parent is not None:
-        from .patch import diffstat
+        try:
+            after = apply_diff(parent.tree, parsed.diff)
+        except PatchError:
+            after = None
         for path in diffstat(parsed.diff)["files"][:4]:
             if path in parent.tree:
                 lines.append(f"----- {path} before this push -----\n{parent.tree[path][:4000]}")
+            else:
+                lines.append(f"----- {path} is new in this push -----")
+            if after is None:
+                continue
+            if path in after:
+                lines.append(f"----- {path} after this push -----\n{after[path][:4000]}")
+            else:
+                lines.append(f"----- {path} is deleted by this push -----")
     return "\n\n".join(lines)
+
+
+def _vote_rule(prop, now: float | None) -> str:
+    if prop.protected_rule == "human":
+        return "This push changes the member list. It lands only when a human member replies approve."
+    if prop.protected_rule == "quorum":
+        return "This push changes quorum-protected paths. It lands only when a quorum of voters approves."
+    if prop.protected_rule:
+        return ("This push changes protected paths. It lands only when every owner approves; "
+                "silence keeps it waiting, and an objection does not count.")
+    if prop.window_closes_at is None:
+        return "No one else owns the lines this push changes."
+    left = "" if now is None else f", in about {max(0, prop.window_closes_at - now):.0f} seconds"
+    return (f"If you stay silent, this push lands when its consent window closes{left}. "
+            "An objection from you before then blocks it, and your reason is mailed to the author "
+            "as the instruction for the revision. A vote after the window closes does not count.")
 
 
 def _listed(mailbox):
@@ -916,7 +1056,7 @@ def _edit_prompt(subtask, files: dict, blame, feedback) -> str:
         getattr(subtask, "description", "") or "",
     ]
     if feedback:
-        parts.append("Feedback from the thread:\n" + str(feedback)[:2000])
+        parts.append("Feedback from the thread:\n" + str(feedback)[:4000])
     for path, content in files.items():
         parts.append(f"----- {path} -----\n{content}")
         parts.append("blame: " + _blame_ranges(blame, path))
@@ -969,7 +1109,11 @@ def _load_json(raw: str):
     fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
     if fenced:
         text = fenced.group(1).strip()
-    return json.loads(text)
+    start = text.find("{")
+    if start < 0:
+        return json.loads(text)
+    # Models sometimes append stray text after the object; at temperature 0 a retry repeats it.
+    return json.JSONDecoder().raw_decode(text, start)[0]
 
 
 def _chat(api_key: str, model: str, messages: list[dict], temperature: float = 0) -> str:
@@ -980,5 +1124,9 @@ def _chat(api_key: str, model: str, messages: list[dict], temperature: float = 0
         json={"model": model, "messages": messages, "temperature": temperature},
         timeout=120,
     )
-    response.raise_for_status()
+    if response.is_error:
+        detail = " ".join((response.text or "").split())[:240]
+        raise RuntimeError(
+            f"OpenRouter {response.status_code} model {model}: {detail or response.reason_phrase}"
+        )
     return response.json()["choices"][0]["message"]["content"] or ""

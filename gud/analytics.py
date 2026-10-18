@@ -142,8 +142,15 @@ def flush(timeout: float = 5) -> None:
 
 
 def observe(server: str, tool: str, args: dict | None, fn: Callable[[], Any], *, actor: str | None = None) -> Any:
-    """Run ``fn`` and record tool name, args size, latency, and error."""
-    payload = dict(args or {})
+    """Run ``fn`` and record tool name, args size, latency, and error.
+
+    ``private_key`` is a signing argument, not telemetry. It is dropped before
+    the size is measured and before anything is shipped.
+    """
+    payload = {key: value for key, value in dict(args or {}).items() if key != "private_key"}
+    handle = payload.get("handle")
+    if isinstance(handle, str) and handle.strip():
+        actor = handle.strip()
     started = time.perf_counter()
     error: str | None = None
     result: Any = None

@@ -55,6 +55,8 @@ class Config:
     bugs_address: str = ""             # GUD_BUGS_ADDRESS; empty means bugs@<domain>
     human: str = "@nelson"             # GUD_HUMAN, the member decisions go out as
     mcp_token: str | None = None       # GUD_MCP_TOKEN; write tools require it when set
+    review_model: str = "google/gemini-2.5-flash"  # GUD_REVIEW_MODEL, for owner reviews; empty uses agent_model
+    swarm: bool = False               # GUD_SWARM; GUD_HOME/swarm.txt wins when the API starts
 
     def address(self, handle: str) -> str:
         """``GUD_ADDRESS`` for ``GUD_HANDLE``; ``handle@domain`` for everyone else."""
@@ -74,6 +76,45 @@ class Config:
         return domain_address(self.domain, handle)
 
 
+_SWARM_TRUE = frozenset({"1", "true", "yes", "on"})
+SWARM_FILE = "swarm.txt"
+
+
+def parse_swarm(value: str | None) -> bool:
+    """``GUD_SWARM``: unset, empty, 0, false, no, and off are false. 1, true, yes, and on are true."""
+    if value is None:
+        return False
+    return value.strip().lower() in _SWARM_TRUE
+
+
+def swarm_path(home: Path) -> Path:
+    return home / SWARM_FILE
+
+
+def read_swarm_file(home: Path) -> bool | None:
+    """``on``/``off`` from ``GUD_HOME/swarm.txt``, or None when the file is absent.
+
+    A file that exists but does not say ``on`` wins as off.
+    """
+    path = swarm_path(home)
+    if not path.is_file():
+        return None
+    return path.read_text().strip().lower() == "on"
+
+
+def write_swarm_file(home: Path, enabled: bool) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    swarm_path(home).write_text("on\n" if enabled else "off\n")
+
+
+def resolved_swarm(cfg: Config) -> bool:
+    """File wins over ``cfg.swarm`` (the env var) when ``swarm.txt`` exists."""
+    saved = read_swarm_file(cfg.home)
+    if saved is not None:
+        return saved
+    return cfg.swarm
+
+
 def _blank(value: str | None) -> str | None:
     if value is None:
         return None
@@ -81,13 +122,38 @@ def _blank(value: str | None) -> str | None:
     return value or None
 
 
+_PRIMITIVE_MAILBOXES = frozenset({"primitive", "primitive-webhook"})
+
+
+def _domain(mailbox: str) -> str:
+    """``GUD_DOMAIN``, else the domain of ``PRIMITIVE_EMAIL`` for a Primitive mailbox.
+
+    The fake mailbox stays on ``gud.local``. Primitive only accepts mail from a
+    verified sending domain, which is the domain of ``PRIMITIVE_EMAIL``.
+    """
+    explicit = (os.environ.get("GUD_DOMAIN") or "").strip()
+    if explicit:
+        return explicit
+    if mailbox.strip().lower() in _PRIMITIVE_MAILBOXES:
+        email = (os.environ.get("PRIMITIVE_EMAIL") or "").strip()
+        _local, sep, domain = email.partition("@")
+        domain = domain.strip()
+        if sep and domain and "@" not in domain and not any(ch.isspace() for ch in domain):
+            return domain
+    return "gud.local"
+
+
 def load() -> Config:
     _load_dotenv()
     home = Path(os.environ.get("GUD_HOME", ROOT / ".gud-home")).resolve()
-    domain = os.environ.get("GUD_DOMAIN", "gud.local")
+    mailbox = os.environ.get("GUD_MAILBOX", "fake")
+    domain = _domain(mailbox)
+    # grok-4-fast was removed from OpenRouter and chat/completions 404s on it.
+    # grok-4.3 is the fast successor still listed there.
+    agent_model = os.environ.get("GUD_AGENT_MODEL", "x-ai/grok-4.3")
     return Config(
         home=home,
-        mailbox=os.environ.get("GUD_MAILBOX", "fake"),
+        mailbox=mailbox,
         runner=os.environ.get("GUD_RUNNER", "local"),
         domain=domain,
         repo_address=os.environ.get("GUD_REPO_ADDRESS", f"repo@{domain}"),
@@ -96,7 +162,7 @@ def load() -> Config:
         instabox_api_key=os.environ.get("INSTABOX_API_KEY"),
         armature_api_key=os.environ.get("ARMATURE_API_KEY"),
         openrouter_key=os.environ.get("OPENROUTER_KEY") or os.environ.get("OPENROUTER_API_KEY"),
-        agent_model=os.environ.get("GUD_AGENT_MODEL", "x-ai/grok-4-fast"),
+        agent_model=agent_model,
         host_url=_blank(os.environ.get("GUD_HOST_URL")),
         handle=_blank(os.environ.get("GUD_HANDLE")),
         member_address=_blank(os.environ.get("GUD_ADDRESS")),
@@ -104,4 +170,6 @@ def load() -> Config:
         bugs_address=(os.environ.get("GUD_BUGS_ADDRESS") or f"bugs@{domain}").strip(),
         human=_at(os.environ.get("GUD_HUMAN") or "@nelson"),
         mcp_token=_blank(os.environ.get("GUD_MCP_TOKEN")),
+        review_model=_blank(os.environ.get("GUD_REVIEW_MODEL", "google/gemini-2.5-flash")) or agent_model,
+        swarm=parse_swarm(os.environ.get("GUD_SWARM")),
     )

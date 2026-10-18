@@ -18,7 +18,7 @@
       "handle": "@alice",
       "instructions": "Rename the parameter of get_user in api.py from id to user_id. Keep the same return. The file is protected: land the change, getting approval if the tool says you need it.",
       "gud_script": [
-        {"tool": "push", "args": {"intent": "rename get_user parameter to user_id", "edits": [{"path": "api.py", "content": "def get_user(user_id):\n    return {\"id\": user_id}\n"}]}},
+        {"tool": "push", "args": {"intent": "rename get_user parameter to user_id", "edits": [{"path": "api.py", "old": "def get_user(id):\n    return {\"id\": id}\n", "new": "def get_user(user_id):\n    return {\"id\": user_id}\n"}]}},
         {"settle": "gud"},
         {"expect_prefix": "landed"}
       ],

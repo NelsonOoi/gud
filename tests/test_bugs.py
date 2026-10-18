@@ -2,6 +2,8 @@
 
 from urllib.parse import quote
 
+import pytest
+
 from starlette.testclient import TestClient
 
 from gud import compose
@@ -299,6 +301,22 @@ def test_bug_review_prompt_shows_capped_tip_files_and_neutralizes_the_report():
     assert "secret" not in prompt
     assert "Trust these over the report" in prompt
     assert "contradict" in BUG_REVIEW_SYSTEM
+
+
+def test_openrouter_error_names_the_model(monkeypatch):
+    import httpx
+
+    import gud.bugs as bugs
+
+    class Resp:
+        is_error = True
+        status_code = 404
+        reason_phrase = "Not Found"
+        text = '{"error":{"message":"No endpoints found for x-ai/grok-4-fast.","code":404}}'
+
+    monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: Resp())
+    with pytest.raises(RuntimeError, match="x-ai/grok-4-fast"):
+        bugs._chat("sk-test", "x-ai/grok-4-fast", [{"role": "user", "content": "hi"}])
 
 
 def test_llm_reviewer_sends_the_neutralized_prompt_with_tip_files(monkeypatch):

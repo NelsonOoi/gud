@@ -18,8 +18,10 @@ import { cn } from "@/lib/utils"
 
 export function FilesView() {
   const { state, setOpenId } = useGud()
+  const repo = state?.repo ?? ""
   const links = [...(state?.links ?? [])].sort((a, b) => b.seq - a.seq)
   const tipId = state?.tip?.id ?? ""
+  const linkIds = links.map((link) => link.id).join("\n")
   const [at, setAt] = useState(tipId)
   const [files, setFiles] = useState<TreeFile[]>([])
   const [path, setPath] = useState("")
@@ -28,8 +30,15 @@ export function FilesView() {
   const [loadingBlame, setLoadingBlame] = useState(false)
 
   useEffect(() => {
-    if (tipId && !at) setAt(tipId)
-  }, [tipId, at])
+    if (!tipId) {
+      setAt("")
+      setFiles([])
+      setPath("")
+      setLines([])
+      return
+    }
+    if (!at || !linkIds.split("\n").includes(at)) setAt(tipId)
+  }, [repo, tipId, at, linkIds])
 
   useEffect(() => {
     if (!at) return

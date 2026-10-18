@@ -9,6 +9,7 @@ import type {
   JoinRequest,
   Link,
   Proposal,
+  RawEmail,
   RepoState,
   Task,
   TreeResponse,
@@ -208,9 +209,10 @@ function arriveRetry(current: World, now: number) {
 function bumpQuorum(current: World, now: number) {
   current.flags.quorum = true
   const proposal = current.proposals.find((item) => item.id === PUSH.quorum)
-  if (!proposal || proposal.status !== "needs_quorum") return
+  if (!proposal || proposal.protected_rule !== "human" || proposal.status !== "needs_approval") return
   if (!proposal.approvals.includes("@nelson")) proposal.approvals.push("@nelson")
-  recompute(current, proposal)
+  proposal.status = "testing"
+  proposal.reason = "waiting for a passing test"
   rememberMail(current, {
     id: mid("approve-quorum-nelson"),
     handle: "@nelson",
@@ -599,10 +601,17 @@ export function mockProposeJoin(id: string): { push_id: string } {
   if (!join) throw new ApiError(404, "unknown join request")
   if (!join.valid || join.status === "rejected") throw new ApiError(409, "join request is invalid")
   if (join.status === "member") throw new ApiError(409, "already a member")
-  if (join.status === "proposed") throw new ApiError(409, "membership push already exists")
+  if (join.status === "proposed" && join.push_id) {
+    const existing = current.proposals.find((item) => item.id === join.push_id)
+    if (existing) {
+      existing.status = "testing"
+      existing.reason = "waiting for a passing test"
+      existing.protected_rule = "human"
+      emit("proposal", existing)
+    }
+    return { push_id: join.push_id }
+  }
   const tip = tipOf(current)
-  const voters = current.members.filter((member) => member.votes)
-  const needed = Math.floor(voters.length / 2) + 1
   const pushId = mid(`push-join-${current.emails.length + 1}`)
   const sponsor = join.sponsor ?? "-"
   const subject = `Add ${join.handle}`
@@ -622,15 +631,15 @@ export function mockProposeJoin(id: string): { push_id: string } {
     author: "@console",
     subject,
     received_at: Date.now() / 1000,
-    status: "needs_quorum",
-    reason: `quorum 0/${needed}; @console does not vote`,
-    affected_owners: ["@lead"],
-    approvals: [],
+    status: "testing",
+    reason: "waiting for a passing test",
+    affected_owners: [],
+    approvals: ["@nelson"],
     objections: [],
     window_closes_at: null,
-    protected_rule: "quorum",
-    quorum_needed: needed,
-    quorum_have: 0,
+    protected_rule: "human",
+    quorum_needed: null,
+    quorum_have: null,
     test_result: null,
     task: null,
   }
@@ -640,6 +649,26 @@ export function mockProposeJoin(id: string): { push_id: string } {
   join.push_id = pushId
   emit("proposal", proposal)
   return { push_id: pushId }
+}
+
+export function mockMail(): { emails: RawEmail[]; next_since: null } {
+  const emails = getWorld()
+    .emails.slice()
+    .sort((a, b) => a.received_at - b.received_at || a.id.localeCompare(b.id))
+    .map((email) => ({
+      message_id: email.id,
+      from_addr: email.from,
+      to: email.to,
+      cc: email.cc,
+      subject: email.subject,
+      body: email.body,
+      received_at: email.received_at,
+      sender_verified: email.sender_verified,
+      in_reply_to: email.in_reply_to,
+      references: email.in_reply_to ? [email.in_reply_to] : [],
+      provider_id: null,
+    }))
+  return { emails, next_since: null }
 }
 
 export function mockActivity(limit: number): Activity[] {
@@ -709,9 +738,6 @@ export function mockMembers(body: {
   if (action !== "add" && action !== "remove") throw new ApiError(400, "action must be add or remove")
   const handle = normalizeHandle(body.handle ?? "")
   const tip = tipOf(current)
-  const excluding = action === "remove" ? handle : undefined
-  const voters = current.members.filter((member) => member.votes && member.handle !== excluding)
-  const needed = Math.floor(voters.length / 2) + 1
   const id = mid(`push-mem-${current.emails.length + 1}`)
   const role = body.role?.trim() || "agent"
   const address = body.address?.trim() || addressOf(handle)
@@ -746,15 +772,15 @@ export function mockMembers(body: {
     author: "@console",
     subject,
     received_at: Date.now() / 1000,
-    status: "needs_quorum",
-    reason: `quorum 0/${needed}; @console does not vote`,
-    affected_owners: ["@lead"],
-    approvals: [],
+    status: "testing",
+    reason: "waiting for a passing test",
+    affected_owners: [],
+    approvals: ["@nelson"],
     objections: [],
     window_closes_at: null,
-    protected_rule: "quorum",
-    quorum_needed: needed,
-    quorum_have: 0,
+    protected_rule: "human",
+    quorum_needed: null,
+    quorum_have: null,
     test_result: null,
     task: null,
   }
@@ -844,6 +870,19 @@ export function mockReply(body: { target?: string; from?: string; text?: string 
 }
 
 function recompute(current: World, proposal: Proposal) {
+  if (proposal.protected_rule === "human") {
+    const humanApproved = proposal.approvals.some((handle) =>
+      current.members.some((member) => member.handle === handle && member.role === "human"),
+    )
+    if (humanApproved) {
+      proposal.status = "testing"
+      proposal.reason = "waiting for a passing test"
+    } else {
+      proposal.status = "needs_approval"
+      proposal.reason = "needs approval from a human member"
+    }
+    return
+  }
   if (proposal.protected_rule === "quorum" || proposal.status === "needs_quorum") {
     const voters = new Set<string>()
     const author = current.members.find((member) => member.handle === proposal.author)

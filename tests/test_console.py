@@ -12,6 +12,7 @@ from gud.console import Console, ConsoleError
 from gud.lead import Lead, ScriptedPlanner
 from gud.replay import replay
 from gud.testkit import REPO, World
+from gud.types import Member
 from gud.wire import parse_body
 
 BUGS = "bugs@gud.local"
@@ -235,6 +236,24 @@ def test_wrong_verb_and_unknown_target_are_refused(tmp_path):
     with pytest.raises(ConsoleError) as closed:
         c.decide(bug.message_id, "approve", "", "@nelson")
     assert closed.value.status == 409
+
+
+def test_gmail_human_sends_the_decision_from_the_agent_domain(tmp_path):
+    w = World.create(tmp_path)
+    w.members["@nelson"] = Member("@nelson", "human", "nelsonwmooi@gmail.com", None, None)
+    parent = w.genesis({"app.py": "def f():\n    return 1\n"})
+    pushed = _rewrite(w, parent, "app.py", "def f():\n    return 9\n", intent="nine")
+    c = _console(w, tmp_path)
+    mid = c.decide(pushed.id, "veto", "stop", "@nelson")
+    email = next(item for item in w.repo_mail() if item.message_id == mid)
+    assert email.from_addr == "nelson@gud.local"
+    assert _status(w, pushed.id) == "vetoed"
+
+    bug = _report(w)
+    c.decide(bug.message_id, "reject", "placeholder", "@nelson")
+    row = next(item for item in c.state()["bugs"] if item["id"] == bug.message_id)
+    assert row["status"] == "rejected"
+    assert row["review_by"] == "@nelson"
 
 
 def test_decide_is_allowed_when_the_mailbox_is_primitive(tmp_path):

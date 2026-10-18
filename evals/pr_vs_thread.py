@@ -33,6 +33,7 @@ from gud.mcp_baseline import INSTRUCTIONS as GIT_INSTRUCTIONS
 from gud.mcp_baseline import TOOL_NAMES as GIT_TOOLS
 from gud.mcp_baseline import GitTools
 from gud.mcp_server import INSTRUCTIONS as GUD_INSTRUCTIONS
+from gud.mcp_server import TOOL_NAMES as GUD_TOOLS
 from gud.mcp_server import GudTools
 from gud.rules import affected_owners, protection
 from gud.testkit import World
@@ -53,25 +54,33 @@ OBJECTION = (
 )
 
 
+LOGIN = "def login(username: str, password: str) -> LoginResult:\n"
+RAISE = "        raise RuntimeError(\"rate limited\")\n"
+RETURN = "        return LoginResult(False, None, \"rate limited\")\n"
+
+
+def _edits(fail: str) -> list[dict]:
+    """The author's push: two old/new edits against the tip."""
+    return [
+        {"path": "auth.py", "old": "import billing\n", "new": "import billing\nimport ratelimit\n"},
+        {"path": "auth.py", "old": LOGIN, "new": LOGIN + "    if not ratelimit.allow(f\"login:{username}\"):\n" + fail},
+    ]
+
+
+def _apply(text: str, edits: list[dict]) -> str:
+    for edit in edits:
+        if text.count(edit["old"]) != 1:
+            raise SystemExit(f"auth.py has no single {edit['old'].strip()!r} to edit")
+        text = text.replace(edit["old"], edit["new"], 1)
+    return text
+
+
 def _raise_version() -> str:
-    old = "def login(username: str, password: str) -> LoginResult:\n"
-    new = (
-        "def login(username: str, password: str) -> LoginResult:\n"
-        "    if not ratelimit.allow(f\"login:{username}\"):\n"
-        "        raise RuntimeError(\"rate limited\")\n"
-    )
-    if old not in AUTH:
-        raise SystemExit("auth.py has no login() to edit")
-    text = AUTH.replace("import billing\n", "import billing\nimport ratelimit\n", 1)
-    return text.replace(old, new, 1)
+    return _apply(AUTH, _edits(RAISE))
 
 
 def _return_version(raised: str) -> str:
-    return raised.replace(
-        "        raise RuntimeError(\"rate limited\")\n",
-        "        return LoginResult(False, None, \"rate limited\")\n",
-        1,
-    )
+    return raised.replace(RAISE, RETURN, 1)
 
 
 def _encoder():
@@ -107,10 +116,14 @@ def tool_list_text(methods) -> str:
 class Transcript:
     """One agent's conversation. Input is resent on every turn, which is how the API bills."""
 
+    events: list[dict] = []
+
     def __init__(self, system: str, tools: str, enc):
         self.system = system
         self.tools = tools
         self.enc = enc
+        self.who = ""
+        self.side = ""
         self.messages: list[tuple[str, str]] = []
         self.input_tokens = 0
         self.output_tokens = 0
@@ -120,11 +133,18 @@ class Transcript:
         history = "\n".join(f"{role}\n{body}" for role, body in self.messages)
         prompt = f"{self.system}\n{self.tools}\n{history}"
         call = json.dumps({"name": name, "arguments": arguments}, separators=(",", ":"))
+        in_before, out_before = self.input_tokens, self.output_tokens
         self.input_tokens += tokens(prompt, self.enc)
         self.output_tokens += tokens(call, self.enc)
         self.turns += 1
         self.messages.append(("assistant", call))
         self.messages.append(("tool", result))
+        Transcript.events.append({
+            "who": self.who, "side": self.side, "name": name,
+            "arguments": arguments, "result": result,
+            "input_tokens": self.input_tokens - in_before,
+            "output_tokens": self.output_tokens - out_before,
+        })
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -258,6 +278,8 @@ def gud_payloads(raised: str, revised: str) -> dict[str, str]:
 def run_pr(enc, tools: str, payloads: dict[str, str], raised: str, revised: str) -> tuple[Transcript, Transcript]:
     author = Transcript(GIT_INSTRUCTIONS.format(handle="@billing-agent"), tools, enc)
     reviewer = Transcript(GIT_INSTRUCTIONS.format(handle="@auth-agent"), tools, enc)
+    author.who, author.side = "@billing-agent", "pull-request"
+    reviewer.who, reviewer.side = "@auth-agent", "pull-request"
     author.call("read", {"path": "auth.py"}, AUTH)
     author.call("write", {"path": "auth.py", "content": raised}, f"wrote auth.py ({len(raised)} bytes)")
     author.call("git_commit", {"message": "rate-limit login"}, "committed a1b2c3d rate-limit login")
@@ -278,21 +300,23 @@ def run_pr(enc, tools: str, payloads: dict[str, str], raised: str, revised: str)
 
 
 def run_gud(enc, tools: str, payloads: dict[str, str], raised: str, revised: str) -> tuple[Transcript, Transcript]:
-    author = Transcript(GUD_INSTRUCTIONS.format(handle="@billing-agent"), tools, enc)
-    reviewer = Transcript(GUD_INSTRUCTIONS.format(handle="@auth-agent"), tools, enc)
+    author = Transcript(GUD_INSTRUCTIONS, tools, enc)
+    reviewer = Transcript(GUD_INSTRUCTIONS, tools, enc)
+    author.who, author.side = "@billing-agent", "gud"
+    reviewer.who, reviewer.side = "@auth-agent", "gud"
     author.call("read", {"path": "auth.py"}, AUTH)
     author.call(
         "push",
-        {"intent": "Rate-limit login before checking the password.", "edits": [{"path": "auth.py", "content": raised}]},
+        {"intent": "Rate-limit login before checking the password.", "edits": _edits(RAISE)},
         payloads["push_result"],
     )
     reviewer.call("thread", {"message_id": payloads["push_result"].splitlines()[0]}, payloads["thread"])
     reviewer.call("reply", {"target": "push", "action": "object", "reason": OBJECTION}, payloads["objection_result"])
     author.call("wait", {"push_id": "push"}, payloads["objection_seen"])
-    author.call("read", {"path": "auth.py"}, raised)
+    author.call("read", {"path": "auth.py"}, AUTH)
     author.call(
         "push",
-        {"intent": "Return LoginResult when login is rate limited.", "edits": [{"path": "auth.py", "content": revised}]},
+        {"intent": "Return LoginResult when login is rate limited.", "edits": _edits(RETURN)},
         payloads["push_result_2"],
     )
     reviewer.call("thread", {"message_id": payloads["push_result_2"].splitlines()[0]}, payloads["thread_2"])
@@ -312,9 +336,7 @@ def _sum(rows: list[Transcript]) -> tuple[int, int, int]:
 def _schema_tokens(enc) -> tuple[int, int]:
     git_methods = [getattr(GitTools, name) for name in GIT_TOOLS]
     git_methods.extend(_pr_method(name, doc, props) for name, doc, props in PR_TOOLS)
-    gud_methods = [getattr(GudTools, name) for name in (
-        "status", "read", "ls", "blame", "push", "wait", "rebase", "reply", "log", "thread", "tasks",
-    )]
+    gud_methods = [getattr(GudTools, name) for name in GUD_TOOLS]
     return tokens(tool_list_text(git_methods), enc), tokens(tool_list_text(gud_methods), enc)
 
 

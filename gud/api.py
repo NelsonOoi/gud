@@ -19,15 +19,25 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+import httpx
+
 from . import compose, config, sig
 from .bugs import bugs_address_for, derive_bugs
 from .chain import Repo
-from .config import domain_address
+from .config import domain_address, write_swarm_file
 from .console import Console, ConsoleError, activity, all_members, email_kind, handle_of
 from .hostauth import verify_request
 from .joins import join_requests
 from .keys import load_identity
+from .mail_primitive import PrimitiveError, PrimitiveMailbox
 from .patch import diffstat
+from .open import (
+    boot_swarm, catalog_addresses, human_members, prepare_agent, repo_address, send_genesis,
+    start_swarm, stop_swarm, swarm_is_on,
+)
+from .repos import (
+    check_token, header_rows, read_active, read_token, write_active, write_token,
+)
 from .types import Email, LinkState, Member, ProposalState
 from .wire import parse_body
 
@@ -39,11 +49,8 @@ class Ctx:
                  host_url: str | None = None, loopback_hosts: set[str] | None = None,
                  auto_welcome: bool = True, welcome_interval: float = 1.0,
                  start_welcome_thread: bool = True):
-        from .mailbox import open_mailbox
         self.cfg = cfg
         self.clock = clock
-        self.mailbox = mailbox or open_mailbox(cfg)
-        self.repo = Repo(self.mailbox, cfg.window_seconds, clock=clock)
         self.loopback_hosts = set(LOOPBACK_HOSTS if loopback_hosts is None else loopback_hosts)
         self.host_url = host_url if host_url is not None else (os.environ.get("GUD_PUBLIC_URL") or "http://127.0.0.1:8787")
         self.auto_welcome = auto_welcome
@@ -52,7 +59,44 @@ class Ctx:
         self._welcome_lock = threading.Lock()
         self._welcomed: set[str] = set()
         self._welcome_thread: threading.Thread | None = None
-        self.console = Console(cfg, mailbox=self.mailbox, clock=clock)
+        self.token_client = None
+        self.view_epoch = 0
+        self._view_lock = threading.Lock()
+        self.needs_token = False
+        self._repos_lock = threading.Lock()
+        self._repos_cache: tuple[float, list[str]] | None = None
+        self._repos_event: threading.Event | None = None
+        self.swarm = None
+        self.swarm_enabled = False
+        self._swarm_lock = threading.Lock()
+        self._bind_mailbox(mailbox)
+
+    def _bind_mailbox(self, mailbox) -> None:
+        """Open the GUI mailbox. A passed-in mailbox is kept as-is (tests)."""
+        from .mailbox import open_mailbox
+
+        self.mailbox = mailbox
+        if self.mailbox is None and (self.cfg.mailbox or "fake").strip().lower() == "fake":
+            self.mailbox = open_mailbox(self.cfg)
+        elif self.mailbox is None:
+            key = self.cfg.primitive_api_key or read_token(self.cfg.home)
+            if not key:
+                self.needs_token = True
+            else:
+                self.mailbox = PrimitiveMailbox(
+                    key, read_active(self.cfg.home) or self.cfg.repo_address, list_ttl=1.0,
+                )
+        if self.mailbox is not None and mailbox is None:
+            saved = read_active(self.cfg.home)
+            if saved:
+                self.mailbox.repo_address = saved
+        if self.mailbox is None:
+            self.repo = None
+            self.console = None
+            return
+        self.needs_token = False
+        self.repo = Repo(self.mailbox, self.cfg.window_seconds, clock=self.clock)
+        self.console = Console(self.cfg, mailbox=self.mailbox, clock=self.clock)
 
     def identity(self, handle: str) -> compose.Identity:
         try:
@@ -118,6 +162,98 @@ class TaskIn(BaseModel):
     requester: str
 
 
+class RepoIn(BaseModel):
+    address: str
+
+
+class MailboxIn(BaseModel):
+    token: str
+
+
+class OpenRepoIn(BaseModel):
+    name: str
+    humans: list[str]
+
+
+class SwarmIn(BaseModel):
+    enabled: bool
+
+
+class AgentIn(BaseModel):
+    handle: str
+    role: str | None = None
+
+
+def select_repo(ctx: Ctx, address: str, *, persist: bool) -> None:
+    """Point the GUI mailbox at ``address``. Persisting writes ``GUD_HOME/repo.txt``."""
+    address = address.strip().lower()
+    with ctx._view_lock:
+        current = (ctx.mailbox.repo_address or "").lower()
+        ctx.mailbox.repo_address = address
+        if current != address:
+            ctx.view_epoch += 1
+            ctx._welcomed.clear()
+            if ctx.console is not None:
+                ctx.console.invalidate()
+        if persist:
+            write_active(ctx.cfg.home, address)
+
+
+_REPOS_TTL = 60.0
+
+
+def mailbox_repos(ctx: Ctx, *, refresh: bool = False) -> list[str]:
+    """Genesis addresses. A fresh list is reused for a minute, and one scan serves every caller."""
+    if ctx.mailbox is None:
+        return []
+    now = time.monotonic()
+    with ctx._repos_lock:
+        cached = ctx._repos_cache
+        if cached is not None and not refresh and now - cached[0] < _REPOS_TTL:
+            return list(cached[1])
+        event = ctx._repos_event
+        if event is not None and not refresh:
+            leader = False
+        else:
+            event = threading.Event()
+            ctx._repos_event = event
+            leader = True
+    if not leader:
+        event.wait()
+        with ctx._repos_lock:
+            cached = ctx._repos_cache
+        return list(cached[1]) if cached is not None else []
+    try:
+        repos = catalog_addresses(header_rows(ctx.mailbox))
+        with ctx._repos_lock:
+            ctx._repos_cache = (time.monotonic(), repos)
+        return repos
+    finally:
+        with ctx._repos_lock:
+            ctx._repos_event = None
+        event.set()
+
+
+def repo_catalog(ctx: Ctx) -> dict:
+    """Genesis addresses in the signed-in mailbox. Does not download bodies."""
+    if ctx.mailbox is None:
+        return {"active": None, "repos": [], "needs_token": True}
+    repos = mailbox_repos(ctx)
+    saved = read_active(ctx.cfg.home)
+    # The inbound scan lags a send. Keep the repo we just opened selected.
+    if saved and "@" in saved and saved not in repos:
+        repos = [saved, *repos]
+    if saved in repos:
+        active = saved
+    elif repos:
+        active = repos[0]
+    else:
+        active = None
+    if active and (ctx.mailbox.repo_address or "").lower() != active:
+        select_repo(ctx, active, persist=False)
+    return {"active": active, "repos": repos, "needs_token": False}
+
+
 class MemberIn(BaseModel):
     action: str
     handle: str
@@ -134,14 +270,37 @@ def _signed_path(request) -> str:
     return f"{path}?{query}" if query else path
 
 
+def _approve_as_human(ctx: Ctx, push_id: str, as_handle: str | None = None) -> None:
+    """Mail ``approve`` from the human member. Replay counts it only when the sender verifies."""
+    if ctx.console is None:
+        raise HTTPException(409, "mailbox sign-in required")
+    try:
+        if as_handle:
+            ctx.console.decide(push_id, "approve", "", as_handle)
+        else:
+            ctx.console.decide(push_id, "approve")
+    except ConsoleError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+def _human_approver(ctx: Ctx, members: dict) -> str | None:
+    """The configured human when they are on the roster, otherwise the first human."""
+    humans = [member.handle for member in members.values() if member.role == "human"]
+    if ctx.console is not None and ctx.console.human_handle() in humans:
+        return None
+    return humans[0] if humans else None
+
+
 def _tip_members(ctx: Ctx) -> dict:
+    if ctx.repo is None:
+        return {}
     chain = ctx.repo.refresh()
     tip = chain.tip
     return dict(tip.members) if tip is not None else {}
 
 
 def _welcome_once(ctx: Ctx, chain=None) -> list:
-    if not ctx.auto_welcome:
+    if not ctx.auto_welcome or ctx.mailbox is None or ctx.repo is None:
         return []
     with ctx._welcome_lock:
         if not ctx.cfg.key_path("@console").exists():
@@ -203,6 +362,8 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
     def chain():
+        if ctx.mailbox is None or ctx.repo is None:
+            raise HTTPException(409, "mailbox sign-in required")
         current = ctx.repo.refresh()
         if ctx.auto_welcome:
             _welcome_once(ctx, current)
@@ -214,8 +375,120 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
             raise HTTPException(404, "no such link")
         return l
 
+    @app.get("/api/repos")
+    def get_repos():
+        return repo_catalog(ctx)
+
+    @app.post("/api/repo")
+    def post_repo(body: RepoIn):
+        if ctx.mailbox is None:
+            raise HTTPException(409, "mailbox sign-in required")
+        address = body.address.strip().lower()
+        if "@" not in address:
+            raise HTTPException(400, "address must include @")
+        repos = mailbox_repos(ctx)
+        if address not in repos:
+            repos = mailbox_repos(ctx, refresh=True)
+        if address not in repos:
+            raise HTTPException(404, "no such repo")
+        select_repo(ctx, address, persist=True)
+        return {"active": address, "repos": repos, "needs_token": False}
+
+    @app.post("/api/repos")
+    def post_repos(body: OpenRepoIn):
+        """Genesis only. Does not start the swarm."""
+        if ctx.mailbox is None:
+            raise HTTPException(409, "mailbox sign-in required")
+        if not hasattr(ctx.mailbox, "repo_address"):
+            raise HTTPException(409, "mailbox has no repo address")
+        try:
+            address = repo_address(ctx.cfg, body.name)
+            humans = human_members(body.humans)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if address in catalog_addresses(header_rows(ctx.mailbox)):
+            raise HTTPException(409, f"{address} already has a genesis")
+        previous = ctx.mailbox.repo_address
+        select_repo(ctx, address, persist=False)
+        try:
+            send_genesis(ctx.cfg, ctx.mailbox, humans)
+        except PrimitiveError as exc:
+            select_repo(ctx, previous, persist=False)
+            raise HTTPException(502, exc.message) from exc
+        write_active(ctx.cfg.home, address)
+        with ctx._repos_lock:
+            ctx._repos_cache = None
+        return repo_catalog(ctx)
+
+    @app.get("/api/swarm")
+    def get_swarm():
+        return {"enabled": swarm_is_on(ctx)}
+
+    @app.post("/api/swarm")
+    def post_swarm(body: SwarmIn):
+        if not body.enabled:
+            stop_swarm(ctx)
+            write_swarm_file(ctx.cfg.home, False)
+            return {"enabled": False}
+        if ctx.mailbox is None:
+            raise HTTPException(409, "mailbox sign-in required")
+        try:
+            start_swarm(ctx)
+        except SystemExit as exc:
+            message = str(exc).strip() or "repo has no genesis"
+            raise HTTPException(409, message) from None
+        write_swarm_file(ctx.cfg.home, True)
+        return {"enabled": True}
+
+    @app.post("/api/agents")
+    def post_agent(body: AgentIn):
+        from .members import propose_add
+
+        current = chain()
+        if current.tip is None:
+            raise HTTPException(409, "no genesis yet")
+        try:
+            prepared = prepare_agent(ctx.cfg, body.handle, body.role, current.tip.members)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if prepared.addition is not None:
+            console = ctx.identity("@console")
+            try:
+                email = propose_add(ctx.mailbox, console, current.tip, prepared.addition)
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
+            _approve_as_human(ctx, email.message_id, _human_approver(ctx, current.tip.members))
+        return {
+            "handle": prepared.handle,
+            "address": prepared.address,
+            "public_key": prepared.public_key,
+            "private_key": prepared.private_key,
+        }
+
+    @app.post("/api/mailbox")
+    def post_mailbox(body: MailboxIn):
+        token = body.token.strip()
+        if not token:
+            raise HTTPException(400, "token is required")
+        try:
+            check_token(token, client=ctx.token_client)
+        except (PrimitiveError, httpx.HTTPError) as exc:
+            raise HTTPException(401, "that credential was rejected") from exc
+        write_token(ctx.cfg.home, token)
+        saved = read_active(ctx.cfg.home) or ctx.cfg.repo_address
+        ctx.mailbox = PrimitiveMailbox(token, saved, client=ctx.token_client, list_ttl=1.0)
+        ctx.needs_token = False
+        ctx.repo = Repo(ctx.mailbox, ctx.cfg.window_seconds, clock=ctx.clock)
+        ctx.console = Console(ctx.cfg, mailbox=ctx.mailbox, clock=ctx.clock)
+        ctx.view_epoch += 1
+        ctx._welcomed.clear()
+        ctx._repos_cache = None
+        return repo_catalog(ctx)
+
     @app.get("/api/info")
     def info():
+        if ctx.mailbox is None or ctx.repo is None:
+            raise HTTPException(409, "mailbox sign-in required")
         current = ctx.repo.refresh()
         tip = current.tip
         return {
@@ -260,17 +533,29 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
                 "local_signers": [h for h in local if h in current]}
 
     @app.get("/api/mail")
-    def get_mail(since: float | None = None, limit: int = 500):
+    def get_mail(since: float | None = None, limit: int = 500, wait: float | None = None):
+        """``wait`` long-polls the local cache, capped at 30 seconds. It does not call Primitive."""
         chain()
         if limit < 0:
             limit = 0
-        emails = ctx.mailbox.list(recipient=ctx.mailbox.repo_address, since=since)
-        if since is not None:
-            emails = [email for email in emails if email.received_at > since]
-        emails.sort(key=lambda email: (email.received_at, email.message_id))
-        page = emails[:limit] if limit else []
-        next_since = page[-1].received_at if limit and len(page) == limit else None
-        return {"emails": [raw_email(email) for email in page], "next_since": next_since}
+        deadline = None
+        if wait is not None and wait > 0:
+            deadline = time.monotonic() + min(30.0, float(wait))
+
+        def page_of():
+            emails = ctx.mailbox.list(recipient=ctx.mailbox.repo_address, since=since)
+            if since is not None:
+                emails = [email for email in emails if email.received_at > since]
+            emails.sort(key=lambda email: (email.received_at, email.message_id))
+            page = emails[:limit] if limit else []
+            next_since = page[-1].received_at if limit and len(page) == limit else None
+            return {"emails": [raw_email(email) for email in page], "next_since": next_since}
+
+        while True:
+            body = page_of()
+            if body["emails"] or deadline is None or time.monotonic() >= deadline:
+                return body
+            time.sleep(0.2)
 
     @app.get("/api/joins")
     def get_joins():
@@ -302,6 +587,36 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
         return {"push_id": email.message_id}
+
+    @app.post("/api/joins/{id:path}/approve")
+    def approve_join(id: str):
+        """Propose the join if it is still pending, then record the human's approve."""
+        from .members import propose_add
+        current = chain()
+        if current.tip is None:
+            raise HTTPException(409, "no genesis yet")
+        found = next((row for row in join_requests(current) if row["id"] == id), None)
+        if found is None:
+            raise HTTPException(404, "no such join request")
+        if not found["valid"]:
+            raise HTTPException(409, "join request is not valid")
+        if found["status"] == "member" or _roster_has(current.tip, found):
+            raise HTTPException(409, "handle or address is already a member")
+        push_id = found.get("push_id") if found["status"] == "proposed" else None
+        if not push_id:
+            console = ctx.identity("@console")
+            member = Member(
+                found["handle"], found["role"], found["address"], found["public_key"] or None, found["sponsor"],
+            )
+            try:
+                email = propose_add(
+                    ctx.mailbox, console, current.tip, member, reason=found["reason"], join_id=found["id"],
+                )
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
+            push_id = email.message_id
+        _approve_as_human(ctx, push_id)
+        return {"push_id": push_id}
 
     @app.get("/api/links/{id:path}/diff")
     def link_diff(id: str):
@@ -396,6 +711,7 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
             email = memberlib.propose_remove(ctx.mailbox, console, c.tip, body.handle)
         else:
             raise HTTPException(400, "action must be add or remove")
+        _approve_as_human(ctx, email.message_id)
         return {"push_id": email.message_id}
 
     @app.post("/api/reply")
@@ -421,12 +737,40 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
     @app.get("/api/events")
     async def events():
         async def gen():
+            epoch = -1
+            last_mark = None
             seen = 0
             last_tip = None
             last_props: dict[str, str] = {}
             seen_joins: set[str] = set()
             seen_bugs: dict[str, str] = {}
+
+            def remember(c, reports) -> None:
+                nonlocal seen, last_tip, last_props, seen_joins, seen_bugs
+                seen = len(c.emails) + len(c.links) - 1
+                last_tip = c.tip.message_id if c.tip else None
+                last_props = {pid: p.status for pid, p in c.proposals.items()}
+                seen_joins = {row["id"] for row in join_requests(c)}
+                seen_bugs = {report.id: report.status for report in reports}
+
             while True:
+                if ctx.mailbox is None or ctx.repo is None:
+                    await asyncio.sleep(1.0)
+                    continue
+                mark = _cache_mark(ctx.mailbox)
+                if mark is not None and epoch >= 0 and mark == last_mark and ctx.view_epoch == epoch:
+                    # The cache has not grown, so the replay would see the same chain.
+                    await asyncio.sleep(0.2)
+                    continue
+                last_mark = mark
+                if ctx.view_epoch != epoch:
+                    epoch = ctx.view_epoch
+                    c = await asyncio.to_thread(chain)
+                    members = c.tip.members if c.tip else {}
+                    rows = await asyncio.to_thread(bug_rows, ctx)
+                    remember(c, derive_bugs(rows, c.emails, members, bugs_address(ctx)))
+                    await asyncio.sleep(1.0)
+                    continue
                 c = await asyncio.to_thread(chain)
                 for a in reversed(activity(c, 10_000)[: max(0, len(c.emails) + len(c.links) - 1 - seen)]):
                     yield {"event": "mail", "data": json.dumps(a)}
@@ -448,14 +792,28 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
                     if seen_bugs.get(report.id) != report.status:
                         seen_bugs[report.id] = report.status
                         yield {"event": "bug", "data": json.dumps(report.to_json())}
-                await asyncio.sleep(1.0)
+                if mark is None:
+                    await asyncio.sleep(1.0)
         return EventSourceResponse(gen())
 
     _start_welcome(ctx)
+    boot_swarm(ctx)
     dist = Path(__file__).resolve().parent.parent / "ui" / "dist"
     if dist.exists():
         app.mount("/", StaticFiles(directory=dist, html=True), name="ui")
     return app
+
+
+def _cache_mark(mailbox):
+    """Size and mtime of the local mailbox file, or None when this mailbox has no cache."""
+    path = getattr(mailbox, "path", None)
+    if path is None:
+        return None
+    try:
+        st = Path(path).stat()
+    except OSError:
+        return None
+    return (st.st_size, getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)))
 
 
 def main() -> None:

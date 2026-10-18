@@ -16,8 +16,8 @@ from .bugs import _ask_targets, _target, _verb, bugs_address_for, derive_bugs
 from .chain import Repo
 from .compose import Identity
 from .config import domain_address
-from .keys import env_private
-from .memberfile import by_address
+from .keys import decode_private_key, env_private
+from .memberfile import by_address, sending_address
 from .patch import diffstat
 from .types import Email, Member
 from .wire import parse_body, short
@@ -154,7 +154,7 @@ class Console:
             return self._cached, list(self._bug_mail)
 
     def authorize(self, token: str | None, headers: dict | None = None) -> None:
-        """Write tools check ``GUD_MCP_TOKEN`` when it is set. Reads stay open."""
+        """Legacy shared-secret check. The feed signs with the caller's Ed25519 key instead."""
         expected = getattr(self.cfg, "mcp_token", None)
         if not expected:
             return
@@ -214,14 +214,47 @@ class Console:
         bugs = derive_bugs(_read_bugs(self.mailbox, self.bugs_address()), chain.emails, members, self.bugs_address())
         return [bug.to_json() for bug in bugs]
 
-    def create_task(self, title: str, description: str = "", requester: str | None = None) -> str:
+    def select_repo(self, repo: str | None) -> None:
+        """Point this mailbox at ``repo`` for the next read or write. Blank keeps the current one."""
+        address = (repo or "").strip()
+        if not address:
+            return
+        current = (getattr(self.mailbox, "repo_address", "") or "").strip()
+        if address.lower() == current.lower():
+            return
+        self.mailbox.repo_address = address
+        self.invalidate()
+
+    def identity_for_key(self, private_key: str | None, handle: str | None = None) -> Identity:
+        """The signer for a feed write. ``handle`` wins; otherwise the roster public key."""
+        raw = decode_private_key(private_key)
+        if raw is None:
+            raise ConsoleError("private_key must be a 32-byte Ed25519 key", 400)
+        named = _named_handle(handle)
+        chain = self.chain(force=True)
+        members = chain.tip.members if chain.tip else {}
+        if named is None:
+            pub = sig.public_of(raw)
+            match = next((member for member in members.values() if member.public_key == pub), None)
+            if match is None:
+                raise ConsoleError("pass handle with the private key", 400)
+            return Identity(match.handle, match.address, raw)
+        member = members.get(named)
+        address = member.address if member is not None else domain_address(self.cfg.domain, named)
+        return Identity(named, address, raw)
+
+    def create_task(self, title: str, description: str = "", requester: str | None = None, *,
+                    identity: Identity | None = None) -> str:
         title = (title or "").strip()
         if not title:
             raise ConsoleError("title is required", 400)
-        requester = _at(requester or self.human_handle())
+        ident = identity or self.console_identity()
+        if identity is not None and not (requester or "").strip():
+            requester = ident.handle
+        else:
+            requester = _at(requester or self.human_handle())
         chain = self.chain(force=True)
         tid = tasklib.next_task_id(chain.emails)
-        ident = self.console_identity()
         text = compose.task_body(ident, tid, requester, (description or "").strip() or title)
         members = chain.tip.members if chain.tip else {}
         compose.send(
@@ -255,8 +288,41 @@ class Console:
         note = (reason or "").strip()
         body = verdict if not note else f"{verdict}\n{note}"
         email = self.mailbox.send(
-            from_addr=member.address, to=self.mailbox.repo_address,
+            from_addr=sending_address(member, self.cfg.domain), to=self.mailbox.repo_address,
             subject=f"Re: {item['title']}", body=body + "\n", in_reply_to=target,
+        )
+        self.invalidate()
+        return email.message_id
+
+    def signed_reply(self, target: str, verdict: str, reason: str, identity: Identity) -> str:
+        """A feed decision signed with the caller's key. Humans still send a plain reply."""
+        verdict = (verdict or "").strip().lower()
+        chain, bug_mail = self._snapshot(force=True)
+        if chain.tip is None:
+            raise ConsoleError("no genesis yet", 409)
+        member = all_members(chain).get(identity.handle)
+        if member is not None and member.role == "human":
+            return self.decide(target, verdict, reason, identity.handle)
+        members = chain.tip.members
+        bugs = derive_bugs(bug_mail, chain.emails, members, self.bugs_address())
+        item = next((row for row in needs_you(bugs, chain) if row["id"] == target), None)
+        if item is None:
+            if any(bug.id == target for bug in bugs):
+                raise ConsoleError("bug report is already reviewed", 409)
+            if _known_message(chain, bug_mail, target):
+                raise ConsoleError("not open for a decision", 409)
+            raise ConsoleError("unknown target", 404)
+        if verdict not in item["verbs"]:
+            raise ConsoleError(f"verdict must be one of: {', '.join(item['verbs'])}", 400)
+        if verdict == "veto":
+            raise ConsoleError("veto is a human reply", 400)
+        note = (reason or "").strip()
+        if verdict == "approve":
+            body = compose.approve_body(identity, target, note or "Approved.")
+        else:
+            body = compose.object_body(identity, target, note or "Rejected.")
+        email = compose.send(
+            self.mailbox, identity, members, f"Re: {item['title']}", body, in_reply_to=target,
         )
         self.invalidate()
         return email.message_id
@@ -274,7 +340,7 @@ class Console:
         if email is None:
             raise ConsoleError("unknown target", 404)
         sent = self.mailbox.send(
-            from_addr=member.address, to=self.mailbox.repo_address,
+            from_addr=sending_address(member, self.cfg.domain), to=self.mailbox.repo_address,
             subject=f"Re: {email.subject}", body=text.strip() + "\n", in_reply_to=email.message_id,
         )
         self.invalidate()
@@ -637,6 +703,17 @@ def _clip(text: str, limit: int = 160) -> str:
     if len(line) <= limit:
         return line
     return line[: limit - 1].rstrip() + "…"
+
+
+def _named_handle(handle: str | None) -> str | None:
+    text = (handle or "").strip()
+    if not text:
+        return None
+    if text.startswith("@"):
+        text = text[1:].strip()
+    if not text or "@" in text or any(ch.isspace() for ch in text):
+        raise ConsoleError("invalid handle", 400)
+    return f"@{text}"
 
 
 def _at(handle: str) -> str:

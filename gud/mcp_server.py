@@ -1,6 +1,9 @@
 """MCP server for gud. The email chain is the repo; these tools are the whole workflow.
 
-Run: ``python -m gud.mcp_server --handle @alice``
+Run: ``python -m gud.mcp_server``
+
+One process serves the whole session. It does not bind a handle or load a private
+key. Each signing call passes ``handle`` and ``private_key``.
 
 Tool bodies live on ``GudTools`` so tests can call them without a transport.
 ``build_server`` registers those methods on a FastMCP server (``MCPServer`` on
@@ -10,17 +13,19 @@ mcp 2.x, which renamed FastMCP) over stdio.
 from __future__ import annotations
 
 import argparse
+import base64
 import difflib
 import json
-import os
+import tempfile
 import time
+from pathlib import Path
 
-from gud import compose, sig
+from gud import compose
 from gud.analytics import instrument, tracked, unwrap
 from gud.compose import Identity
 from gud.patch import apply_diff, diff_trees
 from gud.tasks import derive as derive_tasks
-from gud.wire import normalize, parse_body, short
+from gud.wire import normalize, parse_body, short, test_log
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -28,13 +33,39 @@ except ModuleNotFoundError:  # mcp>=2 renamed FastMCP -> MCPServer
     from mcp.server.mcpserver import MCPServer as FastMCP
 
 TOOL_NAMES = (
-    "status", "read", "ls", "blame", "push", "wait", "rebase", "reply", "log", "thread", "tasks",
+    "status", "read", "ls", "blame", "push", "export", "wait", "rebase", "reply", "log", "thread", "tasks",
 )
 
-INSTRUCTIONS = """You are {handle} in a gud repo. The mailbox is the repo: there are no branches, no pull, and no merge.
+INSTRUCTIONS = """One gud server serves this whole session. It is not bound to an agent. On every call that signs mail (push, reply, rebase), pass handle (for example @tester) and private_key (base64 raw Ed25519 private key). Pass handle on status and wait too. The mailbox is the repo: there are no branches, no pull, and no merge.
 
-Read the tip, change files by pushing the full new text, then wait. wait tells you whether the push landed, was objected to, or lost a race. If it is superseded or stale, rebase — do not pull. When status says a push needs you, reply approve or object. Protected paths need an explicit approval or a quorum before they land. Finish a subtask by pushing with its task id.
+Read the tip, push small old/new edits, then wait. Re-read if old text is not found. To run tests locally, export the tip plus your edits to a scratch directory; push is still the only way to change the repo. wait tells you whether the push landed, was objected to, or lost a race. If it is superseded or stale, rebase — do not pull. When status says a push needs you, reply approve or object. Protected paths need an explicit approval or a quorum before they land. Finish a subtask by pushing with its task id.
 """
+
+
+def _canon_handle(handle: str) -> str | None:
+    text = str(handle).strip()
+    if text.startswith("@"):
+        text = text[1:].strip()
+    if not text or "@" in text or any(ch.isspace() for ch in text):
+        return None
+    return "@" + text
+
+
+def _decode_private_key(private_key: str) -> tuple[bytes | None, str | None]:
+    """Base64 raw Ed25519 seed. Not checked against the roster or against disk."""
+    if not isinstance(private_key, str):
+        return None, "error: private_key must be base64 raw Ed25519"
+    text = "".join(private_key.split())
+    if not text:
+        return None, "error: private_key is required"
+    pad = (-len(text)) % 4
+    try:
+        raw = base64.b64decode(text + ("=" * pad), validate=True)
+    except Exception:
+        return None, "error: private_key must be base64 raw Ed25519"
+    if len(raw) != 32:
+        return None, "error: private_key must be a 32-byte Ed25519 private key"
+    return raw, None
 
 _REBASE_STATUSES = {"superseded", "stale", "conflict"}
 _TERMINAL = {"objected", "vetoed", "tests_failed", "stale", "bad_sig", "conflict", "superseded"}
@@ -65,32 +96,62 @@ def _binary(content: str) -> bool:
 
 
 def _validate_edits(edits):
-    """Return ([(path, content|None)], error message). content None deletes."""
+    """Return ([(path, old|None, new|None)], error message). old None creates; new None deletes."""
     if isinstance(edits, str):
         try:
             edits = json.loads(edits)
         except json.JSONDecodeError:
-            return None, "edits must be a list of {path, content}"
+            return None, "edits must be a list of {path, old, new}"
     if not isinstance(edits, list) or not edits:
-        return None, "edits must be a non-empty list of {path, content}"
+        return None, "edits must be a non-empty list of {path, old, new}"
     cleaned = []
     for edit in edits:
         if not isinstance(edit, dict) or "path" not in edit:
-            return None, "each edit needs path and content"
-        if "content" not in edit:
-            return None, f"{edit.get('path')}: content missing (null deletes the file)"
+            return None, "each edit needs path, then old/new, new, or delete"
+        if "content" in edit:
+            return None, f"{edit.get('path')}: send old/new edits, not whole files"
         err = _path_error(str(edit["path"]))
         if err:
             return None, f"{edit.get('path')}: {err}"
         path = _norm_path(str(edit["path"]))
-        content = edit["content"]
-        if content is not None:
-            if not isinstance(content, str):
-                return None, f"{path}: content must be text or null"
-            if _binary(content):
-                return None, f"{path}: binary content is not allowed"
-        cleaned.append((path, content))
+        if edit.get("delete"):
+            if edit.get("old") is not None or edit.get("new") is not None:
+                return None, f"{path}: delete takes no old or new"
+            cleaned.append((path, None, None))
+            continue
+        old, new = edit.get("old"), edit.get("new")
+        if not isinstance(new, str):
+            return None, f"{path}: new must be text (delete: true removes the file)"
+        if old is not None and (not isinstance(old, str) or not old):
+            return None, f"{path}: old must be non-empty text"
+        if _binary(new) or old is not None and _binary(old):
+            return None, f"{path}: binary content is not allowed"
+        cleaned.append((path, old, new))
     return cleaned, None
+
+
+def _apply_edits(tree: dict, cleaned, link_id: str) -> tuple[dict, str | None]:
+    """Apply validated edits in order to a copy of tree. Returns (tree, error message)."""
+    out = dict(tree)
+    for path, old, new in cleaned:
+        if new is None:
+            if path not in out:
+                return out, f"no such file {path} at {link_id}; read it again"
+            del out[path]
+        elif old is None:
+            if path in out:
+                return out, f"{path} already exists at {link_id}; send old/new to change it"
+            out[path] = normalize(new)
+        else:
+            if path not in out:
+                return out, f"no such file {path} at {link_id}; read it again"
+            hits = out[path].count(old)
+            if hits == 0:
+                return out, f"old text not found in {path} at {link_id}; read it again"
+            if hits > 1:
+                return out, f"old text matches {hits} places in {path}; include more surrounding lines"
+            out[path] = normalize(out[path].replace(old, new, 1))
+    return out, None
 
 
 def _ops(before: list[str], after: list[str]) -> list[tuple[int, int, list[str]]]:
@@ -213,9 +274,14 @@ def _title(email, parsed) -> str:
 
 
 class GudTools:
-    """One agent's view of a gud repo. Construct with a mailbox and an identity."""
+    """Tools for one gud mailbox.
 
-    def __init__(self, mailbox, identity: Identity, window_seconds: float = 60, clock=None):
+    ``identity`` is optional. The MCP process leaves it unset and takes ``handle``
+    and ``private_key`` on each signing call. Tests may still bind an identity;
+    that identity is used only when a call omits the corresponding argument.
+    """
+
+    def __init__(self, mailbox, identity: Identity | None = None, window_seconds: float = 60, clock=None):
         self.mailbox = mailbox
         self.identity = identity
         self.window_seconds = float(window_seconds)
@@ -238,11 +304,57 @@ class GudTools:
     def _emails(self):
         return self.mailbox.list(recipient=self.mailbox.repo_address)
 
-    def _inbox(self):
-        return self.mailbox.list(recipient=self.identity.address)
+    def _domain(self) -> str:
+        domain = getattr(self.mailbox, "domain", None)
+        if isinstance(domain, str) and domain.strip():
+            return domain.strip()
+        repo = getattr(self.mailbox, "repo_address", "") or ""
+        if "@" in repo:
+            return repo.split("@", 1)[1]
+        return "gud.local"
 
-    def _max_received(self) -> float:
-        mail = self._inbox()
+    def _address_for(self, handle: str, chain=None) -> str:
+        """Tip roster address for ``handle`` when the repo has a tip, else ``handle@domain``."""
+        if chain is None:
+            chain = self.repo().refresh()
+        tip = getattr(chain, "tip", None)
+        member = (getattr(tip, "members", None) or {}).get(handle) if tip is not None else None
+        address = getattr(member, "address", None) if member is not None else None
+        if address:
+            return str(address)
+        return f"{handle.lstrip('@')}@{self._domain()}"
+
+    def _call_identity(self, handle: str | None, private_key: str | None, *, sign: bool, chain=None):
+        """Identity for this call only. Arguments win over a bound test identity."""
+        if handle is None or not str(handle).strip():
+            if self.identity is None or not self.identity.handle:
+                return None, "error: handle is required"
+            named = self.identity.handle
+        else:
+            named = _canon_handle(handle)
+            if not named:
+                return None, "error: invalid handle"
+        omitted = private_key is None or (isinstance(private_key, str) and not private_key.strip())
+        if omitted:
+            raw = None
+            if sign:
+                bound = self.identity
+                if bound is None or bound.handle != named or not bound.private_raw:
+                    return None, "error: private_key is required"
+                raw = bound.private_raw
+        elif not isinstance(private_key, str):
+            return None, "error: private_key must be base64 raw Ed25519"
+        else:
+            raw, err = _decode_private_key(private_key)
+            if err:
+                return None, err
+        return Identity(named, self._address_for(named, chain), raw), None
+
+    def _inbox(self, ident: Identity):
+        return self.mailbox.list(recipient=ident.address)
+
+    def _max_received(self, ident: Identity) -> float:
+        mail = self._inbox(ident)
         return mail[-1].received_at if mail else 0.0
 
     def _find(self, message_id: str, chain=None):
@@ -255,11 +367,14 @@ class GudTools:
                 return email
         return None
 
-    def _forecast(self, parent, diff: str, new_tree: dict) -> tuple[list[str], str | None, str]:
+    def _forecast(self, parent, diff: str, new_tree: dict, ident: Identity) -> tuple[list[str], str | None, str]:
         from gud import rules
-        author = self.identity.handle
+        author = ident.handle
         owners = sorted(o for o in rules.affected_owners(parent, diff, author) if o != author)
         rule = rules.protection(parent, diff)
+        from gud.members import touches_members
+        if touches_members(diff) and rule is None and not owners:
+            return owners, "human", "needs approval from a human member"
         if rule == "quorum":
             voters = list(rules.quorum_voters(parent, new_tree))
             needed = len(voters) // 2 + 1
@@ -288,6 +403,8 @@ class GudTools:
         if prop.status == "objected" and objections:
             who, reason = objections[-1]
             return f"objection by {who}: {reason}"
+        if prop.status == "needs_approval" and prop.protected_rule == "human":
+            return "needs approval from a human member"
         if prop.status == "needs_approval":
             have = _approvers(prop, emails)
             missing = [o for o in (prop.affected_owners or []) if o not in have]
@@ -304,13 +421,15 @@ class GudTools:
             return prop.reason or "vetoed"
         return prop.reason or prop.status
 
-    def _needs_me(self, prop, chain, emails) -> bool:
-        me = self.identity.handle
+    def _needs_me(self, prop, chain, emails, ident: Identity) -> bool:
+        me = ident.handle
         if prop.author == me or prop.status not in {"window", "needs_approval", "needs_quorum", "testing"}:
             return False
         if me in _approvers(prop, emails):
             return False
         if me in {who for who, _ in _objections(prop.message_id, emails)}:
+            return False
+        if prop.protected_rule == "human":
             return False
         if me in (prop.affected_owners or []):
             return True
@@ -323,8 +442,8 @@ class GudTools:
             return True
         return False
 
-    def _why_me(self, prop) -> str:
-        me = self.identity.handle
+    def _why_me(self, prop, ident: Identity) -> str:
+        me = ident.handle
         if me in (prop.affected_owners or []):
             if prop.protected_rule == "explicit":
                 return "you own lines; approval required"
@@ -398,9 +517,9 @@ class GudTools:
                 task["status"] = "done"
         return tasks, order
 
-    def _open_subtasks(self, chain, emails) -> list[dict]:
+    def _open_subtasks(self, chain, emails, ident: Identity) -> list[dict]:
         tasks, order = self._task_index(emails, chain)
-        me = self.identity.handle
+        me = ident.handle
         out = []
         for tid in order:
             for sub in tasks[tid]["subtasks"]:
@@ -408,18 +527,18 @@ class GudTools:
                     out.append(sub)
         return out
 
-    def _send_push(self, *, intent: str, tree: dict, task: str | None, parent) -> str:
+    def _send_push(self, *, intent: str, tree: dict, task: str | None, parent, ident: Identity) -> str:
         body, _state, _tree_hash = compose.push_body(
-            self.identity, parent=parent.message_id, parent_state=parent.state,
+            ident, parent=parent.message_id, parent_state=parent.state,
             parent_tree=parent.tree, new_tree=tree, intent=intent, task=task,
         )
         subject = "[gud] " + " ".join(intent.split())[:80]
         email = compose.send(
-            self.mailbox, self.identity, parent.members, subject, body, in_reply_to=parent.message_id,
+            self.mailbox, ident, parent.members, subject, body, in_reply_to=parent.message_id,
         )
         diff = parse_body(body).diff
         try:
-            owners, rule, nxt = self._forecast(parent, diff, tree)
+            owners, rule, nxt = self._forecast(parent, diff, tree, ident)
         except Exception as exc:
             return "\n".join([email.message_id, f"error: rules failed ({exc})"])
         consent = "lazy consensus" if rule is None and owners else (rule or "none")
@@ -443,12 +562,15 @@ class GudTools:
         return chain, chain.tip, None
 
     @tracked("gud")
-    def status(self) -> str:
+    def status(self, handle: str | None = None) -> str:
         """Show the tip, your pending pushes and what blocks them, pushes that need your reply, and open subtasks assigned to you.
 
-        There is no pull. A pending push names the blocker: window closes in Ns, objection by @someone, needs approval from [..], or testing.
+        Pass handle (for example @alice) so "me" is that agent. There is no pull. A pending push names the blocker: window closes in Ns, objection by @someone, needs approval from [..], or testing.
         """
         chain = self.repo().refresh()
+        ident, err = self._call_identity(handle, None, sign=False, chain=chain)
+        if err:
+            return err
         emails = self._emails()
         tip = chain.tip
         lines = []
@@ -457,16 +579,16 @@ class GudTools:
         else:
             title = tip.subject or tip.intent or ""
             lines.append(f"tip {tip.seq} {short(tip.state)} {tip.author} {' '.join(title.split())}")
-        me = self.identity.handle
+        me = ident.handle
         mine = [p for p in chain.proposals.values() if p.author == me]
         lines.append("mine:" if mine else "mine: none")
         for prop in sorted(mine, key=lambda p: p.received_at):
             lines.append(f"  {prop.message_id} {prop.status} — {self._blocking(prop, emails)}")
-        need = [p for p in chain.proposals.values() if self._needs_me(p, chain, emails)]
+        need = [p for p in chain.proposals.values() if self._needs_me(p, chain, emails, ident)]
         lines.append("needs-me:" if need else "needs-me: none")
         for prop in sorted(need, key=lambda p: p.received_at):
-            lines.append(f"  {prop.message_id} {prop.author} {prop.status} — {self._why_me(prop)}")
-        subs = self._open_subtasks(chain, emails)
+            lines.append(f"  {prop.message_id} {prop.author} {prop.status} — {self._why_me(prop, ident)}")
+        subs = self._open_subtasks(chain, emails, ident)
         lines.append("subtasks:" if subs else "subtasks: none")
         for sub in subs:
             lines.append(f"  {sub['id']} {sub['title']}")
@@ -515,11 +637,18 @@ class GudTools:
         return "\n".join(lines)
 
     @tracked("gud")
-    def push(self, intent: str, edits: list[dict], task: str | None = None, base: str | None = None) -> str:
+    def push(self, intent: str, edits: list[dict], task: str | None = None, base: str | None = None,
+             handle: str | None = None, private_key: str | None = None) -> str:
         """Publish edits on the tip (or on the link base). This is how you change the repo.
 
-        edits is a list of {"path": "rel/path", "content": "full new text"}. content null deletes the file.
-        Send the whole file, not a diff. task sets Gud-Task (use it to finish a subtask). intent is the note other agents read.
+        Pass handle (for example @alice) and private_key (base64 raw Ed25519 private key). They sign this call only.
+        Read the tip, push small old/new edits, then wait. Re-read if old text is not found.
+        edits is a list, applied in order to the file as it is on the tip at push time:
+          {"path": "a.py", "old": "exact text, once in the file", "new": "replacement"} replaces;
+          {"path": "a.py", "new": "full text"} creates a file that does not exist;
+          {"path": "a.py", "delete": true} removes it.
+        Include enough surrounding lines in old to match exactly one place. Lines others landed since
+        your read are kept. task sets Gud-Task (use it to finish a subtask). intent is the note other agents read.
 
         Returns the push id, affected owners, the protection rule, and what happens next
         (lands in Ns unless an owner objects, needs approval, or needs quorum). Then call wait.
@@ -531,15 +660,56 @@ class GudTools:
         _chain, parent, err = self._parent(base)
         if err:
             return err
-        tree = dict(parent.tree)
-        for path, content in cleaned:
-            if content is None:
-                tree.pop(path, None)
-            else:
-                tree[path] = normalize(content)
+        tree, err = _apply_edits(parent.tree, cleaned, parent.message_id)
+        if err:
+            return f"error: {err}"
         if not diff_trees(parent.tree, tree).strip():
             return "error: no changes"
-        return self._send_push(intent=intent, tree=tree, task=task, parent=parent)
+        ident, err = self._call_identity(handle, private_key, sign=True, chain=_chain)
+        if err:
+            return err
+        return self._send_push(intent=intent, tree=tree, task=task, parent=parent, ident=ident)
+
+    @tracked("gud")
+    def export(self, dir: str | None = None, at: str | None = None, edits: list[dict] | None = None) -> str:
+        """Write the tree at the tip (or at the link at) into a scratch directory to run tests locally.
+
+        dir must be missing or empty; with no dir a fresh temp dir is made. edits, in the same format as push,
+        are applied on top so you can test exactly what you are about to push. Nothing reads the directory
+        back: change the repo with push. Returns the directory, the link id, the file count, and edits applied.
+        """
+        cleaned = []
+        if edits:
+            cleaned, err = _validate_edits(edits)
+            if err:
+                return f"error: {err}"
+        _chain, link, err = self._parent(at)
+        if err:
+            return err
+        tree, err = _apply_edits(link.tree, cleaned, link.message_id)
+        if err:
+            return f"error: {err}"
+        for path in tree:
+            err = _path_error(path)
+            if err:
+                return f"error: {path}: {err}"
+        if dir:
+            root = Path(dir).expanduser()
+            if root.exists() and (not root.is_dir() or any(root.iterdir())):
+                return f"error: {root} exists and is not an empty directory"
+            root.mkdir(parents=True, exist_ok=True)
+        else:
+            root = Path(tempfile.mkdtemp(prefix="gud-"))
+        for path, text in tree.items():
+            target = root / _norm_path(path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        return "\n".join([
+            str(root),
+            f"at: {link.message_id}",
+            f"files: {len(tree)}",
+            f"edits: {len(cleaned)}",
+        ])
 
     def _push_outcome(self, push_id: str, chain, emails) -> str | None:
         for link in chain.links:
@@ -554,18 +724,23 @@ class GudTools:
             return None
         if prop.status in _TERMINAL or prop.test_result == "fail":
             status = "tests_failed" if prop.test_result == "fail" and prop.status not in _TERMINAL else prop.status
-            return f"{status} {push_id} — {self._blocking(prop, emails)}"
+            line = f"{status} {push_id} — {self._blocking(prop, emails)}"
+            log = test_log(emails, push_id) if status == "tests_failed" else ""
+            return f"{line}\n{log}" if log else line
         return None
 
     @tracked("gud")
-    def wait(self, push_id: str | None = None, timeout: float = 60) -> str:
+    def wait(self, push_id: str | None = None, timeout: float = 60, handle: str | None = None) -> str:
         """Block until your push lands, is rejected, gets an objection, or new mail needs your response. This replaces pull.
 
-        Pass the push id from push. On superseded or stale, call rebase. timeout is seconds.
+        Pass handle (for example @alice) so "me" is that agent. Pass the push id from push. On superseded or stale, call rebase. timeout is seconds.
         """
+        ident, err = self._call_identity(handle, None, sign=False)
+        if err:
+            return err
         deadline = time.monotonic() + float(timeout)
-        seen = {email.message_id for email in self._inbox()}
-        since = self._max_received()
+        seen = {email.message_id for email in self._inbox(ident)}
+        since = self._max_received(ident)
         while True:
             chain = self.repo().refresh()
             emails = self._emails()
@@ -574,18 +749,18 @@ class GudTools:
                 if outcome:
                     return outcome
             for prop in chain.proposals.values():
-                if prop.message_id in seen or prop.author == self.identity.handle:
+                if prop.message_id in seen or prop.author == ident.handle:
                     continue
-                if self._needs_me(prop, chain, emails):
-                    return f"needs-you {prop.message_id} {prop.author} {prop.status} — {self._why_me(prop)}"
-            for sub in self._open_subtasks(chain, emails):
+                if self._needs_me(prop, chain, emails, ident):
+                    return f"needs-you {prop.message_id} {prop.author} {prop.status} — {self._why_me(prop, ident)}"
+            for sub in self._open_subtasks(chain, emails, ident):
                 if sub.get("email_id") not in seen:
                     return f"subtask {sub['id']} {sub['title']}"
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return "timeout\n" + self.status()
+                return "timeout\n" + self.status(ident.handle)
             new = self.mailbox.wait(
-                recipient=self.identity.address, since=since, timeout=min(0.4, remaining),
+                recipient=ident.address, since=since, timeout=min(0.4, remaining),
             )
             if new:
                 since = max(since, max(email.received_at for email in new))
@@ -593,9 +768,10 @@ class GudTools:
                     seen.discard(email.message_id)
 
     @tracked("gud")
-    def rebase(self, push_id: str) -> str:
+    def rebase(self, push_id: str, handle: str | None = None, private_key: str | None = None) -> str:
         """If your push lost a race (superseded or stale), replay your file edits onto the current tip and push again.
 
+        Pass handle and private_key (base64 raw Ed25519) to sign the new push as that agent.
         If the tip changed the same lines, returns a conflict description and does not push. Otherwise returns the new push id.
         """
         chain = self.repo().refresh()
@@ -626,11 +802,18 @@ class GudTools:
             return "conflict\n" + "\n".join(conflicts)
         task = (prop.task if prop is not None else None) or parsed.get("Gud-Task")
         intent = parsed.text or (prop.subject if prop is not None else "") or "rebase"
-        return self._send_push(intent=f"rebase: {intent}"[:200], tree=merged, task=task, parent=tip)
+        ident, err = self._call_identity(handle, private_key, sign=True, chain=chain)
+        if err:
+            return err
+        return self._send_push(intent=f"rebase: {intent}"[:200], tree=merged, task=task, parent=tip, ident=ident)
 
     @tracked("gud")
-    def reply(self, target: str, action: str, reason: str = "") -> str:
-        """Respond to a push. action is approve or object. object needs a reason. The reply is signed as you."""
+    def reply(self, target: str, action: str, reason: str = "", handle: str | None = None,
+              private_key: str | None = None) -> str:
+        """Respond to a push. action is approve or object. object needs a reason.
+
+        Pass handle and private_key (base64 raw Ed25519). The reply is signed with that key as that handle, for this call only.
+        """
         action = (action or "").strip().lower()
         chain = self.repo().refresh()
         prop = chain.proposals.get(target)
@@ -643,16 +826,19 @@ class GudTools:
             members = chain.tip.members
         else:
             return "error: no members"
-        if action == "approve":
-            body = compose.approve_body(self.identity, target, reason or "Approved.")
-        elif action == "object":
-            if not reason.strip():
-                return "error: object needs a reason"
-            body = compose.object_body(self.identity, target, reason.strip())
-        else:
+        if action not in {"approve", "object"}:
             return "error: action must be approve or object"
+        if action == "object" and not reason.strip():
+            return "error: object needs a reason"
+        ident, err = self._call_identity(handle, private_key, sign=True, chain=chain)
+        if err:
+            return err
+        if action == "approve":
+            body = compose.approve_body(ident, target, reason or "Approved.")
+        else:
+            body = compose.object_body(ident, target, reason.strip())
         email = compose.send(
-            self.mailbox, self.identity, members, f"Re: {action} {target}", body, in_reply_to=target,
+            self.mailbox, ident, members, f"Re: {action} {target}", body, in_reply_to=target,
         )
         return f"{action} {email.message_id} target={target}"
 
@@ -721,11 +907,9 @@ class GudTools:
 
 def build_server(tools: GudTools):
     """FastMCP server whose tools are ``tools`` methods. Armature instruments registration when configured."""
-    mcp = FastMCP(
-        "gud",
-        instructions=INSTRUCTIONS.format(handle=tools.identity.handle),
-    )
-    hooked = instrument(mcp, actor=tools.identity.handle)
+    mcp = FastMCP("gud", instructions=INSTRUCTIONS)
+    actor = tools.identity.handle if tools.identity is not None else None
+    hooked = instrument(mcp, actor=actor)
     for name in TOOL_NAMES:
         method = getattr(tools, name)
         if hooked is not None:
@@ -736,22 +920,15 @@ def build_server(tools: GudTools):
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="gud.mcp_server", description="gud MCP server (stdio)")
-    parser.add_argument("--handle", default=os.environ.get("GUD_HANDLE"), help="agent handle, e.g. @alice")
-    args = parser.parse_args(argv)
-    if not args.handle:
-        raise SystemExit("pass --handle @alice or set GUD_HANDLE")
-    handle = args.handle if str(args.handle).startswith("@") else f"@{args.handle}"
+    parser.parse_args(argv)
     from gud.config import load
     cfg = load()
     try:
-        from gud.mailbox import open_member_mailbox
+        from gud.mailbox import open_mailbox
     except ImportError as exc:
-        raise SystemExit(f"gud.mailbox.open_member_mailbox is not available ({exc})") from exc
-    key_path = cfg.key_path(handle)
-    if not key_path.exists():
-        raise SystemExit(f"no private key at {key_path}")
-    identity = Identity(handle, cfg.address(handle), sig.load_private(key_path))
-    tools = GudTools(open_member_mailbox(cfg), identity, cfg.window_seconds)
+        raise SystemExit(f"gud.mailbox.open_mailbox is not available ({exc})") from exc
+    # Not a member of the repo. Signing calls carry handle and private_key.
+    tools = GudTools(open_mailbox(cfg), window_seconds=cfg.window_seconds)
     build_server(tools).run("stdio")
 
 

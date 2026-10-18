@@ -40,7 +40,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useGud } from "@/hooks/use-gud"
-import { postMember, proposeJoin } from "@/lib/api"
+import { approveJoin, postMember } from "@/lib/api"
 import { ApiError } from "@/lib/errors"
 import { relativeTime, shortHash, shortId } from "@/lib/format"
 import type { JoinRequest, Link, Member, MemberRole } from "@/lib/types"
@@ -62,18 +62,18 @@ export function MembersView() {
   const removed = state?.removed_members ?? []
   const links = state?.links ?? []
   const pending = (state?.proposals ?? []).filter(
-    (proposal) => proposal.protected_rule === "quorum" && /^(Add|Remove) @/.test(proposal.subject),
+    (proposal) => proposal.protected_rule === "human" && proposal.status === "needs_approval",
   )
 
-  async function propose(id: string) {
+  async function approve(id: string) {
     setBusyJoin(id)
     try {
-      const result = await proposeJoin(id)
+      const result = await approveJoin(id)
       await refresh()
       setOpenId(result.push_id)
-      toast.success("Membership push sent")
+      toast.success("Approved. The member lands with no test needed.")
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Could not propose membership")
+      toast.error(error instanceof ApiError ? error.message : "Could not approve the join")
     } finally {
       setBusyJoin(null)
     }
@@ -95,7 +95,7 @@ export function MembersView() {
       <div className="mx-auto flex max-w-5xl flex-col gap-4 px-4 py-4">
         <div className="flex items-center justify-between">
           <p className="text-xs text-muted-foreground">
-            Membership changes are pushes. They land when more than half the voters approve.
+            Membership changes are pushes. They land when a human approves and the tests pass.
           </p>
           <AddMemberDialog
             onCreated={async (id) => {
@@ -109,7 +109,7 @@ export function MembersView() {
           now={now}
           loading={loading}
           busyId={busyJoin}
-          onPropose={(id) => void propose(id)}
+          onApprove={(id) => void approve(id)}
           onOpen={setOpenId}
         />
         {pending.length > 0 ? (
@@ -267,7 +267,7 @@ function AddMemberDialog({ onCreated }: { onCreated: (id: string) => Promise<voi
         <DialogHeader>
           <DialogTitle>Add member</DialogTitle>
           <DialogDescription>
-            @console sends a membership push. It stays pending until quorum.
+            @console sends a membership push, and you approve it. The tests still have to pass.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
@@ -310,7 +310,7 @@ function AddMemberDialog({ onCreated }: { onCreated: (id: string) => Promise<voi
         </div>
         <DialogFooter>
           <Button disabled={busy || !handle.trim()} onClick={() => void submit()}>
-            Send membership push
+            Add and approve
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -323,14 +323,14 @@ function JoinRequests({
   now,
   loading,
   busyId,
-  onPropose,
+  onApprove,
   onOpen,
 }: {
   joins: JoinRequest[]
   now: number
   loading: boolean
   busyId: string | null
-  onPropose: (id: string) => void
+  onApprove: (id: string) => void
   onOpen: (id: string) => void
 }) {
   return (
@@ -339,7 +339,7 @@ function JoinRequests({
         <div>
           <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Join requests</h2>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            An outside agent mails a self-signed join. A member proposes, and the push lands by quorum.
+            An outside agent mails a self-signed join. You approve it. The tests still have to pass.
           </p>
         </div>
         {loading && joins.length === 0 ? (
@@ -350,11 +350,11 @@ function JoinRequests({
           <div className="space-y-2">
             {joins.map((join) =>
               join.valid ? (
-                <JoinRow key={join.id} join={join} now={now} busy={busyId === join.id} onPropose={onPropose} onOpen={onOpen} />
+                <JoinRow key={join.id} join={join} now={now} busy={busyId === join.id} onApprove={onApprove} onOpen={onOpen} />
               ) : (
                 <Tooltip key={join.id}>
                   <TooltipTrigger asChild>
-                    <JoinRow join={join} now={now} busy={busyId === join.id} onPropose={onPropose} onOpen={onOpen} />
+                    <JoinRow join={join} now={now} busy={busyId === join.id} onApprove={onApprove} onOpen={onOpen} />
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs text-left">{INVALID_JOIN_REASON}</TooltipContent>
                 </Tooltip>
@@ -371,7 +371,7 @@ function JoinRow({
   join,
   now,
   busy,
-  onPropose,
+  onApprove,
   onOpen,
   className,
   ...props
@@ -379,10 +379,10 @@ function JoinRow({
   join: JoinRequest
   now: number
   busy: boolean
-  onPropose: (id: string) => void
+  onApprove: (id: string) => void
   onOpen: (id: string) => void
 } & ComponentProps<"div">) {
-  const canPropose = join.valid && join.status === "pending"
+  const canApprove = join.valid && (join.status === "pending" || join.status === "proposed")
   return (
     <div
       className={cn(
@@ -417,9 +417,9 @@ function JoinRow({
         </p>
         <p className="mt-0.5 text-[11px] text-muted-foreground">{join.reason || "—"}</p>
       </div>
-      {canPropose ? (
-        <Button size="sm" className="shrink-0" disabled={busy} onClick={() => onPropose(join.id)}>
-          Propose membership
+      {canApprove ? (
+        <Button size="sm" className="shrink-0" disabled={busy} onClick={() => onApprove(join.id)}>
+          Approve
         </Button>
       ) : null}
       {join.status === "proposed" && join.push_id ? (

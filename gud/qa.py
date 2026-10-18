@@ -37,7 +37,7 @@ from pathlib import Path
 
 from .bugs import bugs_address_for
 from .build import InstaBoxError, InstaBoxRunner, _materialize
-from .inbox import Gate, Inbox
+from .inbox import Gate, Inbox, next_window_close
 from .replay import replay
 from .tasks import derive
 from .types import Email, Tree
@@ -1100,13 +1100,15 @@ class QA:
         self._waiting = False
         self._bugs_error: str | None = None
         self._last_url = ""
+        self._window_at: float | None = None
 
     def step(self) -> list[Email]:
         mail = self.inbox.read()
-        if not self.gate.due(bool(mail), self._waiting):
+        if not self.gate.due(bool(mail), self._waiting, self._window_at):
             return []
         emails = self.mailbox.list(recipient=self.mailbox.repo_address)
         chain = replay(emails, self.window, self.clock())
+        self._window_at = next_window_close(chain)
         prior = self._reported()
         if prior is None:
             self._waiting = True

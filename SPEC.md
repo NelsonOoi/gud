@@ -118,7 +118,7 @@ handle role address public_key sponsor
 
 ## `.gud/protected`
 
-One rule per line: `<glob> <rule>`, rule is `explicit` or `quorum`. Globs use `fnmatch` against repo-relative paths. `.gud/members` and `.gud/protected` are always `quorum`, even if unlisted.
+One rule per line: `<glob> <rule>`, rule is `explicit` or `quorum`. Globs use `fnmatch` against repo-relative paths. `.gud/protected` is always `quorum`, even if unlisted. `.gud/members` is not, and a glob such as `.gud/*` does not make it so: a diff that touches it needs one verified human `approve` (see Consent).
 
 ## Link rules
 
@@ -147,8 +147,9 @@ Rule by case:
 - **Unprotected, with affected owners (lazy consensus)**: consent holds at `received(P) + W` if no affected owner sent an `object` (or human `object` reply) targeting P with received time before `received(P) + W`. It holds immediately if every affected owner has approved (an `approve` targeting P, or an approval cited in `Gud-Consent`).
 - **`explicit`**: every affected owner approved. Objections are irrelevant; missing approvals keep it pending. If there are no affected owners (for example a new file under a protected glob), one approval from any voter other than the author is required.
 - **`quorum`**: approvals from more than half of X's voters (`len(voters) // 2 + 1`), excluding any voter whose membership line this push adds, removes or changes. The author counts as approving if they are an eligible voter.
+- **Member list**: a diff that touches `.gud/members` also needs one `approve` from a human member on X's roster. Agent votes do not satisfy it. The line owners of that file are not asked. A `veto` still blocks the push. Other files in the same diff keep their own rule.
 
-Consent holds at a time: the window close, the last required approval's received time, or the push's own received time. A push **qualifies** at the later of its consent time and its passing test's received time.
+Consent holds at a time: the window close, the last required approval's received time, or the push's own received time. A push **qualifies** at the later of its consent time and its passing test's received time. A push whose diff only touches `.gud/members` changes no code and needs no test, so it qualifies at its consent time.
 
 `W` is `GUD_WINDOW_SECONDS` (default 60). Everything is judged on mailbox received times, so rebuild is deterministic once windows have closed.
 
@@ -207,7 +208,7 @@ Requirement: members never share the host's mail API key.
 
 - Headers `X-Gud-Handle`, `X-Gud-Time` (unix seconds), `X-Gud-Sig` = `ed25519:<b64>` over the bytes `"{METHOD} {path_with_query} {time}"`.
 - The host accepts it if the handle is a member at the tip with a public key that verifies it, and `|now - time| <= 300`. A removed member loses mirror access when the removal links.
-- Mutating demo endpoints (`POST /api/tasks`, `/api/members`, `/api/reply`, `/api/approve`) accept only loopback requests.
+- Mutating demo endpoints (`POST /api/tasks`, `/api/members`, `/api/reply`, `/api/approve`, `/api/repos`, `/api/agents`, `/api/swarm`) accept only loopback requests.
 
 **Audit.** `gud audit` compares the host mirror with the member's own inbox: every gud email in the member's inbox that was sent to the repo address must appear in the mirror with the same body, and the mirror's received time must be within `GUD_AUDIT_SKEW` (default 120 s) of the member's copy. It reports missing, altered, and retimed messages, and exits non-zero if any.
 
@@ -220,6 +221,14 @@ Requirement: members never share the host's mail API key.
 **Leaving.** A removal push revokes the key at the chain level. For a connected agent the host also excludes the address from Primitive's agent network.
 
 **Config per member:** `GUD_HOST_URL` (absent means "I am the host"), `GUD_HANDLE`, `GUD_ADDRESS`, `GUD_REPO_ADDRESS`, and their own `PRIMITIVE_API_KEY` (or connection credential). The private key lives at `GUD_HOME/keys/<handle>.key`.
+
+## Opening a repo
+
+The GUI opens a repo with one genesis push. The tree is `.gud/members`: the human emails from the request, plus `@lead`, `@tester`, `@console`, and `@sub-1`. Agent keys are created on this machine when the key file is missing, and an existing key file is left as it is.
+
+A verified human CC is the approval for a members push that only adds those addresses. A push whose diff only touches `.gud/members` needs no test: it qualifies at its consent time. One `gud.mcp_server` process runs per session, and the prompt supplies the handle and the private key. Any key may claim `@lead`.
+
+`GUD_SWARM` defaults to off. The in-process swarm is optional. When `GUD_HOME/swarm.txt` exists (`on` or `off`), it wins over the environment at API startup. `python -m gud.swarm` and the demo start a swarm themselves and do not read the flag.
 
 ## Transport interfaces
 

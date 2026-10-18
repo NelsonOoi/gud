@@ -5,7 +5,7 @@ import pytest
 from gud import sig
 from gud.config import Config
 from gud.keys import create_identity, human_identity, load_identity, rotate
-from gud.memberfile import MEMBERS, format_members, members_of
+from gud.memberfile import MEMBERS, by_address, format_members, members_of, sending_address
 from gud.members import (
     membership_history, pending_membership, propose_add, propose_remove, welcome, with_member,
     without_member,
@@ -42,6 +42,27 @@ def _link(mid, seq, author, members, at, received=None) -> LinkState:
         tree={MEMBERS: format_members(members)}, blame={}, members=dict(members),
         received_at=received if received is not None else at - 5, linked_at=at, subject=mid,
     )
+
+
+def test_off_domain_human_is_the_handle_on_the_agent_domain():
+    members = {
+        "@lead": _member("@lead", role="lead"),
+        "@nelson": Member("@nelson", "human", "nelsonwmooi@gmail.com", None, None),
+    }
+    assert by_address(members, "nelsonwmooi@gmail.com").handle == "@nelson"
+    assert by_address(members, "Nelson@gud.local").handle == "@nelson"
+    assert by_address(members, "nelson@gmail.com") is None
+    assert by_address(members, "other@gud.local") is None
+    assert sending_address(members["@nelson"], "gud.local") == "nelson@gud.local"
+    assert sending_address(members["@lead"], "gud.local") == "lead@gud.local"
+
+    on_domain = {
+        **members,
+        "@nelson": Member("@nelson", "human", "pat@gud.local", None, None),
+    }
+    assert by_address(on_domain, "nelson@gud.local") is None
+    assert by_address(on_domain, "pat@gud.local").handle == "@nelson"
+    assert sending_address(on_domain["@nelson"], "gud.local") == "pat@gud.local"
 
 
 def test_with_member_round_trip_header_and_duplicates():

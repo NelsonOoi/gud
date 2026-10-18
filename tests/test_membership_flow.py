@@ -1,4 +1,4 @@
-"""Membership lands by quorum. Skips until gud.replay can be imported."""
+"""Membership lands when a human approves. Skips until gud.replay can be imported."""
 
 import pytest
 
@@ -28,10 +28,8 @@ def _pushed(email) -> Pushed:
     return Pushed(email, body.get("Gud-State") or "", body.get("Gud-Tree") or "", {})
 
 
-def test_add_and_remove_member_by_quorum(tmp_path):
-    # Default roster voters: @lead @alice @bob @carol @nelson (5). Quorum is 3, and the
-    # author counts. @tester and @console do not vote. A membership push drops the
-    # subject of the change from the voter set.
+def test_add_and_remove_member_by_human_approval(tmp_path):
+    # Agent votes do not admit a member. One verified reply from @nelson does.
     w = World.create(tmp_path)
     genesis = w.genesis({"app.py": "def f():\n    return 1\n"})
     w.test(genesis)
@@ -53,18 +51,19 @@ def test_add_and_remove_member_by_quorum(tmp_path):
 
     chain = _run(w)
     proposal = chain.proposals[add.message_id]
-    assert proposal.status == "needs_quorum", (
-        f"status={proposal.status} reason={proposal.reason} "
-        f"have={proposal.quorum_have} need={proposal.quorum_needed}"
+    assert proposal.status == "needs_approval", (
+        f"status={proposal.status} reason={proposal.reason} rule={proposal.protected_rule}"
     )
-    assert proposal.quorum_needed == 3
+    assert proposal.protected_rule == "human"
     assert add.message_id not in {link.message_id for link in chain.links}
 
     add_push = _pushed(add)
     w.approve("@alice", add_push)
     w.approve("@bob", add_push)
     chain = _run(w)
+    assert chain.proposals[add.message_id].status == "needs_approval"
     assert add.message_id not in {link.message_id for link in chain.links}
+    w.human("@nelson", add_push, "approve")
     w.test(add_push)
     chain = _run(w)
     assert any(link.message_id == add.message_id for link in chain.links), (
@@ -93,15 +92,13 @@ def test_add_and_remove_member_by_quorum(tmp_path):
     removal = propose_remove(w.mailbox, w.ids["@lead"], chain.tip, "@carol", reason="off the roster")
     chain = _run(w)
     removal_proposal = chain.proposals[removal.message_id]
-    assert removal_proposal.status == "needs_quorum", (
+    assert removal_proposal.status == "needs_approval", (
         f"status={removal_proposal.status} reason={removal_proposal.reason} "
-        f"have={removal_proposal.quorum_have} need={removal_proposal.quorum_needed}"
+        f"rule={removal_proposal.protected_rule}"
     )
-    # Six voters after @dave joined; @carol is excluded from this push, leaving 5, so quorum stays 3.
-    assert removal_proposal.quorum_needed == 3
+    assert removal_proposal.protected_rule == "human"
     removal_push = _pushed(removal)
-    w.approve("@alice", removal_push)
-    w.approve("@bob", removal_push)
+    w.human("@nelson", removal_push, "approve")
     w.test(removal_push)
     chain = _run(w)
     assert chain.tip is not None and chain.tip.message_id == removal.message_id, (

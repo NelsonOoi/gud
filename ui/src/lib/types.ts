@@ -39,7 +39,7 @@ export type Proposal = {
   approvals: string[]
   objections: { by: string; reason: string; id: string }[]
   window_closes_at: number | null
-  protected_rule: "explicit" | "quorum" | null
+  protected_rule: "explicit" | "quorum" | "human" | null
   quorum_needed: number | null
   quorum_have: number | null
   test_result: "pass" | "fail" | null
@@ -127,6 +127,20 @@ export type JoinRequest = {
   valid: boolean
   status: "pending" | "proposed" | "member" | "rejected"
   push_id: string | null
+}
+
+export type RawEmail = {
+  message_id: string
+  from_addr: string
+  to: string[]
+  cc: string[]
+  subject: string
+  body: string
+  received_at: number
+  sender_verified: boolean
+  in_reply_to: string | null
+  references: string[]
+  provider_id: string | null
 }
 
 export type EmailView = {

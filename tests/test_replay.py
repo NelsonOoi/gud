@@ -185,7 +185,7 @@ def test_explicit_new_file_needs_another_voter(tmp_path):
     assert run(w).tip.message_id == pushed.id
 
 
-def test_quorum_membership_and_removed_agent_is_bad_sig(tmp_path):
+def test_human_approval_membership_and_removed_agent_is_bad_sig(tmp_path):
     w = World.create(tmp_path)
     g = w.genesis({"app.py": "a = 1\n"})
     _raw, pub = sig.generate()
@@ -196,13 +196,14 @@ def test_quorum_membership_and_removed_agent_is_bad_sig(tmp_path):
     added = w.push("@alice", parent=g, tree=tree, intent="add dave")
     w.test(added)
     prop = run(w).proposals[added.id]
-    assert prop.status == "needs_quorum"
-    assert prop.protected_rule == "quorum"
-    assert (prop.quorum_needed, prop.quorum_have) == (3, 1)
+    assert prop.status == "needs_approval"
+    assert prop.protected_rule == "human"
+    assert prop.reason == "needs approval from a human member"
 
     w.approve("@lead", added)
-    assert run(w).proposals[added.id].quorum_have == 2
     w.approve("@bob", added)
+    assert run(w).proposals[added.id].status == "needs_approval"
+    w.human("@nelson", added, "approve")
     chain = run(w)
     assert chain.tip.message_id == added.id
     assert "@dave" in chain.tip.members
@@ -213,9 +214,9 @@ def test_quorum_membership_and_removed_agent_is_bad_sig(tmp_path):
     removed_tree[MEMBERS] = format_members(current)
     removed = w.push("@alice", parent=added, tree=removed_tree, intent="remove bob")
     w.test(removed)
-    assert run(w).proposals[removed.id].status == "needs_quorum"
-    w.approve("@lead", removed)
-    w.approve("@carol", removed)
+    assert run(w).proposals[removed.id].status == "needs_approval"
+    assert run(w).proposals[removed.id].protected_rule == "human"
+    w.human("@nelson", removed, "approve")
     chain = run(w)
     assert chain.tip.message_id == removed.id
     assert "@bob" not in chain.tip.members

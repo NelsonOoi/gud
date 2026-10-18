@@ -43,6 +43,27 @@ def load_identity(cfg: Config, handle: str, address: str | None = None) -> Ident
     return Identity(handle, address or cfg.address(handle), raw)
 
 
+def decode_private_key(value: str | None) -> bytes | None:
+    """Raw 32-byte Ed25519 seed from base64, or None when ``value`` is not one.
+
+    Same acceptance as ``gud.mcp_server``: whitespace is ignored, and missing
+    ``=`` padding is restored when the alphabet is otherwise valid.
+    """
+    if not isinstance(value, str):
+        return None
+    text = "".join(value.split())
+    if not text:
+        return None
+    pad = (-len(text)) % 4
+    try:
+        raw = base64.b64decode(text + ("=" * pad), validate=True)
+    except Exception:
+        return None
+    if len(raw) != 32:
+        return None
+    return raw
+
+
 def env_private(handle: str) -> bytes | None:
     """Base64 raw Ed25519 key from ``GUD_KEY_<HANDLE>``, or ``GUD_KEY`` for ``@console``."""
     handle = _handle(handle)

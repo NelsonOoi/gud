@@ -419,7 +419,11 @@ def _chat(api_key: str, model: str, messages: list[dict]) -> str:
         json={"model": model, "messages": messages, "temperature": 0},
         timeout=120,
     )
-    response.raise_for_status()
+    if response.is_error:
+        detail = " ".join((response.text or "").split())[:240]
+        raise RuntimeError(
+            f"OpenRouter {response.status_code} model {model}: {detail or response.reason_phrase}"
+        )
     return response.json()["choices"][0]["message"]["content"] or ""
 
 

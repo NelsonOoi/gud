@@ -49,6 +49,41 @@ class FileMailbox:
                 out.append(_from_json(row))
         return sorted(out, key=lambda e: e.received_at)
 
+    def append(self, email: Email, recipients: list[str]) -> int:
+        """Store `email` once per recipient. A message id already stored for that recipient is skipped.
+
+        `received_at` stays whatever the email already carries. Returns how many rows were written.
+        """
+        wanted = []
+        seen: set[str] = set()
+        for raw in recipients:
+            key = (raw or "").strip().lower()
+            if key and key not in seen:
+                seen.add(key)
+                wanted.append(key)
+        if not wanted:
+            return 0
+        written = 0
+        with open(self.path, "a+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            f.seek(0)
+            have = set()
+            for line in f.read().splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                have.add((row["recipient"], row["message_id"]))
+            f.seek(0, 2)
+            payload = _to_json(email)
+            for recipient in wanted:
+                if (recipient, email.message_id) in have:
+                    continue
+                f.write(json.dumps({"recipient": recipient, **payload}) + "\n")
+                written += 1
+            f.flush()
+            fcntl.flock(f, fcntl.LOCK_UN)
+        return written
+
     def wait(self, *, recipient: str, since: float, timeout: float) -> list[Email]:
         deadline = time.time() + timeout
         while True:

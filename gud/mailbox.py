@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .config import Config, configured_address
 from .mail_fake import FileMailbox
+from .mail_hosted import HostedMailbox
 from .mail_primitive import PrimitiveMailbox
 from .types import Mailbox
 
@@ -26,7 +27,20 @@ def open_own_mailbox(cfg: Config, repo_address: str | None = None) -> Mailbox:
                 "before using GUD_MAILBOX=primitive, or use GUD_MAILBOX=fake."
             )
         return PrimitiveMailbox(cfg.primitive_api_key, repo, list_ttl=1.0)
-    raise ValueError(f"unknown GUD_MAILBOX {cfg.mailbox!r} (expected 'fake' or 'primitive')")
+    if kind == "primitive-webhook":
+        if not cfg.primitive_api_key:
+            raise RuntimeError(
+                "PRIMITIVE_API_KEY is missing. Set it in the environment or .env "
+                "before using GUD_MAILBOX=primitive-webhook."
+            )
+        # Reads come from the cache. Sends go to Primitive; the delivered copy arrives by webhook.
+        return HostedMailbox(
+            cfg.home / "mailbox.jsonl", repo, cfg.domain,
+            PrimitiveMailbox(cfg.primitive_api_key, repo),
+        )
+    raise ValueError(
+        f"unknown GUD_MAILBOX {cfg.mailbox!r} (expected 'fake', 'primitive', or 'primitive-webhook')"
+    )
 
 
 def open_mailbox(cfg: Config) -> Mailbox:

@@ -35,7 +35,7 @@
         {"tool": "tasks"},
         {"tool": "status"},
         {"tool": "read", "args": {"path": "lib.py"}},
-        {"tool": "push", "args": {"intent": "add sub()", "task": "T3.1", "edits": [{"path": "lib.py", "content": "def ready():\n    return True\n\ndef sub():\n    return 0\n"}]}},
+        {"tool": "push", "args": {"intent": "add sub()", "task": "T3.1", "edits": [{"path": "lib.py", "old": "    return True\n", "new": "    return True\n\ndef sub():\n    return 0\n"}]}},
         {"settle": "gud"},
         {"expect_prefix": "landed"}
       ],

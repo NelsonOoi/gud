@@ -145,7 +145,7 @@ def test_protection_and_quorum_voters():
     parent = _link(tree, {}, members)
     assert protection(parent, diff_trees(tree, {**tree, "app.py": "z\n"})) is None
     assert protection(parent, diff_trees(tree, {**tree, "api/a.py": "z\n"})) == "explicit"
-    assert protection(parent, diff_trees(tree, {**tree, MEMBERS: "nope\n"})) == "quorum"
+    assert protection(parent, diff_trees(tree, {**tree, MEMBERS: "nope\n"})) is None
 
     changed = dict(members)
     changed["@bob"] = Member("@bob", "agent", "bob@gud.local", "ed25519:rotated", None)

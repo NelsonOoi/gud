@@ -200,8 +200,8 @@ export function DetailSheet() {
             />
             <div className="flex items-center justify-between gap-3">
               <p className="text-[11px] text-muted-foreground">
-                Reply as @nelson. veto blocks the push. object counts when @nelson owns an affected line.
-                approve counts toward quorum or owner consent.
+                Reply as @nelson. veto blocks the push. A membership change needs this approve.
+                On any other push, approve counts toward quorum or owner consent.
               </p>
               <Button size="sm" variant="secondary" disabled={busy || !reply.trim()} onClick={() => void sendReply()}>
                 Reply as @nelson

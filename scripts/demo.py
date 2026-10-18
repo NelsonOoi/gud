@@ -1,6 +1,7 @@
 """Live demo of the eight beats in gud.md / DEMO.md.
 
-The scripted swarm does the work. This driver creates the tasks, narrates each
+The scripted swarm does the work; with `--llm`, models write and review the code
+while the task split stays scripted. This driver creates the tasks, narrates each
 beat, and checks the mailbox. Exit status is non-zero when a beat fails, so
 `demo.py --fast` is also the end-to-end test.
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -49,7 +51,8 @@ BEATS = [
 def main(argv: list[str] | None = None) -> None:
     args = _args(argv)
     if args.fast:
-        os.environ["GUD_WINDOW_SECONDS"] = "2"
+        # A model review takes seconds; a 2s window closes before the owner can vote.
+        os.environ["GUD_WINDOW_SECONDS"] = "15" if args.llm else "2"
     elif "GUD_WINDOW_SECONDS" not in os.environ:
         os.environ["GUD_WINDOW_SECONDS"] = "15"
 
@@ -58,6 +61,7 @@ def main(argv: list[str] | None = None) -> None:
     from gud.cli import cmd_init
     from gud.config import load
     from gud.keys import create_identity, load_identity
+    from gud.lead import ScriptedPlanner
     from gud.mail_fake import FileMailbox
     from gud.mailbox import open_mailbox
     from gud.patch import apply_diff
@@ -160,6 +164,24 @@ def main(argv: list[str] | None = None) -> None:
             deficit -= 1
             print(f"  {handle} approves {prop.message_id}", flush=True)
 
+    def bless_human(chain, prop) -> None:
+        """Membership lands on one verified human reply, not an agent majority."""
+        parent = chain.by_id.get(prop.parent)
+        email = chain.by_message.get(prop.message_id)
+        if parent is None or email is None:
+            return
+        human = os.environ.get("GUD_HUMAN", "@nelson")
+        member = parent.members.get(human)
+        if member is None or member.role != "human":
+            member = next((person for person in parent.members.values() if person.role == "human"), None)
+        if member is None:
+            fail("no human member to approve the roster change")
+        state["mailbox"].send(
+            from_addr=member.address, to=state["mailbox"].repo_address,
+            subject=f"Re: {email.subject}", body="approve\n", in_reply_to=prop.message_id,
+        )
+        print(f"  {member.handle} approves {prop.message_id}", flush=True)
+
     def land_quorum(push_id: str, timeout: float):
         swarm.tester.step()
         deadline = time.time() + timeout
@@ -173,6 +195,10 @@ def main(argv: list[str] | None = None) -> None:
                 continue
             if prop.status == "needs_quorum":
                 bless(chain, prop)
+            elif prop.status == "needs_approval" and (
+                prop.protected_rule == "human" or "human member" in (prop.reason or "")
+            ):
+                bless_human(chain, prop)
             elif prop.status in {"bad_sig", "conflict", "tests_failed", "vetoed", "objected", "stale"}:
                 fail(f"membership push {prop.status}: {prop.reason}")
             time.sleep(0.1)
@@ -198,8 +224,10 @@ def main(argv: list[str] | None = None) -> None:
             fail("genesis did not land")
 
         swarm = Swarm(cfg, mailbox, mode="llm" if args.llm else "scripted", workers=None)
+        # Models write the code and review it; the demo's split stays fixed so the clash is engineered.
+        swarm.lead.planner = ScriptedPlanner()
         swarm.start()
-        limit = 20 if args.fast else 40
+        limit = 300 if args.llm else 20 if args.fast else 40
 
         beat(1, "The task fans out")
         task1 = create_task(
@@ -246,42 +274,82 @@ def main(argv: list[str] | None = None) -> None:
 
         wait_until(rate_limited, limit, "rate-limit login never landed, so nobody owns those lines")
         task2 = create_task(
-            "Lockout and rate limit collide in login",
-            "Five wrong passwords lock the account. The first version replaces the rate-limit check; "
-            "the owner objects; the revision keeps both.",
+            "Add a login lockout",
+            "Five wrong passwords for one username lock the account until revoke_user_sessions clears it.",
         )
 
-        def objection_landed():
-            chain = refresh()
-            approves: dict[str, list] = {}
-            objection = None
+        def lockout_pushes(chain) -> list:
+            found = next((item for item in derive(chain) if item.id == task2), None)
+            subs = {sub.id for sub in found.subtasks} if found else set()
+            pushes = []
             for email in chain.emails:
                 parsed = parse_body(email.body)
-                reason = (parsed.get("Gud-Reason") or "").lower()
-                if parsed.kind == "object" and ("rate-limit" in reason or "do not replace" in reason):
-                    objection = email
-                if parsed.kind == "approve" and parsed.get("Gud-Target"):
-                    approves.setdefault(parsed.get("Gud-Target"), []).append(parsed.get("Gud-Author"))
-            if objection is None:
-                return None
-            for prev, link in zip(chain.links, chain.links[1:]):
-                new = link.tree.get("auth.py", "")
-                old = prev.tree.get("auth.py", "")
-                if "owner kept this check" in new and "owner kept this check" not in old:
-                    if link.message_id in approves:
-                        return objection, link, approves[link.message_id]
+                if parsed.kind == "push" and parsed.get("Gud-Task") in subs:
+                    pushes.append(email)
+            return pushes
+
+        def owner_objection(chain, push):
+            prop = chain.proposals.get(push.message_id)
+            owners = set(prop.affected_owners or []) if prop is not None else set()
+            for email in chain.emails:
+                parsed = parse_body(email.body)
+                if (parsed.kind == "object" and parsed.get("Gud-Target") == push.message_id
+                        and parsed.get("Gud-Author") in owners):
+                    return email
             return None
 
-        objection, revised, approvers = wait_until(
-            objection_landed, limit, "objection did not produce an approved revision",
+        def revision_landed():
+            chain = refresh()
+            first = None
+            for push in lockout_pushes(chain):
+                prop = chain.proposals.get(push.message_id)
+                # A push that lost a race or failed its tests is replaced before it could land.
+                lost = prop is not None and prop.status in {"superseded", "stale", "conflict", "bad_sig",
+                                                            "tests_failed"}
+                if not lost or owner_objection(chain, push) is not None:
+                    first = push
+                    break
+            if first is None:
+                return None
+            if first.message_id in chain.by_id:
+                fail(f"the first lockout push {first.message_id} landed; no owner objected")
+            objection = owner_objection(chain, first)
+            if objection is None:
+                prop = chain.proposals.get(first.message_id)
+                if prop is not None and prop.status not in {"window", "testing", "needs_approval",
+                                                            "needs_quorum", "qualified"}:
+                    fail(f"the first lockout push ended {prop.status} with no owner objection: {prop.reason}")
+                return None
+            head = parse_body(first.body)
+            for push in lockout_pushes(chain):
+                parsed = parse_body(push.body)
+                if (push.received_at > first.received_at and push.message_id in chain.by_id
+                        and parsed.get("Gud-Author") == head.get("Gud-Author")
+                        and parsed.get("Gud-Task") == head.get("Gud-Task")):
+                    return chain, first, objection, chain.by_id[push.message_id]
+            return None
+
+        chain, first, objection, revised = wait_until(
+            revision_landed, limit, "the lockout push was not objected to and then revised into a link",
         )
-        reason = parse_body(objection.body).get("Gud-Reason")
-        print(f"  object {parse_body(objection.body).get('Gud-Author')}: {reason}", flush=True)
-        print(f"  revised link #{revised.seq} by {revised.author}, approved by {', '.join(approvers)}",
+        parsed = parse_body(objection.body)
+        print(f"  first push {first.message_id} by {parse_body(first.body).get('Gud-Author')} never linked",
               flush=True)
-        if "gud-bad-edit" in revised.tree.get("auth.py", ""):
-            fail("the bad edit landed")
-        if "locked" not in revised.tree.get("auth.py", ""):
+        print(f"  object {parsed.get('Gud-Author')}: {parsed.get('Gud-Reason')}", flush=True)
+        approvals = []
+        for email in chain.emails:
+            reply = parse_body(email.body)
+            if reply.kind == "approve" and reply.get("Gud-Target") == revised.message_id:
+                approvals.append(f"{reply.get('Gud-Author')}: {' '.join((reply.text or '').split())[:200]}")
+        print(f"  revised link #{revised.seq} by {revised.author}", flush=True)
+        for line in approvals or ["no approval; landed when the window closed"]:
+            print(f"  approve {line}", flush=True)
+        tip_auth = chain.tip.tree.get("auth.py", "")
+        if not _per_user_key(tip_auth):
+            fail("the tip's login lost the per-user rate-limit key login:{username}")
+        if "rate limited" not in tip_auth:
+            fail("the tip's login lost the rate limit")
+        if "locked" not in tip_auth:
             fail("the revision did not add the lockout")
 
         task3 = create_task(
@@ -481,6 +549,19 @@ def main(argv: list[str] | None = None) -> None:
             swarm.stop()
 
 
+_PER_USER_KEY = re.compile(
+    r"""f["']login:\{\s*username\s*\}["']"""
+    r"""|["']login:["']\s*\+\s*username\b"""
+    r"""|["']login:%s["']\s*%\s*\(?\s*username\b"""
+    r"""|["']login:\{\}["']\.format\(\s*username\b"""
+)
+
+
+def _per_user_key(src: str) -> bool:
+    """`login` rate-limits on a key built from the username, not one key for everybody."""
+    return bool(_PER_USER_KEY.search(src))
+
+
 def _dump(chain) -> None:
     tip = chain.tip
     if tip is None:
@@ -494,8 +575,9 @@ def _dump(chain) -> None:
 def _args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="demo.py")
     parser.add_argument("--interactive", action="store_true", help="wait for Enter between beats")
-    parser.add_argument("--fast", action="store_true", help="2s consent window, no pauses")
-    parser.add_argument("--llm", action="store_true", help="plan and code with OpenRouter instead of the script")
+    parser.add_argument("--fast", action="store_true", help="2s consent window (15s with --llm), no pauses")
+    parser.add_argument("--llm", action="store_true",
+                        help="code and review with OpenRouter models; the task split stays scripted")
     parser.add_argument("--keep", action="store_true", help="reuse the existing fake mailbox instead of clearing it")
     return parser.parse_args(argv)
 

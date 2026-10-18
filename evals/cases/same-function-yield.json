@@ -16,7 +16,7 @@
       "handle": "@alice",
       "instructions": "Change add in calc.py so it returns a + b + 1. Leave mul alone. Land the change. If someone else lands a conflicting edit of add, keep a + b + 1 if you can do it without a fight; otherwise rebase.",
       "gud_script": [
-        {"tool": "push", "args": {"intent": "add returns a + b + 1", "edits": [{"path": "calc.py", "content": "def add(a, b):\n    return a + b + 1\n\ndef mul(a, b):\n    return a * b\n"}]}},
+        {"tool": "push", "args": {"intent": "add returns a + b + 1", "edits": [{"path": "calc.py", "old": "    return a + b\n", "new": "    return a + b + 1\n"}]}},
         {"settle": "gud"},
         {"expect_prefix": "landed"}
       ],
@@ -32,7 +32,7 @@
       "instructions": "You also wanted to change add, but if add already returns a + b + 1, do not overwrite it. Append the comment line '# bob: acknowledged' at the end of calc.py and land that.",
       "gud_script": [
         {"until_contains": {"tool": "read", "args": {"path": "calc.py"}, "text": "return a + b + 1", "timeout": 25}},
-        {"tool": "push", "args": {"intent": "acknowledge alice's add", "edits": [{"path": "calc.py", "content": "def add(a, b):\n    return a + b + 1\n\ndef mul(a, b):\n    return a * b\n\n# bob: acknowledged\n"}]}},
+        {"tool": "push", "args": {"intent": "acknowledge alice's add", "edits": [{"path": "calc.py", "old": "    return a * b\n", "new": "    return a * b\n\n# bob: acknowledged\n"}]}},
         {"settle": "gud"},
         {"expect_prefix": "landed"}
       ],

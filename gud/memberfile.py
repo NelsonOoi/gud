@@ -8,7 +8,7 @@ from .types import Member, Tree
 
 MEMBERS = ".gud/members"
 PROTECTED = ".gud/protected"
-ALWAYS_QUORUM = (MEMBERS, PROTECTED)
+ALWAYS_QUORUM = (PROTECTED,)
 RULE_RANK = {None: 0, "explicit": 1, "quorum": 2}
 
 
@@ -39,8 +39,55 @@ def members_of(tree: Tree) -> dict[str, Member]:
 
 
 def by_address(members: dict[str, Member], address: str) -> Member | None:
+    """The member at ``address``.
+
+    A human registered at an outside address (a gmail, for example) is also
+    recognized at ``handle@<agent domain>``. That is the address the host can
+    actually send from. An on-domain registration is only the exact address.
+    """
     address = address.lower()
-    return next((m for m in members.values() if m.address == address), None)
+    found = next((m for m in members.values() if m.address == address), None)
+    if found is not None:
+        return found
+    local, sep, host = address.partition("@")
+    domain = _agent_domain(members)
+    if not sep or not local or host != domain:
+        return None
+    member = members.get(f"@{local}")
+    if member is None or member.role != "human":
+        return None
+    registered = member.address.lower()
+    registered_host = registered.rsplit("@", 1)[-1] if "@" in registered else ""
+    if registered_host == domain:
+        return None
+    return member
+
+
+def sending_address(member: Member, domain: str) -> str:
+    """The From address the host mailbox can use for ``member``.
+
+    Primitive rejects any domain other than the account's verified sending
+    domain. A human whose roster address is outside that domain is sent as
+    ``handle@domain``, which ``by_address`` still attributes to them.
+    """
+    domain = (domain or "").strip().lower()
+    registered = (member.address or "").strip().lower()
+    host = registered.rsplit("@", 1)[-1] if "@" in registered else ""
+    if not domain or host == domain:
+        return registered
+    return f"{member.handle.lstrip('@')}@{domain}"
+
+
+def _agent_domain(members: dict[str, Member]) -> str | None:
+    """The domain agent addresses share, or None when they do not agree."""
+    domains: set[str] = set()
+    for member in members.values():
+        if member.role == "human" or "@" not in (member.address or ""):
+            continue
+        domains.add(member.address.lower().rsplit("@", 1)[-1])
+    if len(domains) == 1:
+        return next(iter(domains))
+    return None
 
 
 def parse_protected(text: str) -> list[tuple[str, str]]:
@@ -58,6 +105,9 @@ def rule_for(tree: Tree, paths: list[str]) -> str | None:
     rules = parse_protected(tree.get(PROTECTED, ""))
     best = None
     for p in paths:
+        # The member list is a human approval, even when a glob such as `.gud/*` would match it.
+        if p == MEMBERS:
+            continue
         r = "quorum" if p in ALWAYS_QUORUM else None
         for glob, rule in rules:
             if fnmatch.fnmatch(p, glob) and RULE_RANK[rule] > RULE_RANK[r]:

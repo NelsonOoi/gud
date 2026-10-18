@@ -16,21 +16,37 @@ from .bugs import (
     requester_for, review_requested, ticket_text,
 )
 from .compose import Identity
-from .inbox import Gate, Inbox
-from .memberfile import by_address
+from .inbox import Gate, Inbox, next_window_close
+from .memberfile import by_address, members_of
+from .members import touches_members, with_member
+from .patch import PatchError, apply_diff
 from .replay import replay
 from .tasks import Task, _title, derive, next_task_id
+from .types import Member
 from .wire import parse_body, render_body
+from .worker import MAX_OBJECTIONS, REVIEW_RETRY, objected_pushes, review_context, window_closed
 
 # Keyword order matters: "lockout" and "protected interface" also mention rate limits.
 DEMO_SPLITS: dict[str, list[tuple[str, str, list[str]]]] = {
     "lockout": [
         (
-            "Replace login with a lockout counter",
-            "gud-conflict. Rewrite auth.login so five wrong passwords lock the account and later "
-            "calls return LoginResult(False, None, \"locked\") until revoke_user_sessions clears it. "
-            "This push replaces the rate-limit lines the current owner wrote; they will object. "
-            "The revised push keeps the rate-limit check and adds the lockout counter.",
+            "Add a lockout counter to login",
+            "gud-conflict. Five wrong passwords for one username lock the account: later login calls "
+            "return LoginResult(False, None, \"locked\") until revoke_user_sessions clears the count. "
+            "Keep the counter in a module-level _failures dict and clear it in reset. Add a test that "
+            "five bad passwords lock alice and revoke_user_sessions unlocks her.\n\n"
+            "Target auth.login:\n\n"
+            "def login(username: str, password: str) -> LoginResult:\n"
+            "    if not ratelimit.allow(\"login\"):\n"
+            "        return LoginResult(False, None, \"rate limited\")\n"
+            "    if _failures.get(username, 0) >= 5:\n"
+            "        return LoginResult(False, None, \"locked\")\n"
+            "    row = _users.get(username)\n"
+            "    if row is None or not verify_password(password, row[1]):\n"
+            "        _failures[username] = _failures.get(username, 0) + 1\n"
+            "        return LoginResult(False, None, \"invalid credentials\")\n"
+            "    _failures.pop(username, None)\n"
+            "    return LoginResult(True, start_session(username), \"\")",
             ["auth.py", "tests/test_auth.py"],
         ),
     ],
@@ -48,15 +64,20 @@ DEMO_SPLITS: dict[str, list[tuple[str, str, list[str]]]] = {
             "Rate-limit login",
             "In auth.py login, call ratelimit.allow(f\"login:{username}\") before checking the password. "
             "When it returns false, return LoginResult(False, None, \"rate limited\") and do not start "
-            "a session. Add a test that a second login inside an empty bucket is rejected.",
-            ["auth.py", "tests/test_auth.py"],
+            "a session. Add a test that a second login inside an empty bucket is rejected. "
+            "Login now spends tokens from the process-wide bucket, and a test that calls "
+            "ratelimit.configure replaces that bucket for every later test, so in conftest.py's "
+            "autouse fixture call ratelimit.configure(rate=10, capacity=10) before each test.",
+            ["auth.py", "tests/test_auth.py", "conftest.py"],
         ),
         (
             "Bill overage in charge",
             "In billing.py charge, read usage_of for the period, set overage_cents from "
             "overage_cents(requests, plan), and set total_cents to amount_cents + overage_cents. "
             "Keep rejecting a missing account and a negative amount. A charge of 0 cents on the free "
-            "plan after 103 requests in the period invoices overage_cents == 6.",
+            "plan after 103 requests in the period invoices overage_cents == 6. "
+            "test_charge_records_the_amount_without_overage meters 150 requests and expects no overage; "
+            "make it meter 10.",
             ["billing.py", "tests/test_billing.py"],
         ),
         (
@@ -70,7 +91,8 @@ DEMO_SPLITS: dict[str, list[tuple[str, str, list[str]]]] = {
             "Add penalize",
             "In ratelimit.py add penalize(key) on TokenBucket and the module wrapper that sets that "
             "key's tokens to zero. Leave allow and remaining as the tests describe them. Add a test "
-            "that penalize makes the next allow fail.",
+            "that penalize makes the next allow fail. Only add lines to ratelimit.py; do not change "
+            "or delete any existing line, blank lines included.",
             ["ratelimit.py", "tests/test_penalize.py"],
         ),
     ],
@@ -196,6 +218,7 @@ class Lead:
         self._finished: set[str] = set()
         self._voted: set[str] = set()
         self._review_failed: dict[str, float] = {}
+        self._escalated: set[str] = set()
         self._bug_failed: dict[str, float] = {}
         self._bugs_seen: set[str] = set()
         self._bugs_waiting = False
@@ -205,6 +228,9 @@ class Lead:
         # Source message ids this process already turned into a task. Real mail can
         # take seconds to show up in the repo mailbox; the chain covers a restart.
         self._emailed: set[str] = set()
+        # Address -> push id for a CC membership push not yet visible in the repo mailbox.
+        self._cc_inflight: dict[str, str] = {}
+        self._window_at: float | None = None
 
     def step(self) -> list:
         mail = self.inbox.read()
@@ -217,10 +243,11 @@ class Lead:
             parsed = parse_body(email.body)
             if parsed.kind == "task" and parsed.get("Gud-Task"):
                 self._open_tasks.add(parsed.get("Gud-Task"))
-        busy = bool(self._open_tasks - self._finished) or self._bugs_waiting
-        if not self.gate.due(bool(mail) or bool(fresh_bugs), busy):
+        busy = bool(self._open_tasks - self._finished) or self._bugs_waiting or bool(self._review_failed)
+        if not self.gate.due(bool(mail) or bool(fresh_bugs), busy, self._window_at):
             return []
         chain, now = self._chain()
+        self._window_at = next_window_close(chain)
         tip = chain.tip
         if tip is None:
             return []
@@ -235,6 +262,7 @@ class Lead:
         sent = []
         sent += self._triage(chain, tip, bug_rows)
         sent += self._intake_email_tasks(chain, tip, sent)
+        sent += self._intake_cc_humans(chain, tip, sent)
         task_mail = [email for email in sent if parse_body(email.body).kind == "task"]
         if task_mail:
             chain.emails = [*chain.emails, *task_mail]
@@ -245,6 +273,7 @@ class Lead:
         sent += self._reassign(chain, tasks, tip, now)
         sent += self._finish(chain, tasks, tip)
         sent += self._approve(chain, tip)
+        sent += self._escalate(chain, tasks, tip)
         return sent
 
     def _bug_inbox(self) -> list:
@@ -287,6 +316,65 @@ class Lead:
             sent.append(sent_email)
             known.append(sent_email)
             print(f"lead: task {task_id} from {member.handle} {email.message_id} {title}", flush=True)
+        return sent
+
+    def _intake_cc_humans(self, chain, tip, already: list) -> list:
+        """One membership push per new address a verified human CC'd on mail to the repo.
+
+        The cited message is the human approval. No second approve is sent. An address already
+        on the roster, or already added by an open membership push, is left alone.
+        """
+        sent = []
+        visible = {email.message_id for email in chain.emails}
+        for address, message_id in list(self._cc_inflight.items()):
+            if message_id in visible:
+                del self._cc_inflight[address]
+        claimed, taken_handles = _open_membership_adds(chain)
+        claimed |= set(self._cc_inflight)
+        for email in already:
+            extra_claimed, extra_handles = _push_membership_delta(tip, email)
+            claimed |= extra_claimed
+            taken_handles |= extra_handles
+        taken_handles |= set(tip.members)
+        roster = {_bare_addr(member.address) for member in tip.members.values()}
+        repo = _bare_addr(getattr(self.mailbox, "repo_address", ""))
+        for email in chain.emails:
+            sponsor = _cc_sponsor(email, repo, tip.members)
+            if sponsor is None:
+                continue
+            sender = _bare_addr(email.from_addr)
+            seen: set[str] = set()
+            for raw in email.cc:
+                address = _bare_addr(raw)
+                if not address or address in seen:
+                    continue
+                seen.add(address)
+                if "@" not in address or address in (repo, sender) or address in roster or address in claimed:
+                    continue
+                handle = _fresh_handle(address, taken_handles)
+                member = Member(handle, "human", address, None, sponsor.handle)
+                try:
+                    new_tree = with_member(tip.tree, member)
+                except ValueError:
+                    continue
+                intent = f"Add {handle} (human) <{address}>, sponsored by {sponsor.handle}."
+                body, _, _ = compose.push_body(
+                    self.identity, parent=tip.message_id, parent_state=tip.state,
+                    parent_tree=tip.tree, new_tree=new_tree, intent=intent,
+                    extra_trailers={"Gud-Source": email.message_id},
+                )
+                sent_email = compose.send(
+                    self.mailbox, self.identity, tip.members,
+                    f"[gud] members: add {handle}", body, in_reply_to=tip.message_id,
+                )
+                claimed.add(address)
+                taken_handles.add(handle)
+                self._cc_inflight[address] = sent_email.message_id
+                sent.append(sent_email)
+                print(
+                    f"lead: cc {handle} <{address}> sponsored by {sponsor.handle} {email.message_id}",
+                    flush=True,
+                )
         return sent
 
     def _triage(self, chain, tip, bug_rows) -> list:
@@ -554,6 +642,10 @@ class Lead:
     def _approve(self, chain, tip) -> list:
         me = self.identity.handle
         sent = []
+        for push_id in list(self._review_failed):
+            prop = chain.proposals.get(push_id)
+            if prop is None or prop.status not in _WAIT_APPROVE:
+                del self._review_failed[push_id]
         for prop in chain.proposals.values():
             if prop.author == me or prop.status not in _WAIT_APPROVE:
                 continue
@@ -570,17 +662,24 @@ class Lead:
             parsed = parse_body(target.body)
             if "gud-bad-edit" in parsed.diff or "gud-bad-edit" in parsed.text:
                 continue
+            if window_closed(prop, self.clock()):
+                self._late(prop.message_id)
+                continue
             action, reason = "approve", "Approved."
             quorum = prop.protected_rule == "quorum" or prop.status == "needs_quorum"
             if self.reviewer is not None and not quorum:
                 failed_at = self._review_failed.get(prop.message_id)
-                if failed_at is not None and time.monotonic() - failed_at < 20:
+                if failed_at is not None and self.clock() - failed_at < REVIEW_RETRY:
                     continue
-                from .worker import review_context
-                action, reason = self.reviewer.review(parsed.diff, review_context(chain, prop, parsed, me))
+                context = review_context(chain, prop, parsed, me, now=self.clock())
+                action, reason = self.reviewer.review(parsed.diff, context)
                 if action not in {"approve", "object"}:
-                    self._review_failed[prop.message_id] = time.monotonic()
+                    self._review_failed[prop.message_id] = self.clock()
                     continue
+                if window_closed(prop, self.clock()):
+                    self._late(prop.message_id)
+                    continue
+                self._review_failed.pop(prop.message_id, None)
             if action == "object":
                 body = compose.object_body(self.identity, prop.message_id, reason)
             else:
@@ -593,6 +692,59 @@ class Lead:
             sent.append(email)
             print(f"lead: {action} {prop.message_id} {prop.subject} {reason if action == 'object' else ''}".rstrip(),
                   flush=True)
+        return sent
+
+    def _late(self, push_id: str) -> None:
+        self._voted.add(push_id)
+        self._review_failed.pop(push_id, None)
+        print(f"late review {self.identity.handle} {push_id}", flush=True)
+
+    def _escalate(self, chain, tasks, tip) -> list:
+        """Mail the requester once when an author was objected to `MAX_OBJECTIONS` times on a subtask.
+
+        The author stops revising it; the subtask stays open until a person decides.
+        """
+        sent = []
+        for task in tasks:
+            if task.status == "done":
+                continue
+            for sub in task.subtasks:
+                if sub.status in {"landed", "no-change"} or sub.id in self._escalated:
+                    continue
+                objected = objected_pushes(chain, sub.assignee, sub.id)
+                if len(objected) < MAX_OBJECTIONS:
+                    continue
+                pushes = {prop.message_id for prop in objected}
+                if _escalated(chain, pushes, self.identity.handle):
+                    self._escalated.add(sub.id)
+                    continue
+                human = _human(tip, task.requester)
+                if human is None or human.role != "human":
+                    author = tip.members.get(sub.assignee)
+                    human = _human(tip, author.sponsor) if author is not None and author.sponsor else None
+                if human is None or human.role != "human":
+                    print(f"lead: no human to escalate {sub.id} to", flush=True)
+                    continue
+                last = objected[-1]
+                reasons = []
+                for prop in objected:
+                    for item in prop.objections:
+                        reasons.append(f"{len(reasons) + 1}. {item.get('by')} on {prop.message_id}: "
+                                       f"{item.get('reason') or 'no reason given'}")
+                text = (
+                    f"{sub.id} {sub.title} is escalated to you. {sub.assignee}'s pushes were objected to "
+                    f"{len(objected)} times, so {sub.assignee} stopped revising it.\n\n"
+                    "Objections:\n" + "\n".join(reasons) + "\n\n"
+                    f"The subtask stays open and {task.id} is not done until you decide how to resolve it."
+                )
+                body = compose.notify_body(self.identity, text, target=last.message_id, ask="decide")
+                email = self.mailbox.send(
+                    from_addr=self.identity.address, to=human.address, cc=[self.mailbox.repo_address],
+                    subject=f"Escalated: {sub.id} {sub.title}", body=body, in_reply_to=last.message_id,
+                )
+                self._escalated.add(sub.id)
+                sent.append(email)
+                print(f"lead: escalated {sub.id} {sub.assignee} -> {human.handle} {last.message_id}", flush=True)
         return sent
 
 
@@ -642,6 +794,71 @@ def _signed_task(identity: Identity, task_id: str, requester: str, description: 
     return render_body(description, trailers)
 
 
+_CLOSED_PROPOSAL = frozenset({
+    "objected", "vetoed", "tests_failed", "bad_sig", "conflict", "stale", "superseded",
+})
+
+
+def _cc_sponsor(email, repo_address: str, members: dict):
+    """The human member who mailed the repo, or None when this mail cannot add a CC."""
+    if not email.sender_verified:
+        return None
+    repo = _bare_addr(repo_address)
+    if not repo or repo not in {_bare_addr(addr) for addr in email.to}:
+        return None
+    member = by_address(members, _bare_addr(email.from_addr))
+    if member is None or member.role != "human":
+        return None
+    return member
+
+
+def _fresh_handle(address: str, taken: set[str]) -> str:
+    local = address.split("@", 1)[0]
+    base = re.sub(r"[^a-z0-9]+", "", local.lower()) or "human"
+    handle = f"@{base}"
+    if handle not in taken:
+        return handle
+    number = 2
+    while f"@{base}{number}" in taken:
+        number += 1
+    return f"@{base}{number}"
+
+
+def _membership_delta(before: dict, after: dict) -> tuple[set[str], set[str]]:
+    old = {member.address.lower() for member in before.values()}
+    addresses = {member.address.lower() for member in after.values() if member.address.lower() not in old}
+    handles = {handle for handle in after if handle not in before}
+    return addresses, handles
+
+
+def _push_membership_delta(parent, email) -> tuple[set[str], set[str]]:
+    parsed = parse_body(email.body)
+    if parsed.kind != "push" or not touches_members(parsed.diff):
+        return set(), set()
+    try:
+        tree = apply_diff(parent.tree, parsed.diff)
+    except PatchError:
+        return set(), set()
+    return _membership_delta(parent.members, members_of(tree))
+
+
+def _open_membership_adds(chain) -> tuple[set[str], set[str]]:
+    """Addresses and handles added by membership proposals that can still land."""
+    claimed: set[str] = set()
+    handles: set[str] = set()
+    for prop in chain.proposals.values():
+        if prop.status in _CLOSED_PROPOSAL:
+            continue
+        email = chain.by_message.get(prop.message_id)
+        parent = chain.by_id.get(prop.parent)
+        if email is None or parent is None:
+            continue
+        addresses, added_handles = _push_membership_delta(parent, email)
+        claimed |= addresses
+        handles |= added_handles
+    return claimed, handles
+
+
 def _opened_sources(emails: list) -> set[str]:
     """Message ids a ``task`` email already cites via ``Gud-Source``."""
     found = set()
@@ -654,7 +871,12 @@ def _opened_sources(emails: list) -> set[str]:
 
 
 def _lead_should_approve(prop, me: str) -> bool:
-    """@lead signs off on lines it owns and casts a quorum vote."""
+    """@lead signs off on lines it owns and casts a quorum vote.
+
+    A membership push waits for a human. The lead does not approve it.
+    """
+    if prop.protected_rule == "human":
+        return False
     if prop.protected_rule == "quorum" or prop.status == "needs_quorum":
         return True
     if me in (prop.affected_owners or []):
@@ -747,6 +969,16 @@ def _pushes_by(chain, sub_id: str, author: str) -> list:
     return found
 
 
+def _escalated(chain, pushes: set[str], author: str) -> bool:
+    """True when this lead already sent a decide notify about one of `pushes`."""
+    for email in chain.emails:
+        parsed = parse_body(email.body)
+        if (parsed.kind == "notify" and parsed.get("Gud-Ask") == "decide"
+                and parsed.get("Gud-Author") == author and parsed.get("Gud-Target") in pushes):
+            return True
+    return False
+
+
 def _already(chain, author: str, target: str) -> bool:
     for email in chain.emails:
         parsed = parse_body(email.body)
@@ -804,7 +1036,11 @@ def _chat(api_key: str, model: str, messages: list[dict]) -> str:
         json={"model": model, "messages": messages, "temperature": 0},
         timeout=120,
     )
-    response.raise_for_status()
+    if response.is_error:
+        detail = " ".join((response.text or "").split())[:240]
+        raise RuntimeError(
+            f"OpenRouter {response.status_code} model {model}: {detail or response.reason_phrase}"
+        )
     return response.json()["choices"][0]["message"]["content"] or ""
 
 

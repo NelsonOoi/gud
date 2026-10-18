@@ -265,8 +265,18 @@ def test_join_lands_member_can_push_and_welcome_is_once(tmp_path):
     add_push = _pushed(push)
     world.approve("@lead", add_push)
     world.approve("@alice", add_push)
-    world.approve("@bob", add_push)
     world.test(add_push)
+    still = replay(world.repo_mail(), 60, time.time())
+    assert still.tip is None or still.tip.message_id != push_id
+    assert still.proposals[push_id].status == "needs_approval"
+    approved = local.post("/api/joins/" + quote(join_email.message_id, safe="") + "/approve")
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["push_id"] == push_id
+    human_replies = [
+        email for email in world.repo_mail()
+        if email.in_reply_to == push_id and email.from_addr == world.members["@nelson"].address
+    ]
+    assert human_replies and human_replies[-1].body.lstrip().lower().startswith("approve")
     landed = next(item for item in local.get("/api/joins").json() if item["id"] == join_email.message_id)
     assert landed["status"] == "member" and landed["push_id"] == push_id
     chain = replay(world.repo_mail(), 60, time.time())

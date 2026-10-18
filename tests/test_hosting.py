@@ -112,6 +112,30 @@ def test_config_member_fields(monkeypatch, tmp_path):
     assert bare.address("@ada") == "ada@gud.local"
 
 
+def test_primitive_domain_follows_primitive_email(monkeypatch, tmp_path):
+    monkeypatch.setenv("GUD_HOME", str(tmp_path))
+    monkeypatch.delenv("GUD_DOMAIN", raising=False)
+    monkeypatch.delenv("GUD_REPO_ADDRESS", raising=False)
+    monkeypatch.delenv("GUD_BUGS_ADDRESS", raising=False)
+    monkeypatch.setenv("GUD_MAILBOX", "primitive")
+    monkeypatch.setenv("PRIMITIVE_EMAIL", "example@lean-ridge.primitive.email")
+    cfg = config.load()
+    assert cfg.domain == "lean-ridge.primitive.email"
+    assert cfg.repo_address == "repo@lean-ridge.primitive.email"
+    assert cfg.bugs_address == "bugs@lean-ridge.primitive.email"
+
+    monkeypatch.setenv("GUD_DOMAIN", "gud.local")
+    assert config.load().domain == "gud.local"
+
+    monkeypatch.delenv("GUD_DOMAIN", raising=False)
+    monkeypatch.setenv("GUD_MAILBOX", "fake")
+    assert config.load().domain == "gud.local"
+
+    monkeypatch.setenv("GUD_MAILBOX", "primitive-webhook")
+    monkeypatch.setenv("PRIMITIVE_EMAIL", "")
+    assert config.load().domain == "gud.local"
+
+
 def test_open_member_mailbox_switches_on_host_url(tmp_path):
     cfg = _cfg(tmp_path)
     local = open_member_mailbox(cfg)
@@ -194,8 +218,7 @@ def test_removed_member_loses_mirror(tmp_path):
     chain = replay(world.repo_mail(), 60, now)
     removal = propose_remove(world.mailbox, world.ids["@lead"], chain.tip, "@alice", reason="left")
     removal_push = _pushed(removal)
-    world.approve("@bob", removal_push)
-    world.approve("@carol", removal_push)
+    world.human("@nelson", removal_push, "approve")
     world.test(removal_push)
     chain = replay(world.repo_mail(), 60, time.time())
     assert chain.tip is not None and chain.tip.message_id == removal.message_id, (

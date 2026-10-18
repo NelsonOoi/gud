@@ -29,6 +29,11 @@ export function ConsentMeter({
     )
   }
 
+  if (proposal.protected_rule === "human") {
+    const waiting = proposal.status === "needs_approval"
+    return <Meter label="human" detail={waiting ? "waiting" : "approved"} value={waiting ? 0 : 100} />
+  }
+
   if (proposal.protected_rule === "quorum" || proposal.status === "needs_quorum") {
     const have = proposal.quorum_have ?? 0
     const needed = proposal.quorum_needed ?? 0

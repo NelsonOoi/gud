@@ -92,15 +92,17 @@ def _owner_at(blame: Blame, path: str, lineno: int) -> str | None:
     return lines[idx][0]
 
 
-def removed_owners(old_tree: Tree, old_blame: Blame, diff: str) -> set[str]:
+def removed_owners(old_tree: Tree, old_blame: Blame, diff: str,
+                   skip: frozenset[str] | None = None) -> set[str]:
     """Owners of old lines the diff deletes or rewrites (the '-' lines)."""
     owners: set[str] = set()
+    skipped = skip or frozenset()
     try:
         scanned = _scan(diff)
     except PatchError:
         return owners
     for path, (removed, _insertions, _rewrites) in scanned.items():
-        if path not in old_tree:
+        if path in skipped or path not in old_tree:
             continue
         for lineno in removed:
             owner = _owner_at(old_blame, path, lineno)

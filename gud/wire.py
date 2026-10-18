@@ -87,6 +87,16 @@ def parse_body(body: str) -> Parsed:
     return Parsed(text="\n".join(text_lines).strip(), trailers=trailers, diff=diff)
 
 
+def test_log(emails, push_id: str) -> str:
+    """Last 2,000 characters of the tester's log for push_id."""
+    log = ""
+    for email in emails:
+        parsed = parse_body(email.body)
+        if parsed.kind == "test" and parsed.get("Gud-Target") == push_id:
+            log = parsed.text or ""
+    return log[-2000:]
+
+
 def render_body(text: str, trailers: dict[str, str], diff: str = "") -> str:
     out = [text.strip(), ""] if text.strip() else []
     order = [k for k in CANONICAL.values() if k in trailers and k != "Gud-Sig"]

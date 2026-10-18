@@ -1,6 +1,18 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { toast } from "sonner"
-import { bootApi, getActivity, getBugs, getJoins, getState, getTasks, subscribe, type ApiMode } from "@/lib/api"
+import {
+  bootApi,
+  getActivity,
+  getBugs,
+  getJoins,
+  getRepos,
+  getState,
+  getTasks,
+  selectRepo as postRepo,
+  signInMailbox,
+  subscribe,
+  type ApiMode,
+} from "@/lib/api"
 import { serverNow, setServerNow } from "@/lib/format"
 import type { Activity, BugReport, JoinRequest, RepoState, Task } from "@/lib/types"
 
@@ -16,6 +28,13 @@ type GudContextValue = {
   refresh: () => Promise<void>
   openId: string | null
   setOpenId: (id: string | null) => void
+  repos: string[]
+  activeRepo: string | null
+  needsToken: boolean
+  refreshRepos: () => Promise<void>
+  chooseRepo: (address: string) => Promise<void>
+  openCreated: (catalog: { repos: string[]; active: string | null; needs_token: boolean }) => Promise<void>
+  signIn: (token: string) => Promise<void>
 }
 
 const GudContext = createContext<GudContextValue | null>(null)
@@ -30,7 +49,11 @@ export function GudProvider({ children }: { children: ReactNode }) {
   const [joins, setJoins] = useState<JoinRequest[]>([])
   const [now, setNow] = useState(() => Date.now() / 1000)
   const [openId, setOpenId] = useState<string | null>(null)
+  const [repos, setRepos] = useState<string[]>([])
+  const [activeRepo, setActiveRepo] = useState<string | null>(null)
+  const [needsToken, setNeedsToken] = useState(false)
   const refreshRef = useRef<() => Promise<void>>(async () => {})
+  const activeRepoRef = useRef<string | null>(null)
 
   const refresh = useCallback(async () => {
     const [nextState, nextTasks, nextBugs, nextActivity, nextJoins] = await Promise.all([
@@ -54,6 +77,42 @@ export function GudProvider({ children }: { children: ReactNode }) {
   }, [refresh])
 
   useEffect(() => {
+    activeRepoRef.current = activeRepo
+  }, [activeRepo])
+
+  const applyCatalog = useCallback((catalog: { repos: string[]; active: string | null; needs_token: boolean }) => {
+    setRepos(catalog.repos)
+    setActiveRepo(catalog.active)
+    setNeedsToken(catalog.needs_token)
+  }, [])
+
+  const refreshRepos = useCallback(async () => {
+    const catalog = await getRepos()
+    const changed = catalog.active !== activeRepoRef.current
+    applyCatalog(catalog)
+    if (changed && catalog.active && !catalog.needs_token) await refreshRef.current()
+  }, [applyCatalog])
+
+  const chooseRepo = useCallback(async (address: string) => {
+    setActiveRepo(address)
+    setOpenId(null)
+    applyCatalog(await postRepo(address))
+    await refreshRef.current()
+  }, [applyCatalog])
+
+  const openCreated = useCallback(async (catalog: { repos: string[]; active: string | null; needs_token: boolean }) => {
+    activeRepoRef.current = catalog.active
+    setOpenId(null)
+    applyCatalog(catalog)
+    if (catalog.active && !catalog.needs_token) await refreshRef.current()
+  }, [applyCatalog])
+
+  const signIn = useCallback(async (token: string) => {
+    applyCatalog(await signInMailbox(token))
+    await refreshRef.current()
+  }, [applyCatalog])
+
+  useEffect(() => {
     const clock = window.setInterval(() => setNow(serverNow()), 500)
     return () => window.clearInterval(clock)
   }, [])
@@ -72,6 +131,13 @@ export function GudProvider({ children }: { children: ReactNode }) {
       const nextMode = await bootApi()
       if (cancelled) return
       setMode(nextMode)
+      let skipRefresh = false
+      if (nextMode === "live") {
+        const catalog = await getRepos()
+        if (cancelled) return
+        applyCatalog(catalog)
+        skipRefresh = catalog.needs_token
+      }
       unsubscribe = subscribe((event) => {
         if (event.event === "chain") {
           toast.success("Link landed", { description: event.data.tip.subject })
@@ -87,7 +153,7 @@ export function GudProvider({ children }: { children: ReactNode }) {
         schedule()
       })
       try {
-        await refreshRef.current()
+        if (!skipRefresh) await refreshRef.current()
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Could not load gud")
       } finally {
@@ -99,11 +165,14 @@ export function GudProvider({ children }: { children: ReactNode }) {
       unsubscribe()
       window.clearTimeout(timer)
     }
-  }, [])
+  }, [applyCatalog])
 
   const value = useMemo(
-    () => ({ mode, loading, state, tasks, bugs, activity, joins, now, refresh, openId, setOpenId }),
-    [mode, loading, state, tasks, bugs, activity, joins, now, refresh, openId],
+    () => ({
+      mode, loading, state, tasks, bugs, activity, joins, now, refresh, openId, setOpenId,
+      repos, activeRepo, needsToken, refreshRepos, chooseRepo, openCreated, signIn,
+    }),
+    [mode, loading, state, tasks, bugs, activity, joins, now, refresh, openId, repos, activeRepo, needsToken, refreshRepos, chooseRepo, openCreated, signIn],
   )
 
   return <GudContext.Provider value={value}>{children}</GudContext.Provider>

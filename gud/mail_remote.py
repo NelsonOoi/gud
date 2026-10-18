@@ -10,6 +10,7 @@ account, or a FileMailbox in fake mode).
 from __future__ import annotations
 
 import time
+from urllib.parse import urlencode
 
 import httpx
 
@@ -27,7 +28,6 @@ class RemoteMailbox:
         self.page_limit = 500
         self._by_id: dict[str, Email] = {}
         self._order: list[Email] = []
-        self._wake_since: float | None = None
 
     def send(self, *, from_addr: str, to: str, cc: list[str] | None = None, subject: str,
              body: str, in_reply_to: str | None = None,
@@ -51,11 +51,10 @@ class RemoteMailbox:
         return [email for email in self._order if email.received_at > since]
 
     def wait(self, *, recipient: str, since: float, timeout: float) -> list[Email]:
-        """Poll the mirror about once a second until mail newer than ``since`` arrives.
+        """Block on ``GET /api/mail?wait=`` until mail newer than ``since`` arrives.
 
-        ``recipient`` is ignored for the result (it is mirror mail). When
-        ``send_via`` implements ``wait``, that call is the sleep: new mail in
-        the member's own inbox wakes us, then the mirror is listed again.
+        ``recipient`` is ignored for the result (it is mirror mail). The host
+        long-polls its cache, so this does not list Primitive.
         """
         del recipient
         deadline = time.monotonic() + max(float(timeout), 0.0)
@@ -64,11 +63,9 @@ class RemoteMailbox:
             if found or time.monotonic() >= deadline:
                 return found
             remaining = deadline - time.monotonic()
-            step = min(1.0, remaining)
-            if step <= 0:
+            if remaining <= 0:
                 return []
-            if not self._wake(step):
-                time.sleep(step)
+            self._wait_page(since, min(30.0, remaining))
 
     def _sync(self) -> None:
         since = self._order[-1].received_at if self._order else None
@@ -91,14 +88,19 @@ class RemoteMailbox:
             seen_cursors.append(nxt)
             since = nxt
 
-    def _page(self, since: float | None) -> tuple[list[Email], float | None]:
-        limit = self.page_limit if self.page_limit and self.page_limit > 0 else 500
+    def _mail_path(self, since: float | None, limit: int, wait: float | None = None) -> str:
         pairs: list[tuple[str, str]] = []
         if since is not None:
             pairs.append(("since", format(float(since), ".17g")))
+        if wait is not None:
+            text = format(float(wait), ".6f").rstrip("0").rstrip(".")
+            pairs.append(("wait", text or "0"))
         pairs.append(("limit", str(int(limit))))
-        query = "&".join(f"{key}={value}" for key, value in pairs)
-        path = "/api/mail?" + query
+        return "/api/mail?" + urlencode(pairs)
+
+    def _page(self, since: float | None) -> tuple[list[Email], float | None]:
+        limit = self.page_limit if self.page_limit and self.page_limit > 0 else 500
+        path = self._mail_path(since, limit)
         headers = sign_request(self.identity, "GET", path, time.time())
         response = self._client.get(self.host_url + path, headers=headers)
         if response.status_code != 200:
@@ -110,34 +112,25 @@ class RemoteMailbox:
         nxt = payload.get("next_since")
         return emails, None if nxt is None else float(nxt)
 
-    def _wake(self, step: float) -> bool:
-        waiter = getattr(self.send_via, "wait", None)
-        if not callable(waiter):
-            return False
-        self._arm_wake()
+    def _wait_page(self, since: float | None, wait: float) -> None:
+        limit = self.page_limit if self.page_limit and self.page_limit > 0 else 500
+        path = self._mail_path(since, limit, wait)
+        headers = sign_request(self.identity, "GET", path, time.time())
+        timeout = httpx.Timeout(float(wait) + 10.0, connect=10.0)
         try:
-            waiter(recipient=self.identity.address, since=self._wake_since or 0.0, timeout=step)
+            response = self._client.get(self.host_url + path, headers=headers, timeout=timeout)
         except TypeError:
-            return False
-        except Exception:
-            return True
-        try:
-            inbox = self.send_via.list(recipient=self.identity.address)
-        except Exception:
-            return True
-        if inbox:
-            self._wake_since = inbox[-1].received_at
-        return True
-
-    def _arm_wake(self) -> None:
-        if self._wake_since is not None:
-            return
-        try:
-            inbox = self.send_via.list(recipient=self.identity.address)
-        except Exception:
-            self._wake_since = 0.0
-            return
-        self._wake_since = inbox[-1].received_at if inbox else 0.0
+            response = self._client.get(self.host_url + path, headers=headers)
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"GET {path} failed with {response.status_code}: {response.text[:300]}"
+            )
+        payload = response.json()
+        for email in [_email_from_json(row) for row in (payload.get("emails") or [])]:
+            if email.message_id not in self._by_id:
+                self._by_id[email.message_id] = email
+                self._order.append(email)
+        self._order.sort(key=lambda email: (email.received_at, email.message_id))
 
 
 def _email_from_json(row: dict) -> Email:

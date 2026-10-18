@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from . import compose
 from .build import RunnerPool
-from .inbox import Gate, Inbox
+from .inbox import Gate, Inbox, next_window_close
 from .memberfile import members_of
 from .patch import PatchError, apply_diff
 from .types import Email, Mailbox, Tree
@@ -51,13 +51,14 @@ class Tester:
         # Pushes this tester answered, kept across steps: its own replies reach the repo later.
         self._answered_ids: set[str] = set()
         self._waiting = False
+        self._window_at: float | None = None
 
     def step(self) -> list[Email]:
         """Test every push that is ready. Returns the `test` emails sent, oldest work first."""
         from .replay import replay
 
         mail = self.inbox.read()
-        if not self.gate.due(bool(mail), self._waiting):
+        if not self.gate.due(bool(mail), self._waiting, self._window_at):
             return []
         sent: list[Email] = []
         answered = self._answered_ids
@@ -65,6 +66,7 @@ class Tester:
             emails = self.mailbox.list(recipient=self.mailbox.repo_address)
             answered |= self._answered(emails)
             chain = replay(emails, self.window, self.clock())
+            self._window_at = next_window_close(chain)
             work = [job for job in self._candidates(emails, chain) if job.message_id not in answered]
             self._waiting = self._untested_children(emails, chain, answered)
             if not work:

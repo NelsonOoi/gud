@@ -223,6 +223,22 @@ def test_failed_detail_fetch_is_retried_not_cached_as_snippet(monkeypatch):
     assert [e.body for e in mb.list()] == ["intent\n\nGud-Kind: push\n"]
 
 
+def test_list_includes_a_send_before_inbound_delivery():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/send-mail"):
+            return _ok({
+                "id": SENT_ID, "message_id": "<s@gud.local>", "created_at": WHEN,
+                "body_text": "x", "to_address": REPO, "subject": "s",
+            })
+        return _ok([])
+
+    mb = _mailbox(handler)
+    sent = mb.send(from_addr="alice@gud.local", to=REPO, cc=["ada@example.com"], subject="s", body="x")
+    assert [email.message_id for email in mb.list()] == [sent.message_id]
+    assert [email.message_id for email in mb.list(recipient="ada@example.com")] == [sent.message_id]
+    assert mb.list(recipient="other@gud.local") == []
+
+
 def test_list_ttl_shares_one_listing_until_a_send():
     lists = []
 

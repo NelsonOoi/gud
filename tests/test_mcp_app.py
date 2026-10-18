@@ -1,13 +1,16 @@
-"""The hosted feed: three tools, a ui:// widget, and a token on writes."""
+"""The hosted feed: three tools, a ui:// widget, and an Ed25519 key on writes."""
 
 from __future__ import annotations
 
 import asyncio
+import base64
 
+from gud import sig
 from gud.config import Config
 from gud.console import Console
-from gud.mcp_app import APP_MIME, WIDGET_URI, build_server
+from gud.mcp_app import APP_MIME, WIDGET_URI, build_server, default_console
 from gud.testkit import REPO, World
+from gud.wire import parse_body
 
 
 def _server(w: World, tmp_path, token: str | None = None):
@@ -50,15 +53,30 @@ def _meta(tool) -> dict:
     return dumped.get("_meta") or {}
 
 
+def test_default_console_opens_the_repo_the_gui_saved(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "repo.txt").write_text("repo-test3@lean-ridge.primitive.email\n")
+    monkeypatch.setenv("GUD_HOME", str(home))
+    monkeypatch.setenv("GUD_MAILBOX", "fake")
+    monkeypatch.delenv("GUD_REPO_ADDRESS", raising=False)
+    console = default_console()
+    assert console.mailbox.repo_address == "repo-test3@lean-ridge.primitive.email"
+
+
 def test_server_lists_exactly_the_three_feed_tools(tmp_path):
     w = World.create(tmp_path)
     w.genesis({"app.py": "x = 1\n"})
     tools = asyncio.run(_server(w, tmp_path).list_tools())
-    assert sorted(tool.name for tool in tools) == ["gud", "gud_decide", "gud_task"]
+    assert sorted(tool.name for tool in tools) == ["gud", "gud_decide", "gud_push", "gud_task"]
     gud = next(tool for tool in tools if tool.name == "gud")
     assert _meta(gud)["ui"]["resourceUri"] == WIDGET_URI
     props = _field(gud, "input_schema", "inputSchema")["properties"]
     assert "since" in props and "focus" in props
+    for name in ("gud", "gud_decide", "gud_push", "gud_task"):
+        tool = next(item for item in tools if item.name == name)
+        fields = _field(tool, "input_schema", "inputSchema")["properties"]
+        assert {"handle", "repo", "private_key", "token"} <= set(fields)
 
 
 def test_widget_resource_uses_the_mcp_app_mime(tmp_path):
@@ -96,19 +114,54 @@ def test_gud_text_fallback_lists_needs_you_ids(tmp_path):
     assert any(item["id"] == bug.message_id for item in data["needs_you"])
 
 
-def test_writes_are_rejected_without_the_token(tmp_path):
+def _key(w: World, handle: str) -> str:
+    return base64.b64encode(w.ids[handle].private_raw).decode()
+
+
+def test_writes_require_the_ed25519_key_and_repo_selects_the_inbox(tmp_path):
     w = World.create(tmp_path)
     w.genesis({"app.py": "x = 1\n"})
     server = _server(w, tmp_path, token="secret")
     missing = asyncio.run(server.call_tool("gud_task", {"title": "Ship it", "description": "now"}))
     assert _error(missing)
-    assert "token" in _text(missing).lower()
+    assert "ed25519" in _text(missing).lower()
     wrong = asyncio.run(server.call_tool("gud_decide", {"target": "<nope>", "verdict": "approve", "token": "nope"}))
     assert _error(wrong)
-    assert "token" in _text(wrong).lower()
-    opened = asyncio.run(server.call_tool("gud_task", {"title": "Ship it", "description": "now", "token": "secret"}))
+    assert "ed25519" in _text(wrong).lower()
+
+    key = _key(w, "@tester")
+    opened = asyncio.run(server.call_tool("gud_task", {
+        "title": "Ship it", "description": "now", "handle": "@tester", "private_key": key,
+    }))
     assert not _error(opened)
     assert _text(opened) == "T1"
-    read = asyncio.run(server.call_tool("gud", {"focus": "app.py"}))
-    assert not _error(read)
-    assert _data(read)["focus"]["kind"] == "file"
+    email = next(item for item in w.repo_mail() if parse_body(item.body).get("Gud-Task") == "T1")
+    parsed = parse_body(email.body)
+    assert parsed.get("Gud-Author") == "@tester"
+    assert parsed.get("Gud-Requester") == "@tester"
+    assert email.from_addr == w.members["@tester"].address
+    assert sig.verify(w.members["@tester"].public_key, parsed.trailers, parsed.diff)
+
+    aliased = asyncio.run(server.call_tool("gud_task", {"title": "Again", "description": "now", "token": key}))
+    assert not _error(aliased)
+    assert _text(aliased) == "T2"
+    second = next(item for item in w.repo_mail() if parse_body(item.body).get("Gud-Task") == "T2")
+    assert parse_body(second.body).get("Gud-Author") == "@tester"
+
+    pushed = asyncio.run(server.call_tool("gud_push", {
+        "intent": "set x",
+        "edits": [{"path": "app.py", "old": "x = 1\n", "new": "x = 2\n"}],
+        "handle": "@alice",
+        "private_key": _key(w, "@alice"),
+    }))
+    assert not _error(pushed)
+    push_id = _text(pushed).splitlines()[0]
+    push = next(item for item in w.repo_mail() if item.message_id == push_id)
+    push_body = parse_body(push.body)
+    assert push_body.kind == "push"
+    assert push_body.get("Gud-Author") == "@alice"
+    assert sig.verify(w.members["@alice"].public_key, push_body.trailers, push_body.diff)
+
+    listed = asyncio.run(server.call_tool("gud", {"repo": "other@gud.local", "focus": "app.py"}))
+    assert not _error(listed)
+    assert w.mailbox.repo_address == "other@gud.local"

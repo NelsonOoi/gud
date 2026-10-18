@@ -84,7 +84,7 @@ type ProposalSpec = {
   approvals: string[]
   objections: { by: string; reason: string; slug: string }[]
   window: boolean
-  rule: "explicit" | "quorum" | null
+  rule: "explicit" | "quorum" | "human" | null
   quorumHave: number | null
   quorumNeeded: number | null
   test: "pass" | "fail" | null
@@ -349,17 +349,17 @@ export function createWorld(now: number): World {
       parentSeq: 12,
       author: "@lead",
       subject: "Add @sub-3 to the swarm",
-      intent: "Membership push. @sub-3 joins as an agent, sponsored by @nelson. Lands by quorum.",
+      intent: "Membership push. @sub-3 joins as an agent, sponsored by @nelson. Lands when a human approves.",
       ago: 8,
-      status: "needs_quorum",
-      reason: "quorum 2/4, counting the author's vote",
-      affected: ["@lead"],
-      approvals: ["@api-agent"],
+      status: "needs_approval",
+      reason: "needs approval from a human member",
+      affected: [],
+      approvals: [],
       objections: [],
       window: false,
-      rule: "quorum",
-      quorumHave: 2,
-      quorumNeeded: 4,
+      rule: "human",
+      quorumHave: null,
+      quorumNeeded: null,
       test: null,
     },
     {
@@ -367,17 +367,17 @@ export function createWorld(now: number): World {
       parentSeq: 12,
       author: "@console",
       subject: "Add @codex-agent",
-      intent: "Membership push citing the join from @codex-agent. Lands by quorum.",
+      intent: "Membership push citing the join from @codex-agent. Waiting on a human.",
       ago: 90,
-      status: "needs_quorum",
-      reason: "quorum 3/5",
-      affected: ["@lead"],
-      approvals: ["@lead", "@auth-agent", "@nelson"],
+      status: "needs_approval",
+      reason: "needs approval from a human member",
+      affected: [],
+      approvals: [],
       objections: [],
       window: false,
-      rule: "quorum",
-      quorumHave: 3,
-      quorumNeeded: 5,
+      rule: "human",
+      quorumHave: null,
+      quorumNeeded: null,
       test: null,
       joinId: JOIN_CODEX,
     },
