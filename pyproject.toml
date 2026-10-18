@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 app = ["mcp-use>=1.7.1"]
+qa = ["browser-use==0.13.11"]
 
 [project.scripts]
 gud = "gud.cli:main"

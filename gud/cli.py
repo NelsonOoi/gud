@@ -27,7 +27,7 @@ from .wire import normalize, short
 ROSTER = [
     ("@lead", "lead"), ("@auth-agent", "agent"), ("@billing-agent", "agent"), ("@api-agent", "agent"),
     ("@sub-1", "agent"), ("@sub-2", "agent"), ("@sub-3", "agent"), ("@sub-4", "agent"),
-    ("@tester", "tester"), ("@console", "console"),
+    ("@tester", "tester"), ("@qa", "qa"), ("@console", "console"),
 ]
 SKIP_DIRS = {"__pycache__", ".pytest_cache", ".git", "node_modules"}
 

@@ -17,6 +17,7 @@ from .inbox import Gate
 from .keys import load_identity
 from .lead import LLMPlanner, Lead, ScriptedPlanner
 from .mailbox import open_member_mailbox
+from .qa import QA
 from .tester import Tester
 from .worker import LLMCoder, ScriptedCoder, Worker
 
@@ -33,7 +34,7 @@ class Swarm:
 
     def __init__(self, cfg, mailbox, mode: str = "scripted", workers: int | None = 4, clock=time.time,
                  handles: list[str] | None = None, runner=None, poll: float | None = None,
-                 stale_after: float = 120, genesis_timeout: float = 60):
+                 stale_after: float = 120, genesis_timeout: float = 60, qa: bool = False):
         if mode not in {"scripted", "llm"}:
             raise ValueError(f"unknown swarm mode {mode!r}")
         self.cfg = cfg
@@ -83,8 +84,18 @@ class Swarm:
             mailbox, _identity(cfg, "@tester", members["@tester"].address), runner or make_runner(cfg),
             cfg.window_seconds, clock=clock, gate=gate(),
         )
+        self.qa = None
+        if qa and "@qa" in members:
+            self.qa = QA(
+                mailbox, _identity(cfg, "@qa", members["@qa"].address), cfg.window_seconds,
+                clock=clock, gate=gate(), cfg=cfg, bugs_address=bugs,
+            )
+        elif qa:
+            print("swarm: --qa ignored, no @qa member", flush=True)
         self.handles = chosen
         self._agents = [self.lead, *self.workers, self.tester]
+        if self.qa is not None:
+            self._agents.append(self.qa)
 
     def start(self) -> None:
         if any(thread.is_alive() for thread in self._threads):
@@ -96,7 +107,8 @@ class Swarm:
                                       daemon=True)
             thread.start()
             self._threads.append(thread)
-        print(f"swarm: {self.mode} lead + {', '.join(self.handles)} + tester", flush=True)
+        extra = " + qa" if self.qa is not None else ""
+        print(f"swarm: {self.mode} lead + {', '.join(self.handles)} + tester{extra}", flush=True)
 
     def pause(self) -> None:
         """Stop calling step. In-flight steps finish; `pause_and_wait` blocks until they do."""
@@ -120,12 +132,14 @@ class Swarm:
         self._stopped = True
         self._stop.set()
         self._pause.clear()
-        closer = getattr(self.tester, "close", None)
-        if closer is not None:
+        for agent in (self.tester, self.qa):
+            closer = getattr(agent, "close", None)
+            if closer is None:
+                continue
             try:
                 closer()
             except Exception as exc:
-                print(f"tester close: {exc}", flush=True)
+                print(f"{agent.identity.handle} close: {exc}", flush=True)
         for thread in self._threads:
             thread.join(timeout=timeout)
         self._threads = []
@@ -205,9 +219,10 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="gud.swarm")
     parser.add_argument("--mode", choices=("scripted", "llm"), default="scripted")
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--qa", action="store_true")
     args = parser.parse_args(argv)
     cfg = load()
-    Swarm(cfg, open_member_mailbox(cfg), mode=args.mode, workers=args.workers).run()
+    Swarm(cfg, open_member_mailbox(cfg), mode=args.mode, workers=args.workers, qa=args.qa).run()
 
 
 if __name__ == "__main__":
