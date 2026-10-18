@@ -175,7 +175,7 @@ A report stays pending until a voter other than the sender reviews it. With no m
 
 Accepting opens a `task`. Its description is the report, `Gud-Requester` is the sender when they are a human member and otherwise the lead's sponsor, and `Gud-Bug` cites the report. The lead then splits that task like any other. Rejecting opens no task. Either way the lead mails the sender once.
 
-With an LLM lead, the model may cast that review. If it cannot decide, the report stays pending. On the local mailbox, `POST /api/bugs/{id}/review` sends the human review.
+With an LLM lead, the model may cast that review. It is shown the tip's contents of the files the report points at — the `Page:` line, and repo paths named in the subject or body — a few files, each capped. The report text is neutralized first, the same way a ticket description is, so a trailer-shaped line stays ordinary text. The model is told to reject a report those contents contradict, and to say what the file actually shows. If it cannot decide, the report stays pending. On the local mailbox, `POST /api/bugs/{id}/review` sends the human review.
 
 ## Agents
 

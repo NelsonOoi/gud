@@ -12,8 +12,8 @@ import time
 
 from . import compose, notify, sig
 from .bugs import (
-    bugs_address_for, derive_bugs, is_bug_report, lead_noted, neutralize, requester_for,
-    review_requested, ticket_text,
+    bugs_address_for, derive_bugs, files_for_report, is_bug_report, lead_noted, neutralize,
+    requester_for, review_requested, ticket_text,
 )
 from .compose import Identity
 from .inbox import Gate, Inbox
@@ -337,7 +337,10 @@ class Lead:
 
     def _ask_bug_reviewer(self, report, tip) -> tuple[str, str]:
         try:
-            action, reason = self.bug_reviewer.review_bug(report.subject, report.text, sorted(tip.tree)[:80])
+            files = files_for_report(tip.tree, report.subject, report.text)
+            action, reason = self.bug_reviewer.review_bug(
+                report.subject, report.text, sorted(tip.tree)[:80], files,
+            )
         except Exception as exc:
             print(f"lead: bug review failed: {exc}", flush=True)
             return "abstain", str(exc)[:200]
