@@ -1,4 +1,8 @@
-"""The lead agent. Split tasks, reassign stale subtasks, close finished tasks, vote as @lead."""
+"""The lead agent. Split tasks, reassign stale subtasks, close finished tasks, vote as @lead.
+
+A verified human member can open a task by mailing the repo address in plain text.
+The lead signs the ``task`` email itself. See SPEC "Tasks".
+"""
 
 from __future__ import annotations
 
@@ -6,15 +10,17 @@ import json
 import re
 import time
 
-from . import compose, notify
+from . import compose, notify, sig
 from .bugs import (
-    bugs_address_for, derive_bugs, is_bug_report, lead_noted, requester_for, review_requested, ticket_text,
+    bugs_address_for, derive_bugs, is_bug_report, lead_noted, neutralize, requester_for,
+    review_requested, ticket_text,
 )
 from .compose import Identity
 from .inbox import Gate, Inbox
+from .memberfile import by_address
 from .replay import replay
-from .tasks import Task, derive, next_task_id
-from .wire import parse_body
+from .tasks import Task, _title, derive, next_task_id
+from .wire import parse_body, render_body
 
 # Keyword order matters: "lockout" and "protected interface" also mention rate limits.
 DEMO_SPLITS: dict[str, list[tuple[str, str, list[str]]]] = {
@@ -196,6 +202,9 @@ class Lead:
         self._bugs_error: str | None = None
         self._reassigned: set[tuple[str, str]] = set()
         self._open_tasks: set[str] = set()
+        # Source message ids this process already turned into a task. Real mail can
+        # take seconds to show up in the repo mailbox; the chain covers a restart.
+        self._emailed: set[str] = set()
 
     def step(self) -> list:
         mail = self.inbox.read()
@@ -225,6 +234,7 @@ class Lead:
                 self._open_tasks.discard(task.id)
         sent = []
         sent += self._triage(chain, tip, bug_rows)
+        sent += self._intake_email_tasks(chain, tip, sent)
         task_mail = [email for email in sent if parse_body(email.body).kind == "task"]
         if task_mail:
             chain.emails = [*chain.emails, *task_mail]
@@ -250,6 +260,34 @@ class Lead:
             return []
         self._bugs_error = None
         return rows
+
+    def _intake_email_tasks(self, chain, tip, already: list) -> list:
+        """Open one signed task for each plain email a verified human member sent to the repo."""
+        sent = []
+        known = [*chain.emails, *already]
+        opened = _opened_sources(known) | self._emailed
+        repo = getattr(self.mailbox, "repo_address", "")
+        for email in chain.emails:
+            if email.message_id in opened:
+                continue
+            member = _task_request(email, repo, tip.members)
+            if member is None:
+                continue
+            task_id = next_task_id(known)
+            title = _request_title(email.subject, email.body)
+            description = neutralize(email.body.strip() or email.subject.strip())
+            body = _signed_task(self.identity, task_id, member.handle, description, email.message_id)
+            sent_email = compose.send(
+                self.mailbox, self.identity, tip.members, f"[gud] {task_id}: {title}", body,
+                in_reply_to=email.message_id, cc_handles=compose.role_handles(tip.members, "lead"),
+            )
+            self._emailed.add(email.message_id)
+            opened.add(email.message_id)
+            self._open_tasks.add(task_id)
+            sent.append(sent_email)
+            known.append(sent_email)
+            print(f"lead: task {task_id} from {member.handle} {email.message_id} {title}", flush=True)
+        return sent
 
     def _triage(self, chain, tip, bug_rows) -> list:
         """Open a task for an accepted bug report, or tell the sender it was rejected."""
@@ -553,6 +591,63 @@ class Lead:
             print(f"lead: {action} {prop.message_id} {prop.subject} {reason if action == 'object' else ''}".rstrip(),
                   flush=True)
         return sent
+
+
+def _bare_addr(value: str) -> str:
+    text = (value or "").strip().lower()
+    if "<" in text and ">" in text:
+        text = text[text.rfind("<") + 1:text.rfind(">")].strip()
+    return text
+
+
+def _task_request(email, repo_address: str, members: dict):
+    """The human member behind a plain email to the repo, or None when it is not a task request."""
+    if email.in_reply_to or not email.sender_verified:
+        return None
+    repo = _bare_addr(repo_address)
+    if not repo or repo not in {_bare_addr(addr) for addr in email.to}:
+        return None
+    parsed = parse_body(email.body)
+    if parsed.kind or parsed.get("Gud-Sig"):
+        return None
+    if not (email.subject.strip() or email.body.strip()):
+        return None
+    member = by_address(members, _bare_addr(email.from_addr))
+    if member is None or member.role != "human":
+        return None
+    return member
+
+
+def _request_title(subject: str, body: str) -> str:
+    title = _title(subject)
+    if title:
+        return title
+    first = next((line.strip() for line in (body or "").splitlines() if line.strip()), "")
+    return _title(first) or "Task"
+
+
+def _signed_task(identity: Identity, task_id: str, requester: str, description: str, source: str) -> str:
+    trailers = {
+        "Gud-Kind": "task",
+        "Gud-Task": task_id,
+        "Gud-Requester": requester,
+        "Gud-Author": identity.handle,
+        "Gud-Source": source,
+    }
+    if identity.private_raw is not None:
+        trailers["Gud-Sig"] = sig.sign(identity.private_raw, trailers, "")
+    return render_body(description, trailers)
+
+
+def _opened_sources(emails: list) -> set[str]:
+    """Message ids a ``task`` email already cites via ``Gud-Source``."""
+    found = set()
+    for email in emails:
+        parsed = parse_body(email.body)
+        source = parsed.get("Gud-Source") if parsed.kind == "task" else None
+        if source:
+            found.add(source)
+    return found
 
 
 def _lead_should_approve(prop, me: str) -> bool:

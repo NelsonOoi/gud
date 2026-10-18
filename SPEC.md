@@ -151,6 +151,7 @@ Consent holds at a time: the window close, the last required approval's received
 ## Tasks
 
 - `task` from `@console` (or any member) opens task `T<n>`. Subject is the title; free text is the description; `Gud-Requester` is the human handle.
+- A human member opens a task by mailing the repo address in plain text (no `Gud-Kind`, no `Gud-Sig`, not a reply) when `sender_verified` is set and `From` matches their address. The lead sends the signed `task` itself — title from the subject, description from the body with trailer-shaped lines neutralized, `Gud-Requester` that human, `Gud-Source` the source message id — and splits it with no review. Mail from anyone else or an unverified sender is ignored (they use the bugs address). The lead never opens a second task for the same source, including after a restart (a task already cites `Gud-Source`) and while its own send is still in flight.
 - `subtask` from the lead assigns `T<n>.<m>` to `Gud-Assignee`. Its free text carries the parent task's title and description, so the assignee works from the email alone. `Gud-After: T<n>.<a>, ...` lists subtasks that must land first; the assignee starts only after they have.
 - A subtask is **done** when a link carries `Gud-Task: T<n>.<m>`.
 - A task is **done** when the lead sends `task-done`; the requester is then notified by email (`notify` kind, To the human's address, CC repo).

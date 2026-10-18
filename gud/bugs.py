@@ -45,11 +45,20 @@ def is_bug_report(email: Email, bugs_address: str) -> bool:
     return bool(email.subject.strip() or email.body.strip())
 
 
-def ticket_text(report: "BugReport") -> str:
-    """The task description. Trailer-shaped lines in the report stay ordinary text."""
-    body = _untag(report.text.strip() or report.subject)
+def neutralize(text: str) -> str:
+    """Human text safe to place before signed trailers.
+
+    A line that only looks like a ``Gud-*`` trailer, and a ```diff fence, stays ordinary text.
+    """
+    body = _untag((text or "").strip())
     if len(body) > 6000:
         body = body[:6000].rstrip() + "\n…"
+    return body
+
+
+def ticket_text(report: "BugReport") -> str:
+    """The task description. Trailer-shaped lines in the report stay ordinary text."""
+    body = neutralize(report.text.strip() or report.subject)
     return f"{body}\n\nReported by {report.from_addr} ({report.id})."
 
 

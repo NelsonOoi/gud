@@ -40,6 +40,7 @@ class Task:
     notified_at: float | None = None
     message_id: str = ""
     bug: str | None = None          # message id of the bug report, when the ticket came from one
+    source: str | None = None       # message id of the plain human email the lead turned into this task
 
     def to_json(self) -> dict:
         return asdict(self)
@@ -68,7 +69,8 @@ def derive(chain) -> list[Task]:
             continue
         if kind == "task" and tid not in tasks:
             tasks[tid] = Task(tid, _title(e.subject), p.text, p.get("Gud-Requester") or "",
-                              e.received_at, message_id=e.message_id, bug=p.get("Gud-Bug") or None)
+                              e.received_at, message_id=e.message_id, bug=p.get("Gud-Bug") or None,
+                              source=p.get("Gud-Source") or None)
         elif kind == "subtask":
             parent = tasks.get(p.get("Gud-Parent-Task") or "")
             if parent is None or not tid:
