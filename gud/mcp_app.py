@@ -13,7 +13,9 @@ with the Apps extension, which is the same ``_meta.ui.resourceUri`` wire.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
+import socket
 from pathlib import Path
 
 from mcp.types import CallToolResult, TextContent
@@ -139,7 +141,8 @@ def _build_use(server_cls, console: Console):
 
     global Context
     Context = UseContext
-    server = server_cls(name="gud", instructions=INSTRUCTIONS, host="0.0.0.0", port=_port())
+    server = server_cls(name="gud", instructions=INSTRUCTIONS, host="0.0.0.0", port=_port(),
+                        debug=os.environ.get("GUD_MCP_DEBUG") == "1")
 
     @server.tool(
         name="gud", description=GUD_DESC,
@@ -162,7 +165,22 @@ def _build_use(server_cls, console: Console):
     def gud_feed() -> str:
         return widget_html()
 
+    _prime_tool_cache(server)
     return server
+
+
+def _prime_tool_cache(server) -> None:
+    # On a cache miss mcp refreshes via the tools/list handler with request=None, and mcp-use's
+    # middleware wrapper reads None.params, so a tools/call before any tools/list fails.
+    cache = getattr(getattr(server, "_mcp_server", None), "_tool_cache", None)
+    if cache is None:
+        return
+    try:
+        tools = asyncio.run(server.list_tools())
+    except RuntimeError:
+        return
+    for tool in tools:
+        cache[tool.name] = tool
 
 
 def _build_sdk(console: Console):
@@ -205,7 +223,14 @@ def main(argv: list[str] | None = None) -> None:
     if args.stdio:
         server.run(transport="stdio")
         return
-    server.run(transport="streamable-http", host="0.0.0.0", port=_port())
+    port = _port()
+    # mcp-use silently moves to the next free port; a host routing to $PORT would miss us.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind(("0.0.0.0", port))
+        except OSError as exc:
+            raise SystemExit(f"gud.mcp_app: port {port} is busy ({exc})") from exc
+    server.run(transport="streamable-http", host="0.0.0.0", port=port)
 
 
 if __name__ == "__main__":

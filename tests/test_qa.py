@@ -134,7 +134,7 @@ def test_task_done_mails_a_plain_report_once_and_a_restart_does_not_repeat_it(tm
     assert reviewer.subjects == ["Pricing has no comparison table"]
 
 
-def test_agent_error_sends_nothing(tmp_path):
+def test_agent_error_sends_nothing_and_retries_once_after_a_pause(tmp_path):
     w = _world(tmp_path)
     tip = w.genesis({"index.html": "<h1>Home</h1>\n"})
     _done(w, tip)
@@ -147,7 +147,15 @@ def test_agent_error_sends_nothing(tmp_path):
     assert site.stopped == 1
     assert qa.step() == []
     assert len(browser.calls) == 1
-    assert site.served == 1
+
+    w.tick(31)
+    assert qa.step() == []
+    assert len(browser.calls) == 2
+    w.tick(31)
+    assert qa.step() == []
+    assert len(browser.calls) == 2
+    assert site.served == 2
+    assert _bugs(w) == []
 
 
 def test_findings_are_capped(tmp_path):

@@ -38,6 +38,8 @@ from .types import Email, Tree
 from .wire import TRAILER_RE, parse_body
 
 _MAX_FINDINGS = 5
+_ATTEMPTS = 2
+_RETRY_AFTER = 30.0
 _BOX_NAME = "gud-qa"
 _BROWSER_USE = "0.13.11"
 _VENV = "/data/home/qa-venv"
@@ -205,10 +207,12 @@ def _prompt(title: str, description: str, pages: list[str], url: str) -> str:
         f"The site is at {url}\n"
         f"Task: {title}\n{description.strip()}\n\n"
         f"HTML pages:\n{listed}\n\n"
-        "Check every requirement in the task on the rendered pages. "
+        "Check every requirement in the task that a visitor can see on the rendered pages: "
+        "content, prices, links, layout, and whether something is laid out as the task names it "
+        "(a table has rows and columns, a list has items). "
         "Click the nav links and open every HTML page. "
-        "When a requirement names an HTML element, read that page's HTML. "
-        "A comparison table is a table element; div cards are not a table. "
+        "Do not report markup the browser does not display, such as the doctype, meta tags, "
+        "or the <title> and stylesheet links in <head>; the test suite checks those. "
         "Report only concrete, reproducible defects. "
         "If the site meets the task, return an empty findings list."
     )
@@ -641,7 +645,9 @@ class InstaBoxSite:
         result = self._exec(mid, cmd, **kwargs)
         if result.get("timedOut") or result.get("exitCode") not in (0, None):
             detail = self._redact(((result.get("stderr") or "") + (result.get("stdout") or ""))[-2000:])
-            raise InstaBoxError(int(result.get("exitCode") or 1), "exec_failed", detail or "exec failed")
+            what = "timed out" if result.get("timedOut") else "failed"
+            raise InstaBoxError(int(result.get("exitCode") or 1), "exec_failed",
+                                f"{cmd.split(' &&')[0][:80]!r} {what}" + (f": {detail}" if detail else ""))
         return result
 
 
@@ -766,7 +772,7 @@ class QA:
         self.browser = browser
         self.inbox = Inbox(mailbox, identity.address, mailbox.repo_address)
         self._checked: set[tuple[str, str]] = set()
-        self._failed: set[tuple[str, str]] = set()
+        self._failed: dict[tuple[str, str], tuple[int, float]] = {}
         self._logged: set[tuple[str, str]] = set()
         self._waiting = False
         self._bugs_error: str | None = None
@@ -794,7 +800,13 @@ class QA:
             if not task_id or not tip_id:
                 continue
             key = (task_id, tip_id)
-            if key in done or key in self._failed:
+            if key in done:
+                continue
+            tries, retry_at = self._failed.get(key, (0, 0.0))
+            if tries >= _ATTEMPTS:
+                continue
+            if self.clock() < retry_at:
+                waiting = True
                 continue
             if chain.by_id.get(tip_id) is None:
                 waiting = True
@@ -805,9 +817,11 @@ class QA:
             try:
                 batch = self._report(chain, email, task_id, tip_id)
             except Exception as exc:
-                if key not in self._failed:
-                    print(f"qa: {task_id} {tip_id}: {exc}", flush=True)
-                self._failed.add(key)
+                tries += 1
+                self._failed[key] = (tries, self.clock() + _RETRY_AFTER)
+                again = f"; retrying in {_RETRY_AFTER:.0f}s" if tries < _ATTEMPTS else "; giving up"
+                print(f"qa: {task_id} {tip_id}: {exc}{again}", flush=True)
+                waiting = waiting or tries < _ATTEMPTS
                 continue
             self._checked.add(key)
             done.add(key)

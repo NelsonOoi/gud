@@ -314,6 +314,8 @@ class Worker:
         self._pending: dict[str, tuple[str, float]] = {}
         self._voted: set[str] = set()
         self._review_failed: dict[str, float] = {}
+        # Subtask id -> (tip, feedback) on which the coder produced no change.
+        self._no_change: dict[str, tuple[str, str]] = {}
 
     def step(self) -> list:
         mail = self.inbox.read()
@@ -388,6 +390,9 @@ class Worker:
         return None
 
     def _from_coder(self, tip, sub, feedback):
+        attempt = (tip.message_id, feedback or "")
+        if self._no_change.get(sub.id) == attempt:
+            return None
         try:
             edits = self.coder.edit(sub, tip.tree, tip.blame, feedback=feedback) or {}
         except TypeError:
@@ -396,8 +401,14 @@ class Worker:
             print(f"{self.identity.handle} edit {sub.id} failed: {exc}", flush=True)
             return None
         note = feedback.split("\n", 1)[0][:160] if feedback else sub.title
-        return self._push(tip, edits, task=sub.id, intent=_intent(sub, note),
-                          subject=f"[gud] {sub.id}: {sub.title}")
+        email = self._push(tip, edits, task=sub.id, intent=_intent(sub, note),
+                           subject=f"[gud] {sub.id}: {sub.title}")
+        if email is None:
+            self._no_change[sub.id] = attempt
+            print(f"{self.identity.handle} {sub.id}: coder changed nothing; waiting for a new tip", flush=True)
+        else:
+            self._no_change.pop(sub.id, None)
+        return email
 
     def _rebase_edits(self, chain, email, tip, subtask):
         """Re-apply a lost race on the new tip: a clean 3-way merge first, the coder only on conflict."""

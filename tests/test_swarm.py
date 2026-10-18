@@ -146,6 +146,27 @@ def test_scripted_swarm_lands_a_two_subtask_task(tmp_path):
     assert notes and any("nelson@" in addr for email in notes for addr in email.to)
 
 
+def test_a_coder_that_changes_nothing_is_asked_once_per_tip(tmp_path):
+    window = 60
+    w = World.create(tmp_path)
+    w.genesis({"index.html": "<!doctype html>\n"})
+    planner = ScriptedPlanner({"doctype": [("Add the doctype", "index.html needs one", ["index.html"])]})
+    calls = []
+
+    def edit(subtask, tree, blame, feedback=None):
+        calls.append(subtask.id)
+        return {"index.html": "<!doctype html>\n"}
+
+    lead = Lead(w.mailbox, w.ids["@lead"], window, planner, clock=w.clock, pool=["@alice"])
+    alice = Worker(w.mailbox, w.ids["@alice"], window, ScriptedCoder(edit_fn=edit), clock=w.clock)
+    send_task(w, "Fix the doctype")
+    lead.step()
+    lead.step()
+    for _ in range(5):
+        assert alice.step() == []
+    assert len(calls) == 1
+
+
 def test_objection_triggers_a_revision_that_lands(tmp_path):
     window = 60
     w = World.create(tmp_path)
