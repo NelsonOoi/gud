@@ -24,6 +24,7 @@ class Subtask:
     status: str = "open"           # open | proposed | landed
     link_id: str | None = None
     message_id: str = ""
+    after: list[str] = field(default_factory=list)   # Gud-After: subtasks that land first
 
 
 @dataclass
@@ -38,6 +39,7 @@ class Task:
     done_link: str | None = None
     notified_at: float | None = None
     message_id: str = ""
+    bug: str | None = None          # message id of the bug report, when the ticket came from one
 
     def to_json(self) -> dict:
         return asdict(self)
@@ -47,6 +49,10 @@ def _title(subject: str) -> str:
     s = re.sub(r"^(re:\s*)+", "", subject, flags=re.I).strip()
     s = re.sub(r"^\[gud\]\s*", "", s)
     return re.sub(r"^T\d+(\.\d+)?:?\s*", "", s).strip()
+
+
+def _after(value: str | None) -> list[str]:
+    return [part.strip() for part in (value or "").split(",") if part.strip()]
 
 
 def derive(chain) -> list[Task]:
@@ -62,7 +68,7 @@ def derive(chain) -> list[Task]:
             continue
         if kind == "task" and tid not in tasks:
             tasks[tid] = Task(tid, _title(e.subject), p.text, p.get("Gud-Requester") or "",
-                              e.received_at, message_id=e.message_id)
+                              e.received_at, message_id=e.message_id, bug=p.get("Gud-Bug") or None)
         elif kind == "subtask":
             parent = tasks.get(p.get("Gud-Parent-Task") or "")
             if parent is None or not tid:
@@ -79,9 +85,10 @@ def derive(chain) -> list[Task]:
                 if p.text:
                     st.description = p.text
                 st.message_id = e.message_id
+                st.after = _after(p.get("Gud-After"))
             else:
                 st = Subtask(tid, p.get("Gud-Assignee") or "", _title(e.subject), p.text,
-                             message_id=e.message_id)
+                             message_id=e.message_id, after=_after(p.get("Gud-After")))
                 subs[tid] = st
                 parent.subtasks.append(st)
         elif kind == "task-done" and tid in tasks:

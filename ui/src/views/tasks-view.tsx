@@ -24,10 +24,10 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useGud } from "@/hooks/use-gud"
-import { createTask } from "@/lib/api"
+import { createTask, reviewBug } from "@/lib/api"
 import { ApiError } from "@/lib/errors"
 import { clockTime, relativeTime, shortId } from "@/lib/format"
-import type { Task } from "@/lib/types"
+import type { BugReport, Task } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const TASK_TONE: Record<Task["status"], string> = {
@@ -42,19 +42,32 @@ const SUB_TONE: Record<Task["subtasks"][number]["status"], string> = {
   landed: "text-emerald-200",
 }
 
+const BUG_TONE: Record<BugReport["status"], string> = {
+  pending: "border-amber-400/40 bg-amber-400/10 text-amber-200",
+  accepted: "border-emerald-400/40 bg-emerald-400/10 text-emerald-200",
+  rejected: "border-zinc-500/40 text-zinc-300",
+}
+
 export function TasksView() {
-  const { tasks, now, state, setOpenId, loading } = useGud()
+  const { tasks, bugs, now, state, setOpenId, loading } = useGud()
   const ordered = [...tasks].sort((a, b) => b.created_at - a.created_at)
+  const orderedBugs = [...bugs].sort((a, b) => b.received_at - a.received_at)
+  const address = state?.bugs_address
 
   return (
     <ScrollArea className="h-full">
       <div className="mx-auto flex max-w-3xl flex-col gap-3 px-4 py-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
-            A human requests a task. The lead splits it. The requester is mailed when it is done.
+            {address
+              ? `Email ${address} about a bug. A member reviews it, and the lead opens a ticket after that.`
+              : "A human requests a task. The lead splits it. The requester is mailed when it is done."}
           </p>
           <NewTaskDialog />
         </div>
+        {orderedBugs.map((bug) => (
+          <BugCard key={bug.id} bug={bug} />
+        ))}
         {loading && ordered.length === 0 ? <p className="text-sm text-muted-foreground">Loading tasks…</p> : null}
         {ordered.map((task) => (
           <Card key={task.id} size="sm">
@@ -74,7 +87,8 @@ export function TasksView() {
             </CardHeader>
             <CardContent className="space-y-2">
               <p className="text-[11px] text-muted-foreground">
-                requested by {task.requester} · {relativeTime(task.created_at, now)}
+                requested by {task.requester}
+                {task.bug ? " · from a bug report" : ""} · {relativeTime(task.created_at, now)}
                 {task.done_link ? (
                   <>
                     {" · "}
@@ -120,6 +134,67 @@ export function TasksView() {
         ) : null}
       </div>
     </ScrollArea>
+  )
+}
+
+function BugCard({ bug }: { bug: BugReport }) {
+  const { state, refresh } = useGud()
+  const reviewer = state?.members.find((member) => member.role === "human")?.handle ?? "@nelson"
+  const [busy, setBusy] = useState<"approve" | "reject" | null>(null)
+  const waiting = bug.status === "pending" && Boolean(bug.review_by)
+
+  async function review(action: "approve" | "reject") {
+    setBusy(action)
+    try {
+      const result = await reviewBug(bug.id, { action, from: reviewer })
+      await refresh()
+      if (result.task_id) toast.success(`Opened ${result.task_id}`)
+      else if (action === "approve") toast.success("Approved. The lead opens the ticket from that reply.")
+      else toast.success("Rejected. No ticket was opened.")
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Could not review the bug report")
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <Card size="sm">
+      <CardHeader className="border-b">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-sm">{bug.subject}</CardTitle>
+            <p className="mt-1 line-clamp-3 text-xs text-muted-foreground">{bug.description}</p>
+          </div>
+          <Badge variant="outline" className={cn("uppercase", BUG_TONE[bug.status])}>
+            {bug.status}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <p className="text-[11px] text-muted-foreground">
+          {bug.from}
+          {bug.task_id ? ` · ticket ${bug.task_id}` : ""}
+          {bug.review_by ? ` · ${bug.verdict === "reject" ? "rejected" : "reviewed"} by ${bug.review_by}` : ""}
+        </p>
+        {bug.status === "rejected" && bug.reason ? (
+          <p className="text-xs text-muted-foreground">{bug.reason}</p>
+        ) : null}
+        {waiting ? (
+          <p className="text-xs text-amber-200">Approved by {bug.review_by}. The lead opens the ticket from that reply.</p>
+        ) : null}
+        {bug.status === "pending" && !bug.review_by ? (
+          <div className="flex gap-2">
+            <Button size="sm" disabled={busy !== null} onClick={() => void review("approve")}>
+              {busy === "approve" ? "Approving…" : "Approve"}
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void review("reject")}>
+              {busy === "reject" ? "Rejecting…" : "Reject"}
+            </Button>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
   )
 }
 

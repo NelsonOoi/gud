@@ -4,6 +4,7 @@ import { isOpenStatus } from "@/lib/status"
 import type {
   Activity,
   BlameResponse,
+  BugReport,
   EmailView,
   JoinRequest,
   Link,
@@ -496,6 +497,7 @@ export function mockState(): RepoState {
   const tip = current.links[current.links.length - 1] ?? null
   return structuredClone({
     repo: current.repo,
+    bugs_address: "bugs@gud.primitive.email",
     now: Date.now() / 1000,
     window_seconds: current.windowSeconds,
     tip,
@@ -551,6 +553,40 @@ export function mockBlame(path: string, at: string | null): BlameResponse {
 
 export function mockTasks(): Task[] {
   return structuredClone(getWorld().tasks)
+}
+
+export function mockBugs(): BugReport[] {
+  return structuredClone(getWorld().bugs).sort((a, b) => b.received_at - a.received_at)
+}
+
+export function mockReviewBug(
+  id: string,
+  body: { action?: string; from?: string; reason?: string },
+): { id: string; task_id: string | null } {
+  const current = getWorld()
+  const bug = current.bugs.find((item) => item.id === id)
+  if (!bug) throw new ApiError(404, "unknown bug report")
+  if (bug.status !== "pending" || bug.verdict) throw new ApiError(409, "bug report is already reviewed")
+  const action = body.action === "approve" || body.action === "reject" ? body.action : ""
+  if (!action) throw new ApiError(400, "action must be approve or reject")
+  const who = body.from?.trim() || "@nelson"
+  bug.review_by = who
+  bug.verdict = action
+  bug.reason = body.reason?.trim() || (action === "approve" ? "Approved." : "Rejected.")
+  if (action === "reject") {
+    bug.status = "rejected"
+    return { id: bug.id, task_id: null }
+  }
+  const created = mockCreateTask({
+    title: bug.subject,
+    description: bug.description,
+    requester: who.startsWith("@") ? who : "@nelson",
+  })
+  const task = current.tasks.find((item) => item.id === created.id)
+  if (task) task.bug = bug.id
+  bug.status = "accepted"
+  bug.task_id = created.id
+  return { id: bug.id, task_id: created.id }
 }
 
 export function mockJoins(): JoinRequest[] {

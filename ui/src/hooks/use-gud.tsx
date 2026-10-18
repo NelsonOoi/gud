@@ -1,14 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { toast } from "sonner"
-import { bootApi, getActivity, getJoins, getState, getTasks, subscribe, type ApiMode } from "@/lib/api"
+import { bootApi, getActivity, getBugs, getJoins, getState, getTasks, subscribe, type ApiMode } from "@/lib/api"
 import { serverNow, setServerNow } from "@/lib/format"
-import type { Activity, JoinRequest, RepoState, Task } from "@/lib/types"
+import type { Activity, BugReport, JoinRequest, RepoState, Task } from "@/lib/types"
 
 type GudContextValue = {
   mode: ApiMode
   loading: boolean
   state: RepoState | null
   tasks: Task[]
+  bugs: BugReport[]
   activity: Activity[]
   joins: JoinRequest[]
   now: number
@@ -24,6 +25,7 @@ export function GudProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [state, setState] = useState<RepoState | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
+  const [bugs, setBugs] = useState<BugReport[]>([])
   const [activity, setActivity] = useState<Activity[]>([])
   const [joins, setJoins] = useState<JoinRequest[]>([])
   const [now, setNow] = useState(() => Date.now() / 1000)
@@ -31,15 +33,17 @@ export function GudProvider({ children }: { children: ReactNode }) {
   const refreshRef = useRef<() => Promise<void>>(async () => {})
 
   const refresh = useCallback(async () => {
-    const [nextState, nextTasks, nextActivity, nextJoins] = await Promise.all([
+    const [nextState, nextTasks, nextBugs, nextActivity, nextJoins] = await Promise.all([
       getState(),
       getTasks(),
+      getBugs(),
       getActivity(200),
       getJoins(),
     ])
     setServerNow(nextState.now)
     setState(nextState)
     setTasks(nextTasks)
+    setBugs(nextBugs)
     setActivity(nextActivity)
     setJoins(nextJoins)
     setNow(serverNow())
@@ -77,6 +81,8 @@ export function GudProvider({ children }: { children: ReactNode }) {
           toast.success("Task done", { description: event.data.title })
         } else if (event.event === "join") {
           toast(`Join request from ${event.data.handle}`)
+        } else if (event.event === "bug" && event.data.status === "pending" && !event.data.review_by) {
+          toast(`Bug report: ${event.data.subject}`, { description: event.data.from })
         }
         schedule()
       })
@@ -96,8 +102,8 @@ export function GudProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo(
-    () => ({ mode, loading, state, tasks, activity, joins, now, refresh, openId, setOpenId }),
-    [mode, loading, state, tasks, activity, joins, now, refresh, openId],
+    () => ({ mode, loading, state, tasks, bugs, activity, joins, now, refresh, openId, setOpenId }),
+    [mode, loading, state, tasks, bugs, activity, joins, now, refresh, openId],
   )
 
   return <GudContext.Provider value={value}>{children}</GudContext.Provider>

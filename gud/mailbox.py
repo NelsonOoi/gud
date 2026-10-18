@@ -25,7 +25,7 @@ def open_own_mailbox(cfg: Config, repo_address: str | None = None) -> Mailbox:
                 "PRIMITIVE_API_KEY is missing. Set it in the environment or .env "
                 "before using GUD_MAILBOX=primitive, or use GUD_MAILBOX=fake."
             )
-        return PrimitiveMailbox(cfg.primitive_api_key, repo)
+        return PrimitiveMailbox(cfg.primitive_api_key, repo, list_ttl=1.0)
     raise ValueError(f"unknown GUD_MAILBOX {cfg.mailbox!r} (expected 'fake' or 'primitive')")
 
 

@@ -10,8 +10,10 @@ import sys
 import threading
 import time
 
+from .bugs import LLMBugReviewer, bugs_address_for
 from .build import make_runner
 from .config import load
+from .inbox import Gate
 from .keys import load_identity
 from .lead import LLMPlanner, Lead, ScriptedPlanner
 from .mailbox import open_member_mailbox
@@ -30,22 +32,25 @@ class Swarm:
     """Lead + N workers + tester. `start`/`stop` for the demo; `run` blocks until Ctrl-C."""
 
     def __init__(self, cfg, mailbox, mode: str = "scripted", workers: int | None = 4, clock=time.time,
-                 handles: list[str] | None = None, runner=None, poll: float = 0.4,
-                 stale_after: float = 120):
+                 handles: list[str] | None = None, runner=None, poll: float | None = None,
+                 stale_after: float = 120, genesis_timeout: float = 60):
         if mode not in {"scripted", "llm"}:
             raise ValueError(f"unknown swarm mode {mode!r}")
         self.cfg = cfg
         self.mailbox = mailbox
         self.mode = mode
         self.clock = clock
-        self.poll = poll
+        remote = getattr(cfg, "mailbox", "fake") != "fake" or getattr(cfg, "host_url", None)
+        # Real mail: long-poll the inbox for 2s, replay the repo every 3s while busy, 20s idle.
+        self.poll = poll if poll is not None else (2.0 if remote else 0.4)
+        busy_every, idle_every = (3.0, 20.0) if remote else (0.5, 5.0)
         self._stop = threading.Event()
         self._pause = threading.Event()
         self._stopped = False
         self._threads: list[threading.Thread] = []
         self._active = 0
         self._active_lock = threading.Lock()
-        members = _members(mailbox, cfg.window_seconds, clock)
+        members = _members(mailbox, cfg.window_seconds, clock, genesis_timeout)
         chosen = _choose(members, workers, handles)
         if not chosen:
             raise SystemExit("no agent members to start; run `gud init` first")
@@ -53,21 +58,30 @@ class Swarm:
             raise SystemExit("OPENROUTER_KEY is required for --mode llm")
         planner = (LLMPlanner(cfg.openrouter_key, cfg.agent_model) if mode == "llm"
                    else ScriptedPlanner())
-        self.lead = Lead(
-            mailbox, _identity(cfg, "@lead"), cfg.window_seconds, planner, clock=clock,
-            stale_after=stale_after, pool=chosen,
-        )
+
+        def gate():
+            return Gate(busy_every=busy_every, idle_every=idle_every)
+
         def coder():
             if mode == "llm":
                 return LLMCoder(cfg.openrouter_key, cfg.agent_model)
             return ScriptedCoder()
+        bugs = (getattr(cfg, "bugs_address", "") or "").strip() or bugs_address_for(mailbox.repo_address)
+        self.lead = Lead(
+            mailbox, _identity(cfg, "@lead", members["@lead"].address), cfg.window_seconds, planner,
+            clock=clock, stale_after=stale_after, pool=chosen, gate=gate(),
+            reviewer=coder() if mode == "llm" else None,
+            bugs_address=bugs,
+            bug_reviewer=LLMBugReviewer(cfg.openrouter_key, cfg.agent_model) if mode == "llm" else None,
+        )
         self.workers = [
-            Worker(mailbox, _identity(cfg, handle), cfg.window_seconds, coder(), clock=clock)
+            Worker(mailbox, _identity(cfg, handle, members[handle].address), cfg.window_seconds,
+                   coder(), clock=clock, gate=gate())
             for handle in chosen
         ]
         self.tester = Tester(
-            mailbox, _identity(cfg, "@tester"), runner or make_runner(cfg), cfg.window_seconds,
-            clock=clock,
+            mailbox, _identity(cfg, "@tester", members["@tester"].address), runner or make_runner(cfg),
+            cfg.window_seconds, clock=clock, gate=gate(),
         )
         self.handles = chosen
         self._agents = [self.lead, *self.workers, self.tester]
@@ -128,7 +142,7 @@ class Swarm:
             self.stop()
 
     def _loop(self, agent) -> None:
-        since = _high_water(self.mailbox, agent.identity.address)
+        """Step, then sleep on the agent's own inbox until mail for it arrives or `poll` passes."""
         while not self._stop.is_set():
             with self._active_lock:
                 if self._pause.is_set() or self._stop.is_set():
@@ -149,20 +163,23 @@ class Swarm:
             if self._stop.is_set():
                 break
             try:
-                fresh = self.mailbox.wait(recipient=agent.identity.address, since=since, timeout=self.poll)
+                agent.inbox.wait(self.poll)
             except Exception as exc:
                 print(f"{agent.identity.handle} wait error: {exc}", flush=True)
-                fresh = []
-            if fresh:
-                since = max(since, max(email.received_at for email in fresh))
+                self._stop.wait(self.poll)
 
 
-def _members(mailbox, window: float, clock):
+def _members(mailbox, window: float, clock, timeout: float = 60):
+    """Members at the tip. Waits up to `timeout` for genesis: real mail arrives seconds after `gud init`."""
     from .chain import Repo
-    try:
-        return Repo(mailbox, window, clock=clock).tip().members
-    except LookupError as exc:
-        raise SystemExit("repo has no genesis; run `gud init` first") from exc
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return Repo(mailbox, window, clock=clock).tip().members
+        except LookupError as exc:
+            if time.monotonic() >= deadline:
+                raise SystemExit("repo has no genesis; run `gud init` first") from exc
+            time.sleep(1.0)
 
 
 def _choose(members: dict, workers: int | None, handles: list[str] | None) -> list[str]:
@@ -177,18 +194,11 @@ def _choose(members: dict, workers: int | None, handles: list[str] | None) -> li
     return present[:workers]
 
 
-def _identity(cfg, handle: str):
+def _identity(cfg, handle: str, address: str | None = None):
     path = cfg.key_path(handle)
     if not path.exists():
         raise SystemExit(f"no private key for {handle} at {path}; run `gud init` first")
-    return load_identity(cfg, handle)
-
-
-def _high_water(mailbox, address: str) -> float:
-    rows = mailbox.list(recipient=address)
-    if not rows:
-        return 0.0
-    return rows[-1].received_at
+    return load_identity(cfg, handle, address=address)
 
 
 def main(argv: list[str] | None = None) -> None:

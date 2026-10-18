@@ -137,7 +137,8 @@ def test_send_falls_back_when_stored_email_is_missing():
 
     email = _mailbox(handler).send(from_addr="alice@gud.local", to=REPO, subject="s", body="hello\n")
     assert email.provider_id == SENT_ID
-    assert email.message_id == f"<{SENT_ID}@sent.primitive.dev>"
+    # The id Primitive gives our own send when it is delivered to the repo.
+    assert email.message_id == f"<primitive-direct-{SENT_ID}@gud.local>"
     assert email.body == "hello\n"
     assert email.sender_verified is True
     assert email.to == (REPO,)
@@ -200,6 +201,44 @@ def test_list_paginates_oldest_first_and_caches_bodies():
     ]
     assert mb.get("<e2@gud.local>").body == "body-2"
     assert detail_gets[-1] == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"
+
+
+def test_failed_detail_fetch_is_retried_not_cached_as_snippet(monkeypatch):
+    monkeypatch.setattr("gud.mail_primitive.time.sleep", lambda s: None)
+    eid = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    limited = {"left": 4}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path.rstrip("/")
+        if path.endswith("/emails"):
+            return _ok([_summary(eid, "<push@gud.local>", WHEN, snippet="intent without trailers")])
+        if limited["left"]:
+            limited["left"] -= 1
+            return _err(429, "rate_limited", "slow down")
+        return _ok({**_summary(eid, "<push@gud.local>", WHEN), "from_email": "alice@gud.local",
+                    "sender_verified": True, "body_text": "intent\n\nGud-Kind: push\n"})
+
+    mb = _mailbox(handler)
+    assert mb.list() == []
+    assert [e.body for e in mb.list()] == ["intent\n\nGud-Kind: push\n"]
+
+
+def test_list_ttl_shares_one_listing_until_a_send():
+    lists = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/send-mail"):
+            return _ok({"id": SENT_ID, "message_id": "<s@gud.local>", "created_at": WHEN, "body_text": "x"})
+        lists.append(1)
+        return _ok([], cursor=None, total=0)
+
+    mb = PrimitiveMailbox("prim_test", REPO, client=_client(handler), list_ttl=60)
+    mb.list()
+    mb.list()
+    assert len(lists) == 1
+    mb.send(from_addr="alice@gud.local", to=REPO, subject="s", body="x")
+    mb.list()
+    assert len(lists) == 2
 
 
 def test_list_since_uses_date_from_and_is_exclusive():

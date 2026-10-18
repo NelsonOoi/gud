@@ -3,6 +3,7 @@ import { ApiError } from "@/lib/errors"
 import type {
   Activity,
   BlameResponse,
+  BugReport,
   DiffResponse,
   EmailView,
   JoinRequest,
@@ -15,12 +16,14 @@ import {
   mockActivity,
   mockApprove,
   mockBlame,
+  mockBugs,
   mockCreateTask,
   mockDiff,
   mockJoins,
   mockMembers,
   mockProposeJoin,
   mockReply,
+  mockReviewBug,
   mockState,
   mockTasks,
   mockThread,
@@ -49,20 +52,25 @@ export async function bootApi(): Promise<ApiMode> {
     apiMode = "mock"
     return "mock"
   }
-  const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), 1500)
-  try {
-    const response = await fetch(`${baseUrl()}/api/state`, { signal: controller.signal })
-    if (!response.ok) throw new ApiError(response.status, response.statusText)
-    primed = (await response.json()) as RepoState
-    apiMode = "live"
-    return "live"
-  } catch {
-    apiMode = "mock"
-    return "mock"
-  } finally {
-    window.clearTimeout(timer)
+  // No server falls back to mock right away. A slow one (real mail can take seconds to list)
+  // is alive, so keep waiting on it instead of showing fake data.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 8000)
+    try {
+      const response = await fetch(`${baseUrl()}/api/state`, { signal: controller.signal })
+      if (!response.ok) throw new ApiError(response.status, response.statusText)
+      primed = (await response.json()) as RepoState
+      apiMode = "live"
+      return "live"
+    } catch {
+      if (!controller.signal.aborted) break
+    } finally {
+      window.clearTimeout(timer)
+    }
   }
+  apiMode = "mock"
+  return "mock"
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -103,6 +111,7 @@ function mockDispatch<T>(path: string, init?: RequestInit): T {
 
   if (method === "GET" && pathname === "/api/state") return mockState() as T
   if (method === "GET" && pathname === "/api/tasks") return mockTasks() as T
+  if (method === "GET" && pathname === "/api/bugs") return mockBugs() as T
   if (method === "GET" && pathname === "/api/activity") {
     return mockActivity(Number(url.searchParams.get("limit") ?? "100")) as T
   }
@@ -123,6 +132,11 @@ function mockDispatch<T>(path: string, init?: RequestInit): T {
 
   const joinPropose = /^\/api\/joins\/(.+)\/propose$/.exec(pathname)
   if (method === "POST" && joinPropose?.[1]) return mockProposeJoin(decodePath(joinPropose[1])) as T
+
+  const bugReview = /^\/api\/bugs\/(.+)\/review$/.exec(pathname)
+  if (method === "POST" && bugReview?.[1]) {
+    return mockReviewBug(decodePath(bugReview[1]), body as { action?: string; from?: string; reason?: string }) as T
+  }
 
   if (method === "POST" && pathname === "/api/tasks") {
     return mockCreateTask(body as { title?: string; description?: string; requester?: string }) as T
@@ -159,6 +173,20 @@ export async function getState(): Promise<RepoState> {
 
 export async function getTasks(): Promise<Task[]> {
   return request<Task[]>("/api/tasks")
+}
+
+export async function getBugs(): Promise<BugReport[]> {
+  return request<BugReport[]>("/api/bugs")
+}
+
+export async function reviewBug(
+  id: string,
+  body: { action: "approve" | "reject"; from?: string; reason?: string },
+): Promise<{ id: string; task_id?: string | null }> {
+  return request(`/api/bugs/${encodeURIComponent(id)}/review`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
 }
 
 export async function getActivity(limit = 200): Promise<Activity[]> {
@@ -247,7 +275,8 @@ export function subscribe(onEvent: (event: ServerEvent) => void): () => void {
         event.event === "chain" ||
         event.event === "proposal" ||
         event.event === "task" ||
-        event.event === "join"
+        event.event === "join" ||
+        event.event === "bug"
       ) {
         onEvent(event as ServerEvent)
       }
@@ -262,7 +291,7 @@ export function subscribe(onEvent: (event: ServerEvent) => void): () => void {
   let stopped = false
   let source: EventSource | null = null
   let delay = 1000
-  const types = ["mail", "chain", "proposal", "task", "join"] as const
+  const types = ["mail", "chain", "proposal", "task", "join", "bug"] as const
 
   const connect = () => {
     if (stopped) return

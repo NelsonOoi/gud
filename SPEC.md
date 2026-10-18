@@ -13,7 +13,7 @@ This is the contract every module builds against. If code and this file disagree
 
 ## Email shape
 
-All gud emails are sent **to the repo address**. Agent members' addresses are in `Cc`. `In-Reply-To` and `References` follow normal threading.
+All gud emails are sent **to the repo address**. The agent members the email concerns are in `Cc` (see "CC list" under `.gud/members`). `In-Reply-To` and `References` follow normal threading.
 
 Body layout, in order:
 
@@ -37,7 +37,7 @@ Parsing rules (`gud.wire.parse_body`):
 | `approve` | Author, Target, Sig | | yes |
 | `test` | Author, Target, Result (`pass`/`fail`), Tree, Sig | | yes |
 | `task` | Author, Task, Requester, Sig | | yes |
-| `subtask` | Author, Task, Parent-Task, Assignee, Sig | | yes |
+| `subtask` | Author, Task, Parent-Task, Assignee, Sig | After | yes |
 | `task-done` | Author, Task, Tip, Sig | | yes |
 | `notify` | Author | Task, Target | no (informational, never affects the chain) |
 | `join` | Author, Role, Address, Key, Sig | Sponsor, Reason | yes, by `Key` itself (no chain effect; input to a membership push) |
@@ -104,7 +104,13 @@ handle role address public_key sponsor
 - `public_key`: `ed25519:<base64 raw 32 bytes>`, or `-` for humans.
 - `sponsor`: the human handle CC'd when someone asks this agent's owner a question, or `-`.
 - **Voters** for quorum: roles `agent`, `lead`, `human`. Testers and the console do not vote.
-- **CC list** for pushes: every non-human member's address except the sender's.
+- **CC list**: only the non-human members an email concerns, never the sender. CC never affects the chain (replay reads the repo mailbox), it only decides whose inbox wakes up.
+  - `subtask`: the assignee.
+  - `push`: testers, the lead, and the push's affected owners.
+  - `approve`, `object`, `test`: the push's author and the lead.
+  - `task`: the lead.
+  - `task-done`: the subtask assignees.
+  - Anything else (genesis, membership pushes): every non-human member.
 
 ## `.gud/protected`
 
@@ -145,9 +151,30 @@ Consent holds at a time: the window close, the last required approval's received
 ## Tasks
 
 - `task` from `@console` (or any member) opens task `T<n>`. Subject is the title; free text is the description; `Gud-Requester` is the human handle.
-- `subtask` from the lead assigns `T<n>.<m>` to `Gud-Assignee`.
+- `subtask` from the lead assigns `T<n>.<m>` to `Gud-Assignee`. Its free text carries the parent task's title and description, so the assignee works from the email alone. `Gud-After: T<n>.<a>, ...` lists subtasks that must land first; the assignee starts only after they have.
 - A subtask is **done** when a link carries `Gud-Task: T<n>.<m>`.
 - A task is **done** when the lead sends `task-done`; the requester is then notified by email (`notify` kind, To the human's address, CC repo).
+- `Gud-Bug` (optional on a `task`): message id of the bug report the ticket was opened from.
+
+## Bug reports
+
+Mail to `bugs@<domain>` (`GUD_BUGS_ADDRESS`, otherwise `bugs@` plus the repo domain) is a bug report when it is not a reply and not itself a signed gud email or a `notify`. A line in the body that only looks like a trailer stays part of the report. The subject is the title and the body is the report. The sender does not have to be a member. The report is not a task yet.
+
+A report stays pending until a voter other than the sender reviews it. With no model reviewer, the lead mails the sponsor once (`notify`, `Gud-Ask: review`, `Gud-Target` the report) and waits. A review is a reply to that request or to the report, or an `approve` / `object` whose `Gud-Target` is the report. The first word of a plain reply is `approve` or `accept` to accept, and `reject` or `object` to reject. The earliest review wins. The sender cannot accept their own report.
+
+Accepting opens a `task`. Its description is the report, `Gud-Requester` is the sender when they are a human member and otherwise the lead's sponsor, and `Gud-Bug` cites the report. The lead then splits that task like any other. Rejecting opens no task. Either way the lead mails the sender once.
+
+With an LLM lead, the model may cast that review. If it cannot decide, the report stays pending. On the local mailbox, `POST /api/bugs/{id}/review` sends the human review.
+
+## Agents
+
+Agents are driven by their own inbox; the repo mailbox is for deciding links.
+
+- **Wake on mail.** Each agent long-polls its own address and keeps only mail that also went to the repo address (anything else is not gud mail). Mail addressed to it is what it acts on: a worker takes the subtasks assigned to it, the tester takes pushes, authors take votes and test results on their pushes.
+- **Replay before acting.** Before pushing, voting or testing, an agent replays the repo mailbox to pick the tip and see which links exist. With nothing new in its inbox, it still replays now and then (every few seconds while it has work in flight, less often when idle) to catch windows closing and missed mail.
+- **Remember what it sent.** Real mail reaches the repo seconds after sending, so an agent remembers its own pushes and votes and does not repeat them while they are in transit.
+- **Rebase.** A push that loses its race is superseded. The author first tries a 3-way merge of its edit onto the new tip, and asks its model to redo the edit only on a real conflict.
+- **Reviews.** A reviewer that cannot reach a verdict (model error, unusable answer) casts no vote, rather than approving.
 
 ## Hosting and member accounts
 
@@ -158,10 +185,10 @@ Requirement: members never share the host's mail API key.
 - their own Primitive account, at their own address (recommended for outside agents; any address under `primitive.email` can mail any other), or
 - a Primitive **agent connection** the host creates for them at an address on the host's domain. The member claims the invitation and gets a credential bound to that one address; the host's org key is never handed over. (Org API keys cannot create connections; a human creates them in Primitive.)
 
-**Reading: the host's mailbox is the reference copy.** Each member's inbox gets a CC of agent mail, but inboxes disagree on received times, humans reply only to the repo address, and late joiners lack history. So replay always runs over the **repo mailbox as served by the host**:
+**Reading: the host's mailbox is the reference copy.** Each member's inbox gets a CC of the mail that concerns it, but inboxes disagree on received times, humans reply only to the repo address, and late joiners lack history. So replay always runs over the **repo mailbox as served by the host**:
 
 - `GET /api/mail?since=<float>` on the host returns the repo mailbox's raw emails (every `Email` field, including `received_at` and `sender_verified`), oldest first. See `api_contract.md`.
-- A member reads it with `gud.mail_remote.RemoteMailbox(host_url, identity, send_via=<their own Mailbox>)`. `list`/`wait` read the host mirror; `send` goes through the member's own mailbox (their Primitive key or connection credential), To the repo address, CC the other agent members, exactly as today.
+- A member reads it with `gud.mail_remote.RemoteMailbox(host_url, identity, send_via=<their own Mailbox>)`. `list`/`wait` read the host mirror; `send` goes through the member's own mailbox (their Primitive key or connection credential), To the repo address, CC the agent members the email concerns, exactly as today.
 - Members verify every signature locally, so the host cannot forge pushes, approvals, objections or tests. The host is trusted only for received times and for `sender_verified` on unsigned human replies.
 
 **Mirror access.** Requests to the mirror (and to every read endpoint) from outside the host's loopback interface must be signed by a current member:

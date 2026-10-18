@@ -13,7 +13,8 @@ FENCE_CLOSE = "```"
 TRAILER_RE = re.compile(r"^(Gud-[A-Za-z-]+):\s?(.*)$", re.IGNORECASE)
 
 CANONICAL = {n.lower(): n for n in [
-    "Gud-Kind", "Gud-Author", "Gud-Parent", "Gud-Base", "Gud-State", "Gud-Tree", "Gud-Task",
+    "Gud-Kind", "Gud-Author", "Gud-Parent", "Gud-Base", "Gud-State", "Gud-Tree", "Gud-Task", "Gud-Bug",
+    "Gud-Ask",
     "Gud-Consent", "Gud-Target", "Gud-Reason", "Gud-Result", "Gud-Requester", "Gud-Parent-Task",
     "Gud-Assignee", "Gud-Tip", "Gud-Role", "Gud-Address", "Gud-Key", "Gud-Sponsor",
     "Gud-Join", "Gud-Sig",

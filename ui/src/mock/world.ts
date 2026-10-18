@@ -1,6 +1,7 @@
 import { diffstat } from "@/lib/diff"
 import type {
   Activity,
+  BugReport,
   EmailView,
   JoinRequest,
   Link,
@@ -35,6 +36,7 @@ export type World = {
   removed: Member[]
   joins: JoinRequest[]
   tasks: Task[]
+  bugs: BugReport[]
   emails: EmailView[]
   diffs: Record<string, string>
   activity: Activity[]
@@ -725,6 +727,20 @@ export function createWorld(now: number): World {
     removed,
     joins,
     tasks,
+    bugs: [
+      {
+        id: mid("bug-pricing-table"),
+        from: "sam@acme.example",
+        subject: "Pricing page has no comparison table",
+        description: "Pro should be $8/mo and Team $15/user/mo, in a comparison table. The page is three cards.",
+        received_at: now - 3600,
+        status: "pending",
+        task_id: null,
+        verdict: null,
+        review_by: null,
+        reason: "",
+      },
+    ],
     emails,
     diffs,
     activity,

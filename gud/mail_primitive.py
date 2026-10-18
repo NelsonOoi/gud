@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -59,15 +60,23 @@ class PrimitiveError(Exception):
 
 class PrimitiveMailbox:
     def __init__(self, api_key: str, repo_address: str, base_url: str = DEFAULT_BASE_URL,
-                 client: httpx.Client | None = None):
+                 client: httpx.Client | None = None, list_ttl: float = 0.0):
+        """``list_ttl`` > 0 lets threads sharing this client reuse a listing that young.
+
+        Every agent thread in a swarm shares one client; without it each thread lists the
+        repo several times a second and the account hits Primitive's 3000 requests/minute.
+        """
         self.api_key = api_key
         self.repo_address = repo_address
         self.base_url = base_url.rstrip("/")
+        self.list_ttl = list_ttl
         self._client = client or httpx.Client(timeout=httpx.Timeout(90.0, connect=10.0))
         self._bodies: dict[str, str] = {}
         self._by_provider: dict[str, Email] = {}
         self._by_message_id: dict[str, Email] = {}
         self._tail_cursor: dict[str, str] = {}
+        self._listed: dict[tuple[str, float | None], tuple[float, list[Email]]] = {}
+        self._lock = threading.Lock()
 
     def send(self, *, from_addr: str, to: str, cc: list[str] | None = None, subject: str,
              body: str, in_reply_to: str | None = None,
@@ -89,19 +98,32 @@ class PrimitiveMailbox:
                     result = {**result, **detail}
             except PrimitiveError:
                 pass
+        if result.get("id") and not result.get("message_id") and _domain(from_addr):
+            # Primitive delivers our own sends as <primitive-direct-{sent id}@{sender domain}>.
+            result["message_id"] = f"<primitive-direct-{result['id']}@{_domain(from_addr)}>"
         email = self._from_record(result, outbound=True, fallback={
             "from_addr": from_addr, "to": to, "cc": list(cc or []), "subject": subject,
             "body": body, "in_reply_to": in_reply_to, "references": list(references or []),
         })
         self._remember(email)
+        with self._lock:
+            self._listed.clear()
         return email
 
     def list(self, *, recipient: str | None = None, since: float | None = None) -> list[Email]:
         recipient = (recipient or self.repo_address).lower()
-        emails = [self._materialize(row) for row in self._iter_rows(recipient, since)]
+        if self.list_ttl > 0:
+            with self._lock:
+                hit = self._listed.get((recipient, since))
+            if hit is not None and time.monotonic() - hit[0] < self.list_ttl:
+                return list(hit[1])
+        emails = self._rows_to_emails(self._iter_rows(recipient, since))
         if since is not None:
             emails = [e for e in emails if e.received_at > since]
         emails.sort(key=lambda e: (e.received_at, e.message_id))
+        if self.list_ttl > 0:
+            with self._lock:
+                self._listed[(recipient, since)] = (time.monotonic(), emails)
         return emails
 
     def wait(self, *, recipient: str, since: float, timeout: float) -> list[Email]:
@@ -127,7 +149,7 @@ class PrimitiveMailbox:
                 cursor = new_cursor
                 self._tail_cursor[recipient] = cursor
             rows = body.get("data") or [] if isinstance(body, dict) else []
-            fresh = [e for e in (self._materialize(row) for row in rows) if e.received_at > since]
+            fresh = [e for e in self._rows_to_emails(rows) if e.received_at > since]
             if fresh:
                 fresh.sort(key=lambda e: (e.received_at, e.message_id))
                 return fresh
@@ -195,7 +217,12 @@ class PrimitiveMailbox:
                 break
             seen.add(cursor)
 
-    def _materialize(self, row: dict) -> Email:
+    def _materialize(self, row: dict) -> Email | None:
+        """The full email for a list row, or None when its body could not be fetched.
+
+        A row without a body is never cached: a snippet has no trailers, and caching it
+        would hide the email from replay for the life of this client.
+        """
         pid = str(row.get("id") or "")
         if pid and pid in self._by_provider and row.get("body_text") is None:
             return self._by_provider[pid]
@@ -205,13 +232,24 @@ class PrimitiveMailbox:
             else:
                 try:
                     detail = _data(self._request("GET", f"/emails/{pid}"))
-                    if isinstance(detail, dict):
-                        row = {**row, **detail}
                 except PrimitiveError:
-                    row = {**row, "body_text": row.get("snippet") or ""}
+                    return None
+                if not isinstance(detail, dict):
+                    return None
+                row = {**row, **detail}
+                if row.get("body_text") is None and not (row.get("parsed") or {}).get("body_text"):
+                    return None
         email = self._from_record(row, outbound=False)
         self._remember(email)
         return email
+
+    def _rows_to_emails(self, rows) -> list[Email]:
+        out = []
+        for row in rows:
+            email = self._materialize(row)
+            if email is not None:
+                out.append(email)
+        return out
 
     def _from_record(self, record: dict, *, outbound: bool, fallback: dict | None = None) -> Email:
         fallback = fallback or {}
@@ -282,11 +320,12 @@ class PrimitiveMailbox:
         return False
 
     def _remember(self, email: Email) -> None:
-        if email.provider_id:
-            self._by_provider[email.provider_id] = email
-            self._bodies[email.provider_id] = email.body
-        if email.message_id:
-            self._by_message_id[email.message_id] = email
+        with self._lock:
+            if email.provider_id:
+                self._by_provider[email.provider_id] = email
+                self._bodies[email.provider_id] = email.body
+            if email.message_id:
+                self._by_message_id[email.message_id] = email
 
     def _request(self, method: str, path: str, *, params: dict | None = None,
                  json_body: dict | None = None, headers: dict | None = None,

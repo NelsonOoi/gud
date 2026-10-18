@@ -60,25 +60,38 @@ def test_body(identity: Identity, target: str, passed: bool, tree: str, log: str
                                            "Gud-Result": "pass" if passed else "fail", "Gud-Tree": tree})
 
 
-def task_body(identity: Identity, task_id: str, requester: str, description: str) -> str:
-    return _signed(identity, description, {"Gud-Kind": "task", "Gud-Task": task_id, "Gud-Requester": requester})
+def task_body(identity: Identity, task_id: str, requester: str, description: str,
+              bug: str | None = None) -> str:
+    """``bug`` is the message id of the report this ticket came from."""
+    trailers = {"Gud-Kind": "task", "Gud-Task": task_id, "Gud-Requester": requester}
+    if bug:
+        trailers["Gud-Bug"] = bug
+    return _signed(identity, description, trailers)
 
 
-def subtask_body(identity: Identity, task_id: str, parent_task: str, assignee: str, description: str) -> str:
-    return _signed(identity, description, {"Gud-Kind": "subtask", "Gud-Task": task_id,
-                                           "Gud-Parent-Task": parent_task, "Gud-Assignee": assignee})
+def subtask_body(identity: Identity, task_id: str, parent_task: str, assignee: str, description: str,
+                 after: list[str] | None = None) -> str:
+    """``after`` lists subtask ids that must land before the assignee starts."""
+    trailers = {"Gud-Kind": "subtask", "Gud-Task": task_id, "Gud-Parent-Task": parent_task,
+                "Gud-Assignee": assignee}
+    if after:
+        trailers["Gud-After"] = ", ".join(after)
+    return _signed(identity, description, trailers)
 
 
 def task_done_body(identity: Identity, task_id: str, tip: str, summary: str) -> str:
     return _signed(identity, summary, {"Gud-Kind": "task-done", "Gud-Task": task_id, "Gud-Tip": tip})
 
 
-def notify_body(identity: Identity, text: str, task: str | None = None, target: str | None = None) -> str:
+def notify_body(identity: Identity, text: str, task: str | None = None, target: str | None = None,
+                ask: str | None = None) -> str:
     trailers = {"Gud-Kind": "notify", "Gud-Author": identity.handle}
     if task:
         trailers["Gud-Task"] = task
     if target:
         trailers["Gud-Target"] = target
+    if ask:
+        trailers["Gud-Ask"] = ask
     return render_body(text, trailers)
 
 
@@ -89,7 +102,29 @@ def join_body(identity, role, address, public_key, sponsor=None, reason=""):
 
 
 def send(mailbox: Mailbox, identity: Identity, members: dict[str, Member], subject: str, body: str,
-         in_reply_to: str | None = None, extra_cc: list[str] | None = None) -> Email:
-    cc = cc_list(members, identity.address) + list(extra_cc or [])
+         in_reply_to: str | None = None, extra_cc: list[str] | None = None,
+         cc_handles: list[str] | None = None) -> Email:
+    """To the repo. ``cc_handles`` names the members this mail is for; None CCs every agent member."""
+    if cc_handles is None:
+        cc = cc_list(members, identity.address)
+    else:
+        sender = identity.address.lower()
+        cc = [members[h].address for h in cc_handles
+              if h in members and members[h].role != "human" and members[h].address.lower() != sender]
+    cc += list(extra_cc or [])
     return mailbox.send(from_addr=identity.address, to=mailbox.repo_address, cc=list(dict.fromkeys(cc)),
                         subject=subject, body=body, in_reply_to=in_reply_to)
+
+
+def role_handles(members: dict[str, Member], role: str) -> list[str]:
+    return sorted(h for h, m in members.items() if m.role == role)
+
+
+def push_cc(members: dict[str, Member], owners: list[str]) -> list[str]:
+    """Who a push is for: the tester runs it, the lead tracks it, the owners vote on it."""
+    return role_handles(members, "tester") + role_handles(members, "lead") + list(owners)
+
+
+def reply_cc(members: dict[str, Member], push_author: str | None) -> list[str]:
+    """Who a test result or vote is for: the push's author and the lead."""
+    return ([push_author] if push_author else []) + role_handles(members, "lead")

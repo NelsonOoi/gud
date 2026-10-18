@@ -8,8 +8,11 @@ import time
 
 from . import compose
 from .compose import Identity
+from .inbox import Gate, Inbox
+from .merge import merge_edits
 from .patch import PatchError, apply_diff, diff_trees
 from .replay import replay
+from .rules import affected_owners
 from .tasks import derive, open_subtasks_for
 from .wire import normalize, parse_body
 
@@ -233,7 +236,9 @@ class LLMCoder:
                     "You edit a repository for one subtask. Reply with JSON only: "
                     "{\"files\": {\"path\": \"full new file text\"}}. "
                     "Use null to delete a file. Include only files you change. "
-                    "Paths are repo-relative. Keep every file valid UTF-8 source."
+                    "Paths are repo-relative. Keep every file valid UTF-8 source. "
+                    "Use the exact values the task gives (names, prices, addresses, numbers). "
+                    "Keep content other agents already wrote unless your subtask says to replace it."
                 )},
                 {"role": "user", "content": prompt},
             ])
@@ -243,37 +248,62 @@ class LLMCoder:
             return {}
 
     def review(self, diff, context=""):
+        """`(approve|object, reason)`, or `("abstain", why)` when the model gave no usable answer."""
         try:
             raw = _chat(self.api_key, self.model, [
                 {"role": "system", "content": (
-                    "You own lines in a proposed diff. Reply with JSON only: "
-                    "{\"action\": \"approve\" or \"object\", \"reason\": one sentence}. "
-                    "Object only when the diff removes or replaces behavior you need to keep."
+                    "You own lines that a proposed diff changes, and you review it before it lands. "
+                    "Reply with JSON only: {\"action\": \"approve\" or \"object\", \"reason\": one sentence}. "
+                    "Object when the diff deletes or breaks work you or others did that should stay, "
+                    "or when it contradicts the stated requirements (wrong values, missing parts). "
+                    "Say exactly what to change in the reason. Approve otherwise."
                 )},
-                {"role": "user", "content": f"Context:\n{context}\n\nDiff:\n{diff[:8000]}"},
+                {"role": "user", "content": f"{context}\n\nDiff:\n{diff[:8000]}"},
             ])
             data = _load_json(raw)
             action = str(data.get("action") or "").strip().lower()
             reason = str(data.get("reason") or "").strip() or "No objection."
         except Exception as exc:
             print(f"coder review failed: {exc}", flush=True)
-            return "approve", "Approved."
+            return "abstain", str(exc)[:200]
         if action not in {"approve", "object"}:
-            action = "approve"
+            return "abstain", f"unusable action {action!r}"
         return action, reason.split("\n", 1)[0][:300]
 
 
 class Worker:
-    """One assignee. `step` is safe to call in a loop; it never sends the same reply twice."""
+    """One assignee. `step` is safe to call in a loop; it never sends the same reply twice.
 
-    def __init__(self, mailbox, identity: Identity, window: float, coder, clock=time.time):
+    Work arrives in the worker's own inbox: its assignments, pushes that touch lines it
+    owns, and replies to its pushes. The repo is replayed (through `gate`) to pick the tip
+    to build on and to see whether its pushes linked.
+    """
+
+    def __init__(self, mailbox, identity: Identity, window: float, coder, clock=time.time,
+                 gate: Gate | None = None, pending_ttl: float = 90.0):
         self.mailbox = mailbox
         self.identity = identity
         self.window = window
         self.coder = coder
         self.clock = clock
+        self.inbox = Inbox(mailbox, identity.address, mailbox.repo_address)
+        self.gate = gate or Gate()
+        self.pending_ttl = pending_ttl
+        self._assigned: set[str] = set()
+        # Pushes sent but not yet seen in the repo mailbox: subtask id -> (message id, monotonic time).
+        self._pending: dict[str, tuple[str, float]] = {}
+        self._voted: set[str] = set()
+        self._review_failed: dict[str, float] = {}
 
     def step(self) -> list:
+        mail = self.inbox.read()
+        for email in mail:
+            parsed = parse_body(email.body)
+            if parsed.kind == "subtask" and parsed.get("Gud-Assignee") == self.identity.handle:
+                self._assigned.add(parsed.get("Gud-Task") or "")
+        busy = bool(self._assigned or self._pending)
+        if not self.gate.due(bool(mail), busy):
+            return []
         chain, _now = self._chain()
         tip = chain.tip
         if tip is None:
@@ -281,12 +311,16 @@ class Worker:
         sent = []
         sent += self._review(chain, tip)
         tasks = derive(chain)
-        mine = open_subtasks_for(tasks, self.identity.handle)
+        self._forget_finished(tasks)
+        landed = {link.task for link in chain.links if link.task}
+        mine = [sub for sub in open_subtasks_for(tasks, self.identity.handle)
+                if sub.id in self._assigned and _ready(sub, landed)]
         open_ids = {sub.id for sub in mine}
         pushed = False
         for sub in mine:
             email = self._advance(chain, tip, sub)
             if email is not None:
+                self._pending[sub.id] = (email.message_id, time.monotonic())
                 sent.append(email)
                 pushed = True
                 break
@@ -294,11 +328,29 @@ class Worker:
             sent += self._rebase_orphans(chain, tip, open_ids)
         return sent
 
+    def _forget_finished(self, tasks) -> None:
+        """Drop assignments that landed or went to someone else. Unseen ones stay: mail can lag."""
+        by_id = {sub.id: sub for task in tasks for sub in task.subtasks}
+        for sub_id in list(self._assigned):
+            sub = by_id.get(sub_id)
+            if sub is not None and (sub.status == "landed" or sub.assignee != self.identity.handle):
+                self._assigned.discard(sub_id)
+                self._pending.pop(sub_id, None)
+
     def _chain(self):
         now = self.clock()
         return replay(_listed(self.mailbox), self.window, now), now
 
     def _advance(self, chain, tip, sub):
+        pending = self._pending.get(sub.id)
+        if pending is not None:
+            message_id, sent_at = pending
+            if message_id in chain.by_message:
+                del self._pending[sub.id]
+            elif time.monotonic() - sent_at < self.pending_ttl:
+                return None
+            else:
+                del self._pending[sub.id]
         latest = _latest_push(chain, self.identity.handle, sub.id)
         if latest is None:
             return self._from_coder(tip, sub, feedback=None)
@@ -328,25 +380,32 @@ class Worker:
                           subject=f"[gud] {sub.id}: {sub.title}")
 
     def _rebase_edits(self, chain, email, tip, subtask):
+        """Re-apply a lost race on the new tip: a clean 3-way merge first, the coder only on conflict."""
         recovered = _recover(chain, email)
         if recovered is None:
             if subtask is None:
                 return {}
-            try:
-                return self.coder.edit(subtask, tip.tree, tip.blame, feedback=None) or {}
-            except TypeError:
-                return self.coder.edit(subtask, tip.tree, tip.blame) or {}
+            return self._coder_edit(subtask, tip, feedback=None)
         parent_files, edits = recovered
         changed = any(tip.tree.get(path) != old for path, old in parent_files.items())
-        if changed and subtask is not None:
-            try:
-                return self.coder.edit(subtask, tip.tree, tip.blame, feedback=None) or {}
-            except TypeError:
-                return self.coder.edit(subtask, tip.tree, tip.blame) or {}
-        if changed:
+        if not changed:
+            return edits
+        merged = merge_edits(parent_files, edits, tip.tree)
+        if merged is not None:
+            return merged
+        if subtask is None:
             # A stale snapshot of a finished push would overwrite work that landed on top.
             return {}
-        return edits
+        feedback = ("rebase: your earlier push was superseded and conflicts with the new tip. "
+                    "Re-apply your change on the current files.\nYour earlier diff:\n"
+                    + parse_body(email.body).diff[:3000])
+        return self._coder_edit(subtask, tip, feedback=feedback)
+
+    def _coder_edit(self, subtask, tip, feedback):
+        try:
+            return self.coder.edit(subtask, tip.tree, tip.blame, feedback=feedback) or {}
+        except TypeError:
+            return self.coder.edit(subtask, tip.tree, tip.blame) or {}
 
     def _rebase_orphans(self, chain, tip, open_ids: set[str]) -> list:
         """Re-push a race I lost that was not one of my open subtasks (the demo's step 5)."""
@@ -364,6 +423,10 @@ class Worker:
             latest = max(props, key=lambda prop: prop.received_at)
             if latest.status not in _RETRY:
                 continue
+            key = "rebase:" + latest.message_id
+            if key in self._pending:
+                if time.monotonic() - self._pending[key][1] < self.pending_ttl:
+                    continue
             email = chain.by_message.get(latest.message_id)
             if email is None:
                 continue
@@ -373,42 +436,51 @@ class Worker:
                 subject=("[gud] rebase " + latest.subject)[:140],
             )
             if pushed is not None:
+                self._pending[key] = (pushed.message_id, time.monotonic())
                 sent.append(pushed)
         return sent
 
     def _review(self, chain, tip) -> list:
         me = self.identity.handle
-        context = _review_context(chain, me)
         sent = []
         for prop in list(chain.proposals.values()):
             if prop.author == me or me not in (prop.affected_owners or []):
                 continue
             if prop.status not in {"window", "testing", "needs_approval", "needs_quorum"}:
                 continue
-            if _replied(chain, me, prop.message_id):
+            if prop.message_id in self._voted or _replied(chain, me, prop.message_id):
+                continue
+            failed_at = self._review_failed.get(prop.message_id)
+            if failed_at is not None and time.monotonic() - failed_at < 20:
                 continue
             email = chain.by_message.get(prop.message_id)
             if email is None:
                 continue
+            parsed = parse_body(email.body)
+            context = review_context(chain, prop, parsed, me)
             try:
-                decision, reason = self.coder.review(parse_body(email.body).diff, context)
+                decision, reason = self.coder.review(parsed.diff, context)
             except Exception as exc:
                 print(f"{me} review {prop.message_id} failed: {exc}", flush=True)
+                self._review_failed[prop.message_id] = time.monotonic()
                 continue
             action = (decision or "").strip().lower()
+            if action not in {"approve", "object"}:
+                # No vote: an outage must not approve. Lazy consensus still applies.
+                self._review_failed[prop.message_id] = time.monotonic()
+                continue
             parent = chain.by_id.get(prop.parent)
             members = parent.members if parent is not None else tip.members
             if action == "object":
                 body = compose.object_body(self.identity, prop.message_id, reason or "objected")
-                kind = "object"
             else:
                 body = compose.approve_body(self.identity, prop.message_id, reason or "Approved.")
-                kind = "approve"
             sent.append(compose.send(
                 self.mailbox, self.identity, members, f"Re: {email.subject}", body,
-                in_reply_to=prop.message_id,
+                in_reply_to=prop.message_id, cc_handles=compose.reply_cc(members, prop.author),
             ))
-            print(f"{kind} {me} {prop.message_id} {reason}", flush=True)
+            self._voted.add(prop.message_id)
+            print(f"{action} {me} {prop.message_id} {reason}", flush=True)
         return sent
 
     def _push(self, tip, edits, *, task, intent, subject):
@@ -423,14 +495,17 @@ class Worker:
                 tree.pop(path, None)
             else:
                 tree[path] = content
-        if not diff_trees(tip.tree, tree).strip():
+        diff = diff_trees(tip.tree, tree)
+        if not diff.strip():
             return None
         body, _state, _tree_hash = compose.push_body(
             self.identity, parent=tip.message_id, parent_state=tip.state, parent_tree=tip.tree,
             new_tree=tree, intent=intent, task=task,
         )
+        owners = affected_owners(tip, diff, self.identity.handle)
         email = compose.send(
             self.mailbox, self.identity, tip.members, subject, body, in_reply_to=tip.message_id,
+            cc_handles=compose.push_cc(tip.members, owners),
         )
         print(f"push {self.identity.handle} {task or '-'} {email.message_id}", flush=True)
         return email
@@ -510,13 +585,30 @@ def _recover(chain, email):
     return parent_files, edits
 
 
-def _review_context(chain, handle: str) -> str:
-    lines = [f"You are {handle}."]
-    for task in derive(chain):
-        for sub in task.subtasks:
-            if sub.assignee == handle and sub.status != "landed":
-                lines.append(f"{sub.id} {sub.title}: {sub.description[:400]}")
-    return "\n".join(lines)
+def _ready(sub, landed: set[str]) -> bool:
+    """A subtask with `Gud-After` waits until every listed subtask has landed."""
+    return all(dep in landed for dep in getattr(sub, "after", None) or [])
+
+
+def review_context(chain, prop, parsed, handle: str) -> str:
+    """What an owner needs to judge a push: its subtask, the owner's own work, the files before."""
+    lines = [f"You are {handle}, an owner of lines this push changes."]
+    subs = {sub.id: (task, sub) for task in derive(chain) for sub in task.subtasks}
+    if prop.task and prop.task in subs:
+        _task, sub = subs[prop.task]
+        lines.append(f"The push is for {sub.id} {sub.title}. Its requirements:\n{sub.description[:3000]}")
+    if parsed.text:
+        lines.append(f"The author's note:\n{parsed.text[:600]}")
+    mine = [sub for _task, sub in subs.values() if sub.assignee == handle]
+    if mine:
+        lines.append("Your own subtasks:\n" + "\n".join(f"- {s.id} {s.title} ({s.status})" for s in mine))
+    parent = chain.by_id.get(prop.parent)
+    if parent is not None:
+        from .patch import diffstat
+        for path in diffstat(parsed.diff)["files"][:4]:
+            if path in parent.tree:
+                lines.append(f"----- {path} before this push -----\n{parent.tree[path][:4000]}")
+    return "\n\n".join(lines)
 
 
 def _listed(mailbox):

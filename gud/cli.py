@@ -49,6 +49,7 @@ def cmd_init(cfg: config.Config, args) -> None:
     human_address = os.environ.get("GUD_HUMAN_ADDRESS", domain_address(cfg.domain, human_handle))
     members: dict[str, Member] = {}
     ids: dict[str, compose.Identity] = {}
+    overrides = getattr(args, "addresses", None) or {}
     for handle, role in ROSTER:
         path = cfg.key_path(handle)
         if path.exists():
@@ -56,7 +57,7 @@ def cmd_init(cfg: config.Config, args) -> None:
         else:
             raw, _ = sig.generate()
             sig.save_private(path, raw)
-        address = domain_address(cfg.domain, handle)
+        address = overrides.get(handle) or domain_address(cfg.domain, handle)
         ids[handle] = compose.Identity(handle, address, raw)
         members[handle] = Member(handle, role, address, sig.public_of(raw), human_handle)
     members[human_handle] = Member(human_handle, "human", human_address.lower(), None, None)

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from . import compose
 from .build import RunnerPool
+from .inbox import Gate, Inbox
 from .memberfile import members_of
 from .patch import PatchError, apply_diff
 from .types import Email, Mailbox, Tree
@@ -29,29 +30,43 @@ class _Candidate:
     members: dict
     tree: Tree
     tree_hash: str
+    author: str = ""
+
+
+# A push in one of these states can never link, so testing it is wasted work.
+_DEAD = {"superseded", "stale", "conflict", "bad_sig", "vetoed"}
 
 
 class Tester:
     def __init__(self, mailbox: Mailbox, identity: compose.Identity, runner, window: float,
-                 clock=time.time, *, max_concurrent: int = 5):
+                 clock=time.time, *, max_concurrent: int = 5, gate: Gate | None = None):
         self.mailbox = mailbox
         self.identity = identity
         self.runner = runner
         self.window = window
         self.clock = clock
         self.pool = RunnerPool(runner, max_concurrent=max_concurrent)
+        self.inbox = Inbox(mailbox, identity.address, mailbox.repo_address)
+        self.gate = gate or Gate()
+        # Pushes this tester answered, kept across steps: its own replies reach the repo later.
+        self._answered_ids: set[str] = set()
+        self._waiting = False
 
     def step(self) -> list[Email]:
         """Test every push that is ready. Returns the `test` emails sent, oldest work first."""
         from .replay import replay
 
+        mail = self.inbox.read()
+        if not self.gate.due(bool(mail), self._waiting):
+            return []
         sent: list[Email] = []
-        answered: set[str] = set()
+        answered = self._answered_ids
         while True:
             emails = self.mailbox.list(recipient=self.mailbox.repo_address)
             answered |= self._answered(emails)
             chain = replay(emails, self.window, self.clock())
             work = [job for job in self._candidates(emails, chain) if job.message_id not in answered]
+            self._waiting = self._untested_children(emails, chain, answered)
             if not work:
                 return sent
             futs = [(job, self.pool.submit(job.tree)) for job in work]
@@ -69,7 +84,7 @@ class Tester:
                 )
                 email = compose.send(
                     self.mailbox, self.identity, job.members, "Re: " + job.subject, body,
-                    in_reply_to=job.message_id,
+                    in_reply_to=job.message_id, cc_handles=compose.reply_cc(job.members, job.author),
                 )
                 sent.append(email)
                 answered.add(job.message_id)
@@ -144,6 +159,9 @@ class Tester:
                 parent = _parent_link(chain, parent_id)
                 if parent is None:
                     continue
+                prop = (getattr(chain, "proposals", None) or {}).get(email.message_id)
+                if prop is not None and prop.status in _DEAD:
+                    continue
                 base, members = dict(parent.tree), parent.members
             try:
                 tree = apply_diff(base, parsed.diff)
@@ -154,9 +172,23 @@ class Tester:
             work.append(_Candidate(
                 message_id=email.message_id, subject=email.subject,
                 members=members if members is not None else members_of(tree),
-                tree=tree, tree_hash=claimed,
+                tree=tree, tree_hash=claimed, author=parsed.get("Gud-Author") or "",
             ))
         return work
+
+    def _untested_children(self, emails: list[Email], chain, answered: set[str]) -> bool:
+        """True while a push waits on its parent linking: the tester has to look again soon."""
+        for email in emails:
+            parsed = parse_body(email.body)
+            if parsed.kind != "push" or email.message_id in answered:
+                continue
+            parent_id = parsed.get("Gud-Parent") or ""
+            if parent_id in ("", "none") or _is_link(chain, email.message_id):
+                continue
+            prop = (getattr(chain, "proposals", None) or {}).get(email.message_id)
+            if prop is None or prop.status not in _DEAD:
+                return True
+        return False
 
 
 def _is_link(chain, message_id: str) -> bool:

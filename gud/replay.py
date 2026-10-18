@@ -17,6 +17,8 @@ _PUNCT = ".,!?;:\"'`()[]{}*_"
 _VERBS = frozenset({"approve", "veto", "object"})
 # A push waiting on people holds its siblings back for one window at most, so a slow vote cannot freeze the repo.
 _PARKABLE = frozenset({"needs_approval", "needs_quorum", "objected"})
+# Failures of the push itself, not of replies to it: these outrank "superseded".
+_INTRINSIC = frozenset({"bad_sig", "stale", "conflict"})
 
 
 @dataclass
@@ -107,17 +109,19 @@ def replay(emails: list[Email], window: float, now: float) -> Chain:
             at_t = evaluate_at(t)
             idx = _walk(at_t)[0]
             if idx is not None:
-                winner = (kids[idx], at_t[idx])
+                winner = (kids[idx], at_t[idx], at_t)
                 break
         evals = evaluate_at(now)
         if winner is not None:
-            win_email, win_eval = winner
+            win_email, win_eval, at_win = winner
             links.append(_link_from(win_email, win_eval, parent))
+            # A sibling not already dead when the link was decided lost to it, whatever mail came after.
+            dead = {ev.proposal.message_id for ev in at_win if ev.outcome == "never"}
             for ev in evals:
                 prop = ev.proposal
                 if prop.message_id == win_email.message_id:
                     continue
-                if ev.outcome != "never":
+                if ev.outcome != "never" or (prop.message_id not in dead and prop.status not in _INTRINSIC):
                     prop.status = "superseded"
                     prop.reason = f"superseded by {win_email.message_id}"
                 proposals[prop.message_id] = prop

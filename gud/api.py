@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from . import compose, config, sig, tasks as tasklib
+from .bugs import bugs_address_for, derive_bugs
 from .chain import Repo
 from .config import domain_address
 from .hostauth import verify_request
@@ -80,6 +81,18 @@ def member_json(m: Member, tip: LinkState | None, added_by: dict[str, str]) -> d
             "fingerprint": sig.fingerprint(m.public_key) if m.public_key else None,
             "sponsor": m.sponsor, "votes": m.votes, "lines_owned": owned,
             "added_by_link": added_by.get(m.handle)}
+
+
+def bugs_address(ctx) -> str:
+    raw = (getattr(ctx.cfg, "bugs_address", "") or "").strip()
+    return raw.lower() if raw else bugs_address_for(ctx.mailbox.repo_address)
+
+
+def bug_rows(ctx) -> list[Email]:
+    try:
+        return ctx.mailbox.list(recipient=bugs_address(ctx))
+    except Exception:
+        return []
 
 
 def all_members(chain) -> dict[str, Member]:
@@ -269,6 +282,7 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
                     "removed_at": link.linked_at if link else None})
         local = sorted(f"@{p.stem}" for p in ctx.cfg.keys_dir.glob("*.key")) if ctx.cfg.keys_dir.exists() else []
         return {"repo": ctx.mailbox.repo_address, "now": ctx.clock(), "window_seconds": ctx.cfg.window_seconds,
+                "bugs_address": bugs_address(ctx),
                 "tip": link_json(tip) if tip else None,
                 "links": [link_json(l) for l in reversed(c.links)],
                 "proposals": sorted((proposal_json(p) for p in c.proposals.values()),
@@ -359,6 +373,42 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
     def get_tasks():
         return [t.to_json() for t in tasklib.derive(chain())]
 
+    @app.get("/api/bugs")
+    def get_bugs():
+        current = chain()
+        members = current.tip.members if current.tip else {}
+        return [report.to_json() for report in derive_bugs(bug_rows(ctx), current.emails, members, bugs_address(ctx))]
+
+    @app.post("/api/bugs/{id:path}/review")
+    def review_bug(id: str, body: dict):
+        """Simulate a human review on the local mailbox. The lead opens the ticket after it."""
+        if ctx.cfg.mailbox != "fake":
+            raise HTTPException(400, "human replies are only simulated with the fake mailbox")
+        current = chain()
+        if current.tip is None:
+            raise HTTPException(409, "no genesis yet")
+        who = body.get("from") or "@nelson"
+        member = all_members(current).get(who)
+        if member is None or member.role != "human":
+            raise HTTPException(400, f"{who} is not a human member")
+        action = (body.get("action") or "").strip().lower()
+        if action not in {"approve", "reject"}:
+            raise HTTPException(400, "action must be approve or reject")
+        address = bugs_address(ctx)
+        reports = derive_bugs(bug_rows(ctx), current.emails, current.tip.members, address)
+        report = next((item for item in reports if item.id == id), None)
+        if report is None:
+            raise HTTPException(404, "unknown bug report")
+        if report.status != "pending" or report.verdict:
+            raise HTTPException(409, "bug report is already reviewed")
+        reason = (body.get("reason") or "").strip()
+        text = action if not reason else f"{action}\n{reason}"
+        email = ctx.mailbox.send(
+            from_addr=member.address, to=ctx.mailbox.repo_address,
+            subject=f"Re: {report.subject}", body=text + "\n", in_reply_to=report.id,
+        )
+        return {"id": email.message_id}
+
     @app.get("/api/activity")
     def get_activity(limit: int = 100):
         return activity(chain(), limit)
@@ -375,7 +425,8 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
         console = ctx.identity("@console")
         text = compose.task_body(console, tid, body.requester, body.description or body.title)
         members = c.tip.members if c.tip else {}
-        compose.send(ctx.mailbox, console, members, f"[gud] {tid}: {body.title}", text)
+        compose.send(ctx.mailbox, console, members, f"[gud] {tid}: {body.title}", text,
+                     cc_handles=compose.role_handles(members, "lead") or None)
         return {"id": tid}
 
     @app.post("/api/members")
@@ -436,6 +487,7 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
             last_tip = None
             last_props: dict[str, str] = {}
             seen_joins: set[str] = set()
+            seen_bugs: dict[str, str] = {}
             while True:
                 c = await asyncio.to_thread(chain)
                 for a in reversed(activity(c, 10_000)[: max(0, len(c.emails) + len(c.links) - 1 - seen)]):
@@ -452,6 +504,12 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
                     if join["id"] not in seen_joins:
                         seen_joins.add(join["id"])
                         yield {"event": "join", "data": json.dumps(join)}
+                members = c.tip.members if c.tip else {}
+                rows = await asyncio.to_thread(bug_rows, ctx)
+                for report in derive_bugs(rows, c.emails, members, bugs_address(ctx)):
+                    if seen_bugs.get(report.id) != report.status:
+                        seen_bugs[report.id] = report.status
+                        yield {"event": "bug", "data": json.dumps(report.to_json())}
                 await asyncio.sleep(1.0)
         return EventSourceResponse(gen())
 

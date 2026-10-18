@@ -101,6 +101,13 @@ type Task = {
   status: "open" | "in_progress" | "done";
   subtasks: { id: string; assignee: string; title: string; status: "open" | "proposed" | "landed"; link_id: string | null }[];
   done_link: string | null; notified_at: number | null;
+  bug: string | null;          // message id of the bug report, when this ticket came from one
+}
+
+type BugReport = {
+  id: string; from: string; subject: string; description: string; received_at: number;
+  status: "pending" | "accepted" | "rejected";
+  task_id: string | null; verdict: "approve" | "reject" | null; review_by: string | null; reason: string;
 }
 
 type Activity = {
@@ -134,7 +141,7 @@ type EmailView = {
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| GET | `/api/state` | `{ repo: string, now: number, window_seconds: number, tip: Link \| null, links: Link[], proposals: Proposal[], members: Member[], removed_members: (Member & { removed_by_link: string \| null, removed_at: number \| null })[], local_signers: string[] }` |
+| GET | `/api/state` | `{ repo: string, bugs_address: string, now: number, window_seconds: number, tip: Link \| null, links: Link[], proposals: Proposal[], members: Member[], removed_members: (Member & { removed_by_link: string \| null, removed_at: number \| null })[], local_signers: string[] }` |
 | GET | `/api/info` | `{ repo: string, window_seconds: number, tip_seq: number \| null }`; open to anyone, so `gud join` can find the repo address |
 | GET | `/api/mail?since=<float>&limit=500` | `{ emails: RawEmail[], next_since: number \| null }` the host mirror of the repo mailbox, oldest first; page with `next_since` |
 | GET | `/api/joins` | `JoinRequest[]` newest first |
@@ -143,13 +150,15 @@ type EmailView = {
 | GET | `/api/tree?at=<id>` | `{ at: string, files: { path: string; lines: number; owners: Record<string, number> }[] }` |
 | GET | `/api/blame?path=<p>&at=<id>` | `{ path, at, lines: BlameLine[] }` |
 | GET | `/api/tasks` | `Task[]` |
+| GET | `/api/bugs` | `BugReport[]` oldest first. Mail to `bugs_address` that is still pending, accepted (a task cites it), or rejected |
+| POST | `/api/bugs/{id}/review` | body `{ action: "approve" \| "reject", from, reason? }` returns `{ id }`. Sends the human review on the local mailbox. The lead opens the ticket after an approval; 409 if this report was already reviewed |
 | GET | `/api/activity?limit=100` | `Activity[]` newest first |
 | GET | `/api/thread/{id}` | `EmailView[]` oldest first (the push and every reply targeting it) |
 | POST | `/api/tasks` | body `{ title, description, requester }` returns `{ id }` (sends a `task` email from `@console`) |
 | POST | `/api/members` | body `{ action: "add" \| "remove", handle, role?, address?, public_key?, sponsor? }` returns `{ push_id }` (console sends a membership push; it lands by quorum) |
 | POST | `/api/reply` | body `{ target, from, text }` returns `{ id }` (a human reply; only with the fake mailbox, to simulate a person emailing) |
 | POST | `/api/approve` | body `{ target, as }` returns `{ id }` (signed approve from a local agent identity; demo helper) |
-| GET | `/api/events` | SSE stream. Events: `mail` (`Activity`), `chain` (`{ tip: Link }`), `proposal` (`Proposal`), `task` (`Task`) |
+| GET | `/api/events` | SSE stream. Events: `mail` (`Activity`), `chain` (`{ tip: Link }`), `proposal` (`Proposal`), `task` (`Task`), `bug` (`BugReport`, when a report arrives or its status changes) |
 
 Access: from loopback everything is open. From anywhere else, `/api/info` is open, other GET endpoints need a member signature (`X-Gud-Handle`, `X-Gud-Time`, `X-Gud-Sig`, see SPEC "Mirror access") and POST endpoints return 403. SSE also emits `join` (`JoinRequest`) events.
 

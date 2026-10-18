@@ -89,6 +89,20 @@ export type Task = {
   subtasks: Subtask[]
   done_link: string | null
   notified_at: number | null
+  bug?: string | null
+}
+
+export type BugReport = {
+  id: string
+  from: string
+  subject: string
+  description: string
+  received_at: number
+  status: "pending" | "accepted" | "rejected"
+  task_id: string | null
+  verdict: "approve" | "reject" | null
+  review_by: string | null
+  reason: string
 }
 
 export type Activity = {
@@ -130,6 +144,7 @@ export type EmailView = {
 
 export type RepoState = {
   repo: string
+  bugs_address?: string
   now: number
   window_seconds: number
   tip: Link | null
@@ -159,3 +174,4 @@ export type ServerEvent =
   | { event: "proposal"; data: Proposal }
   | { event: "task"; data: Task }
   | { event: "join"; data: JoinRequest }
+  | { event: "bug"; data: BugReport }
