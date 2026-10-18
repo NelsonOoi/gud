@@ -57,6 +57,7 @@ const KIND: Record<string, string> = {
   veto: "vetoed",
   superseded: "superseded",
   link: "landed",
+  "no-change": "no change",
   "task-done": "done",
 };
 
@@ -65,6 +66,7 @@ const TONE: Record<string, string> = {
   approve: "ok",
   "bug-accepted": "ok",
   link: "ok",
+  "no-change": "ok",
   "task-done": "ok",
   "test-fail": "bad",
   object: "bad",

@@ -83,6 +83,14 @@ def task_done_body(identity: Identity, task_id: str, tip: str, summary: str) -> 
     return _signed(identity, summary, {"Gud-Kind": "task-done", "Gud-Task": task_id, "Gud-Tip": tip})
 
 
+def no_change_body(identity: Identity, task_id: str, tip: str, reason: str) -> str:
+    """The assignee checked `tip` and the subtask needs nothing. `reason` is one line."""
+    line = " ".join((reason or "").split())[:300] or "no change needed"
+    return _signed(identity, line, {
+        "Gud-Kind": "no-change", "Gud-Task": task_id, "Gud-Tip": tip, "Gud-Reason": line,
+    })
+
+
 def notify_body(identity: Identity, text: str, task: str | None = None, target: str | None = None,
                 ask: str | None = None) -> str:
     trailers = {"Gud-Kind": "notify", "Gud-Author": identity.handle}

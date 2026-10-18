@@ -39,6 +39,7 @@ Parsing rules (`gud.wire.parse_body`):
 | `task` | Author, Task, Requester, Sig | | yes |
 | `subtask` | Author, Task, Parent-Task, Assignee, Sig | After | yes |
 | `task-done` | Author, Task, Tip, Sig | | yes |
+| `no-change` | Author, Task, Tip, Reason, Sig | | yes |
 | `notify` | Author | Task, Target | no (informational, never affects the chain) |
 | `join` | Author, Role, Address, Key, Sig | Sponsor, Reason | yes, by `Key` itself (no chain effect; input to a membership push) |
 
@@ -53,6 +54,8 @@ Field meanings:
 - `Gud-Target`: message id of the push being objected to, approved, or tested.
 - `Gud-Result`: `pass` or `fail`.
 - `Gud-Task`: task id like `T7`, or subtask id like `T7.1`.
+- `Gud-Tip`: on `task-done`, the tip the task finished on. On `no-change`, the link the assignee checked.
+- `Gud-Reason`: one line. On `object`, why. On `no-change`, why the subtask needs nothing.
 - `Gud-Sig`: `ed25519:<base64 signature>`.
 - `Gud-Role`, `Gud-Address`, `Gud-Key`, `Gud-Sponsor` (join only): the requested member line. `Gud-Author` is the requested handle. `Gud-Key` is the requester's public key, and `Gud-Sig` must verify with it.
 - `Gud-Join` (optional on a membership push): message id of the join request it admits.
@@ -110,6 +113,7 @@ handle role address public_key sponsor
   - `approve`, `object`, `test`: the push's author and the lead.
   - `task`: the lead.
   - `task-done`: the subtask assignees.
+  - `no-change`: the lead.
   - Anything else (genesis, membership pushes): every non-human member.
 
 ## `.gud/protected`
@@ -152,9 +156,15 @@ Consent holds at a time: the window close, the last required approval's received
 
 - `task` from `@console` (or any member) opens task `T<n>`. Subject is the title; free text is the description; `Gud-Requester` is the human handle.
 - A human member opens a task by mailing the repo address in plain text (no `Gud-Kind`, no `Gud-Sig`, not a reply) when `sender_verified` is set and `From` matches their address. The lead sends the signed `task` itself — title from the subject, description from the body with trailer-shaped lines neutralized, `Gud-Requester` that human, `Gud-Source` the source message id — and splits it with no review. Mail from anyone else or an unverified sender is ignored (they use the bugs address). The lead never opens a second task for the same source, including after a restart (a task already cites `Gud-Source`) and while its own send is still in flight.
-- `subtask` from the lead assigns `T<n>.<m>` to `Gud-Assignee`. Its free text carries the parent task's title and description, so the assignee works from the email alone. `Gud-After: T<n>.<a>, ...` lists subtasks that must land first; the assignee starts only after they have.
-- A subtask is **done** when a link carries `Gud-Task: T<n>.<m>`.
-- A task is **done** when the lead sends `task-done`; the requester is then notified by email (`notify` kind, To the human's address, CC repo).
+- `subtask` from the lead assigns `T<n>.<m>` to `Gud-Assignee`. Its free text carries the parent task's title and description, so the assignee works from the email alone. `Gud-After: T<n>.<a>, ...` lists subtasks that must land first; the assignee starts only after they have (a landed link or an accepted `no-change`).
+- A subtask is **done** when a link carries `Gud-Task: T<n>.<m>`, or when a `no-change` from its current assignee is accepted.
+- `no-change` is how the assignee says the tip already satisfies the subtask. It is signed by that assignee. `Gud-Task` is the subtask id, `Gud-Tip` is the link they checked, and `Gud-Reason` is one line (the free text is the same line). Anyone else is ignored, including a former assignee. It is accepted only when all of these hold:
+  - `Gud-Author` is the current assignee, `From` is that member's address, `sender_verified` is set, and `Gud-Sig` verifies with their key at the cited link (or at the tip, if they joined later).
+  - It was received at or after the current assignment.
+  - `Gud-Tip` is a link on the chain.
+  - The assignee has no in-flight push for this subtask (`window`, `testing`, `needs_approval`, `needs_quorum`, or `qualified`). A landed link still wins over `no-change`.
+  - The subtask's files are unchanged between that link and the current tip. Those files are the `Files:` paths plus any other path named in the subtask title or description that exists in the cited tree. When the subtask names none, the whole tree counts, and any later change drops the `no-change`. A later link that does not touch the named files leaves it in force. A later link that changes one of them (including creating a named file that was absent) drops it, and the subtask is open again until a new link lands or a new `no-change` cites a tip that still matches. The latest accepted `no-change` supplies the reason.
+- A task is **done** when the lead sends `task-done`; the requester is then notified by email (`notify` kind, To the human's address, CC repo). The `task-done` text and that notice name each subtask that needed no change, with its reason.
 - `Gud-Bug` (optional on a `task`): message id of the bug report the ticket was opened from.
 
 ## Bug reports
@@ -175,6 +185,7 @@ Agents are driven by their own inbox; the repo mailbox is for deciding links.
 - **Replay before acting.** Before pushing, voting or testing, an agent replays the repo mailbox to pick the tip and see which links exist. With nothing new in its inbox, it still replays now and then (every few seconds while it has work in flight, less often when idle) to catch windows closing and missed mail.
 - **Remember what it sent.** Real mail reaches the repo seconds after sending, so an agent remembers its own pushes and votes and does not repeat them while they are in transit.
 - **Rebase.** A push that loses its race is superseded. The author first tries a 3-way merge of its edit onto the new tip, and asks its model to redo the edit only on a real conflict.
+- **Nothing to change.** An assignee whose edit does not change the tip sends `no-change` instead of an empty push. A coder says so in its reply (`{"files": {}, "done": "reason"}`). If the coder instead changes nothing, the worker signs `no-change` the next time it sees that same tip, and does not ask again. A failed coder call is not a no-change.
 - **Reviews.** A reviewer that cannot reach a verdict (model error, unusable answer) casts no vote, rather than approving.
 
 ## Hosting and member accounts

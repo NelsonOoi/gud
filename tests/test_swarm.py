@@ -11,7 +11,7 @@ from gud.replay import replay
 from gud.tasks import derive
 from gud.testkit import World
 from gud.types import RunResult
-from gud.worker import LLMCoder, ScriptedCoder, Worker
+from gud.worker import LLMCoder, NoChange, ScriptedCoder, Worker
 from gud.wire import tree_hash
 
 
@@ -84,9 +84,9 @@ def test_llm_coder_retries_a_truncated_reply_then_backs_off(monkeypatch):
 
     calls.clear()
     monkeypatch.setattr(worker_mod, "_chat", lambda *a, **k: calls.append(1) or "not json")
-    assert coder.edit(sub, {"a.txt": "old\n"}, {}) == {}
+    assert coder.edit(sub, {"a.txt": "old\n"}, {}) is None
     assert len(calls) == 2
-    assert coder.edit(sub, {"a.txt": "old\n"}, {}) == {}
+    assert coder.edit(sub, {"a.txt": "old\n"}, {}) is None
     assert len(calls) == 2
     now[0] = 31.0
     coder.edit(sub, {"a.txt": "old\n"}, {})
@@ -146,7 +146,25 @@ def test_scripted_swarm_lands_a_two_subtask_task(tmp_path):
     assert notes and any("nelson@" in addr for email in notes for addr in email.to)
 
 
-def test_a_coder_that_changes_nothing_is_asked_once_per_tip(tmp_path):
+def test_llm_coder_can_say_the_subtask_needs_no_change(monkeypatch):
+    import gud.worker as worker_mod
+
+    seen = {}
+
+    def chat(api_key, model, messages, temperature=0):
+        seen["system"] = messages[0]["content"]
+        return '{"files": {}, "done": "doctype is already there"}'
+
+    monkeypatch.setattr(worker_mod, "_chat", chat)
+    coder = LLMCoder("sk-test", "test-model")
+    sub = SimpleNamespace(id="T1.1", title="Add the doctype", description="index.html", files=["index.html"])
+    result = coder.edit(sub, {"index.html": "<!doctype html>\n"}, {})
+    assert isinstance(result, NoChange)
+    assert result.reason == "doctype is already there"
+    assert '"done"' in seen["system"]
+
+
+def test_a_coder_that_changes_nothing_is_asked_once_then_signs_no_change(tmp_path):
     window = 60
     w = World.create(tmp_path)
     w.genesis({"index.html": "<!doctype html>\n"})
@@ -162,9 +180,150 @@ def test_a_coder_that_changes_nothing_is_asked_once_per_tip(tmp_path):
     send_task(w, "Fix the doctype")
     lead.step()
     lead.step()
-    for _ in range(5):
+    assert alice.step() == []
+    sent = alice.step()
+    assert [compose_kind(email) for email in sent] == ["no-change"]
+    assert len(calls) == 1
+    for _ in range(3):
         assert alice.step() == []
     assert len(calls) == 1
+
+
+def test_no_change_subtask_reaches_task_done(tmp_path):
+    window = 60
+    w = World.create(tmp_path)
+    w.genesis({"index.html": "<!doctype html>\n"})
+    planner = ScriptedPlanner({"doctype": [("Add the doctype", "index.html needs one", ["index.html"])]})
+
+    def edit(subtask, tree, blame, feedback=None):
+        return {}
+
+    lead = Lead(w.mailbox, w.ids["@lead"], window, planner, clock=w.clock, pool=["@alice"])
+    alice = Worker(w.mailbox, w.ids["@alice"], window, ScriptedCoder(edit_fn=edit), clock=w.clock)
+    send_task(w, "Fix the doctype")
+    lead.step()
+    assert alice.step() == []
+    assert [compose_kind(email) for email in alice.step()] == ["no-change"]
+
+    sent = lead.step()
+    assert "task-done" in [compose_kind(email) for email in sent]
+    tasks = derive(snap(w, window))
+    assert tasks[0].status == "done"
+    assert tasks[0].notified_at is not None
+    sub = tasks[0].subtasks[0]
+    assert sub.status == "no-change"
+    assert sub.reason == "no change needed"
+    done = next(email for email in w.repo_mail() if compose_kind(email) == "task-done")
+    note = next(email for email in w.repo_mail() if compose_kind(email) == "notify")
+    assert f"{sub.id} {sub.assignee} no change: no change needed" in done.body
+    assert f"{sub.id} {sub.assignee} no change: no change needed" in note.body
+    assert any(addr.startswith("nelson@") for addr in note.to)
+
+    from gud.console import feed_events
+
+    event = next(item for item in feed_events(snap(w, window), [], []) if item["kind"] == "no-change")
+    assert event["actor"] == "@alice"
+    assert event["task"] == sub.id
+    assert event["text"] == "no change needed"
+
+
+def test_mixed_landed_and_no_change_subtasks_finish(tmp_path):
+    window = 60
+    w = World.create(tmp_path)
+    w.genesis({"index.html": "<!doctype html>\n"})
+    planner = ScriptedPlanner({
+        "widget": [
+            ("Write alpha", "create alpha.py", ["alpha.py"]),
+            ("Keep the doctype", "index.html already has one", ["index.html"]),
+        ],
+    })
+
+    def edit(subtask, tree, blame, feedback=None):
+        if "alpha" in subtask.title.lower():
+            return {"alpha.py": "ALPHA = 1\n"}
+        if "doctype" in subtask.title.lower():
+            return NoChange("doctype is already there")
+        return {}
+
+    from gud.tester import Tester
+
+    lead = Lead(w.mailbox, w.ids["@lead"], window, planner, clock=w.clock, pool=["@alice", "@bob"])
+    workers = [
+        Worker(w.mailbox, w.ids[handle], window, ScriptedCoder(edit_fn=edit), clock=w.clock)
+        for handle in ("@alice", "@bob")
+    ]
+    tester = Tester(w.mailbox, w.ids["@tester"], OkRunner(), window, clock=w.clock)
+    send_task(w, "Build the widget")
+    lead.step()
+
+    done = None
+    for _ in range(12):
+        lead.step()
+        for worker in workers:
+            worker.step()
+        tester.step()
+        tasks = derive(snap(w, window))
+        if tasks and tasks[0].status == "done" and tasks[0].notified_at is not None:
+            done = tasks[0]
+            break
+    assert done is not None, _dump(w, window)
+    by_title = {sub.title: sub for sub in done.subtasks}
+    assert by_title["Write alpha"].status == "landed"
+    assert by_title["Keep the doctype"].status == "no-change"
+    assert by_title["Keep the doctype"].reason == "doctype is already there"
+    tip = snap(w, window).tip
+    assert tip.tree["alpha.py"] == "ALPHA = 1\n"
+    assert tip.tree["index.html"] == "<!doctype html>\n"
+    body = next(email.body for email in w.repo_mail() if compose_kind(email) == "task-done")
+    note = next(email.body for email in w.repo_mail() if compose_kind(email) == "notify")
+    line = f"{by_title['Keep the doctype'].id} {by_title['Keep the doctype'].assignee} no change: doctype is already there"
+    assert line in body and line in note
+
+
+def test_stale_no_change_does_not_finish_until_the_new_tip_is_checked(tmp_path):
+    window = 60
+    w = World.create(tmp_path)
+    parent = w.genesis({"index.html": "<!doctype html>\n", "other.txt": "a\n"})
+    planner = ScriptedPlanner({"doctype": [("Add the doctype", "index.html needs one", ["index.html"])]})
+    calls = []
+
+    def edit(subtask, tree, blame, feedback=None):
+        calls.append(tree["index.html"])
+        return {}
+
+    lead = Lead(w.mailbox, w.ids["@lead"], window, planner, clock=w.clock, pool=["@alice"], stale_after=10_000)
+    alice = Worker(w.mailbox, w.ids["@alice"], window, ScriptedCoder(edit_fn=edit), clock=w.clock)
+    send_task(w, "Fix the doctype")
+    lead.step()
+    assert alice.step() == []
+    declared = alice.step()
+    assert [compose_kind(email) for email in declared] == ["no-change"]
+    cited = snap(w, window).tip.message_id
+
+    # A new file does not touch index.html, so the no-change still holds. Do not step the
+    # lead yet: it would close the task while the statement is still true.
+    other = w.edit("@bob", parent, "notes.txt", "b\n", intent="add notes")
+    w.test(other)
+    assert derive(snap(w, window))[0].subtasks[0].status == "no-change"
+
+    changed = w.edit("@bob", other, "index.html", "<html>\n", intent="drop the doctype")
+    w.approve("@lead", changed)
+    w.test(changed)
+    assert snap(w, window).tip.message_id == changed.id
+    assert derive(snap(w, window))[0].subtasks[0].status == "open"
+    assert "task-done" not in [compose_kind(email) for email in lead.step()]
+
+    # The old declaration cited the previous tip. The worker checks the new one and signs again.
+    assert alice.step() == []
+    again = alice.step()
+    assert [compose_kind(email) for email in again] == ["no-change"]
+    from gud.wire import parse_body
+    assert parse_body(again[0].body).get("Gud-Tip") != cited
+    assert parse_body(again[0].body).get("Gud-Tip") == snap(w, window).tip.message_id
+    sent = lead.step()
+    assert "task-done" in [compose_kind(email) for email in sent]
+    assert derive(snap(w, window))[0].status == "done"
+    assert len(calls) == 2
 
 
 def test_objection_triggers_a_revision_that_lands(tmp_path):

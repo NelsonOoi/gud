@@ -1,4 +1,4 @@
-"""A worker agent. Push assigned subtasks, rebase lost races, and answer as a line owner."""
+"""A worker agent. Push assigned subtasks, sign when nothing needs to change, rebase lost races, and answer as a line owner."""
 
 from __future__ import annotations
 
@@ -193,6 +193,13 @@ def demo_review(diff: str, context: str = "") -> tuple[str, str]:
     return "approve", "Approved."
 
 
+class NoChange:
+    """The coder checked this tip and the subtask is already satisfied."""
+
+    def __init__(self, reason: str):
+        self.reason = " ".join((reason or "").split())[:300]
+
+
 class ScriptedCoder:
     """Demo edits, or callables injected by a test. `review` returns `(action, reason)`."""
 
@@ -222,7 +229,7 @@ class ScriptedCoder:
 
 
 class LLMCoder:
-    """OpenRouter coder. `edit` returns full file contents; `review` is approve or object."""
+    """OpenRouter coder. `edit` returns full file contents, or `NoChange`; `review` is approve or object."""
 
     def __init__(self, api_key: str, model: str, clock=time.monotonic):
         self.api_key = api_key
@@ -236,11 +243,13 @@ class LLMCoder:
         key = hashlib.sha256(prompt.encode()).hexdigest()
         count, until = self._failed.get(key, (0, 0.0))
         if self.clock() < until:
-            return {}
+            return None
         messages = [
             {"role": "system", "content": (
                 "You edit a repository for one subtask. Reply with JSON only: "
                 "{\"files\": {\"path\": \"full new file text\"}}. "
+                "When the current files already satisfy the subtask, do not rewrite them. Reply "
+                "{\"files\": {}, \"done\": \"one sentence saying why nothing needs to change\"}. "
                 "Use null to delete a file. Include only files you change. "
                 "Paths are repo-relative. Keep every file valid UTF-8 source. "
                 "Use the exact values the task gives (names, prices, addresses, numbers). "
@@ -265,7 +274,7 @@ class LLMCoder:
                 error = str(exc)[:160]
         self._failed[key] = (count + 1, self.clock() + min(30.0 * 2 ** count, 300.0))
         print(f"coder {getattr(subtask, 'id', '')} edit failed: {error}", flush=True)
-        return {}
+        return None
 
     def review(self, diff, context=""):
         """`(approve|object, reason)`, or `("abstain", why)` when the model gave no usable answer."""
@@ -314,7 +323,7 @@ class Worker:
         self._pending: dict[str, tuple[str, float]] = {}
         self._voted: set[str] = set()
         self._review_failed: dict[str, float] = {}
-        # Subtask id -> (tip, feedback) on which the coder produced no change.
+        # Subtask id -> (tip, feedback) the coder already left unchanged. The next step signs no-change.
         self._no_change: dict[str, tuple[str, str]] = {}
 
     def step(self) -> list:
@@ -334,9 +343,10 @@ class Worker:
         sent += self._review(chain, tip)
         tasks = derive(chain)
         self._forget_finished(tasks)
-        landed = {link.task for link in chain.links if link.task}
+        done = {link.task for link in chain.links if link.task}
+        done.update(sub.id for task in tasks for sub in task.subtasks if sub.status == "no-change")
         mine = [sub for sub in open_subtasks_for(tasks, self.identity.handle)
-                if sub.id in self._assigned and _ready(sub, landed)]
+                if sub.id in self._assigned and _ready(sub, done)]
         open_ids = {sub.id for sub in mine}
         pushed = False
         for sub in mine:
@@ -351,13 +361,27 @@ class Worker:
         return sent
 
     def _forget_finished(self, tasks) -> None:
-        """Drop assignments that landed or went to someone else. Unseen ones stay: mail can lag."""
-        by_id = {sub.id: sub for task in tasks for sub in task.subtasks}
+        """Drop assignments that landed, finished with the task, or went to someone else.
+
+        A `no-change` stays assigned: a later edit to those files opens the subtask again,
+        and this worker still has the mail. Unseen ones stay too: mail can lag.
+        """
+        by_id = {}
+        finished = set()
+        for task in tasks:
+            if task.status == "done":
+                finished.add(task.id)
+            for sub in task.subtasks:
+                by_id[sub.id] = sub
         for sub_id in list(self._assigned):
             sub = by_id.get(sub_id)
-            if sub is not None and (sub.status == "landed" or sub.assignee != self.identity.handle):
+            if sub is None:
+                continue
+            parent = sub_id.split(".", 1)[0]
+            if sub.status == "landed" or sub.assignee != self.identity.handle or parent in finished:
                 self._assigned.discard(sub_id)
                 self._pending.pop(sub_id, None)
+                self._no_change.pop(sub_id, None)
 
     def _chain(self):
         now = self.clock()
@@ -392,22 +416,40 @@ class Worker:
     def _from_coder(self, tip, sub, feedback):
         attempt = (tip.message_id, feedback or "")
         if self._no_change.get(sub.id) == attempt:
-            return None
+            # Second time this tip came back unchanged. Sign it; do not ask the coder again.
+            self._no_change.pop(sub.id, None)
+            return self._declare(tip, sub, "no change needed")
         try:
-            edits = self.coder.edit(sub, tip.tree, tip.blame, feedback=feedback) or {}
+            result = self.coder.edit(sub, tip.tree, tip.blame, feedback=feedback)
         except TypeError:
-            edits = self.coder.edit(sub, tip.tree, tip.blame) or {}
+            result = self.coder.edit(sub, tip.tree, tip.blame)
         except Exception as exc:
             print(f"{self.identity.handle} edit {sub.id} failed: {exc}", flush=True)
             return None
+        if isinstance(result, NoChange):
+            self._no_change.pop(sub.id, None)
+            return self._declare(tip, sub, result.reason)
+        if result is None:
+            return None
+        edits = result if isinstance(result, dict) else {}
         note = feedback.split("\n", 1)[0][:160] if feedback else sub.title
         email = self._push(tip, edits, task=sub.id, intent=_intent(sub, note),
                            subject=f"[gud] {sub.id}: {sub.title}")
         if email is None:
             self._no_change[sub.id] = attempt
-            print(f"{self.identity.handle} {sub.id}: coder changed nothing; waiting for a new tip", flush=True)
+            print(f"{self.identity.handle} {sub.id}: coder changed nothing; will sign no-change if this tip holds",
+                  flush=True)
         else:
             self._no_change.pop(sub.id, None)
+        return email
+
+    def _declare(self, tip, sub, reason: str):
+        body = compose.no_change_body(self.identity, sub.id, tip.message_id, reason)
+        email = compose.send(
+            self.mailbox, self.identity, tip.members, f"[gud] {sub.id}: no change", body,
+            in_reply_to=sub.message_id, cc_handles=compose.role_handles(tip.members, "lead"),
+        )
+        print(f"no-change {self.identity.handle} {sub.id} {tip.message_id} {reason}", flush=True)
         return email
 
     def _rebase_edits(self, chain, email, tip, subtask):
@@ -434,9 +476,10 @@ class Worker:
 
     def _coder_edit(self, subtask, tip, feedback):
         try:
-            return self.coder.edit(subtask, tip.tree, tip.blame, feedback=feedback) or {}
+            result = self.coder.edit(subtask, tip.tree, tip.blame, feedback=feedback)
         except TypeError:
-            return self.coder.edit(subtask, tip.tree, tip.blame) or {}
+            result = self.coder.edit(subtask, tip.tree, tip.blame)
+        return result if isinstance(result, dict) else {}
 
     def _rebase_orphans(self, chain, tip, open_ids: set[str]) -> list:
         """Re-push a race I lost that was not one of my open subtasks (the demo's step 5)."""
@@ -616,9 +659,9 @@ def _recover(chain, email):
     return parent_files, edits
 
 
-def _ready(sub, landed: set[str]) -> bool:
-    """A subtask with `Gud-After` waits until every listed subtask has landed."""
-    return all(dep in landed for dep in getattr(sub, "after", None) or [])
+def _ready(sub, done: set[str]) -> bool:
+    """A subtask with `Gud-After` waits until every listed subtask has landed or signed no-change."""
+    return all(dep in done for dep in getattr(sub, "after", None) or [])
 
 
 def review_context(chain, prop, parsed, handle: str) -> str:
@@ -896,9 +939,12 @@ def _blame_ranges(blame, path: str) -> str:
     return ", ".join(ranges[:40])
 
 
-def _parse_edits(raw: str, tree: dict) -> dict:
+def _parse_edits(raw: str, tree: dict):
+    """File edits, or `NoChange` when the reply says the tip already satisfies the subtask."""
     data = _load_json(raw)
-    if isinstance(data, dict) and "files" in data and isinstance(data["files"], dict):
+    done = ""
+    if isinstance(data, dict) and "files" in data and isinstance(data.get("files"), dict):
+        done = str(data.get("done") or "").strip()
         data = data["files"]
     if not isinstance(data, dict):
         return {}
@@ -910,7 +956,12 @@ def _parse_edits(raw: str, tree: dict) -> dict:
             edits[str(path)] = None
         elif isinstance(content, str):
             edits[str(path)] = content
-    return _changed(tree, edits) if edits else {}
+    edits = _changed(tree, edits) if edits else {}
+    if done and not edits:
+        reason = NoChange(done).reason
+        if reason:
+            return NoChange(reason)
+    return edits
 
 
 def _load_json(raw: str):
