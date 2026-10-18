@@ -759,6 +759,17 @@ def test_coder_reply_with_trailing_junk_still_parses():
     assert _parse_edits(raw, {"a.py": "x = 1\n"}) == {"a.py": "x = 2\n"}
 
 
+def test_coder_reply_with_a_patch_or_broken_python_is_rejected():
+    import pytest
+    from gud.worker import _parse_edits
+    tree = {"a.py": "x = 1\n", "page.html": "<p>hi</p>\n"}
+    with pytest.raises(ValueError, match="patch"):
+        _parse_edits('{"files": {"page.html": "--- a/page.html\\n+++ b/page.html\\n"}}', tree)
+    with pytest.raises(ValueError, match="a.py line 1"):
+        _parse_edits('{"files": {"a.py": "x = (\\n"}}', tree)
+    assert _parse_edits('{"files": {"page.html": "<p>---</p>\\n"}}', tree) == {"page.html": "<p>---</p>\n"}
+
+
 def test_revision_identical_to_the_objected_push_is_detected():
     from gud.worker import _repeats
     objected = {"a.py": "x = 2\n", "b.py": "y\n"}

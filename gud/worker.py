@@ -276,8 +276,9 @@ class LLMCoder:
             try:
                 if attempt:
                     messages.append({"role": "user", "content": (
-                        f"Your last reply was not complete JSON ({error}). Reply again with the complete "
-                        "JSON object only, and include only the files you must change."
+                        f"Your last reply was not usable ({error}). Reply again with the complete "
+                        "JSON object only, with the full text of each file (not a diff), and include "
+                        "only the files you must change."
                     )})
                 raw = _chat(self.api_key, self.model, messages, temperature=0.3 if attempt else 0)
                 edits = _parse_edits(raw, tip_tree)
@@ -1097,11 +1098,28 @@ def _parse_edits(raw: str, tree: dict):
         elif isinstance(content, str):
             edits[str(path)] = content
     edits = _changed(tree, edits) if edits else {}
+    for path, content in edits.items():
+        if content is not None:
+            _check_file(path, content)
     if done and not edits:
         reason = NoChange(done).reason
         if reason:
             return NoChange(reason)
     return edits
+
+
+_PATCH_START = re.compile(r"(--- |\+\+\+ |@@ |diff --git )")
+
+
+def _check_file(path: str, content: str) -> None:
+    """Reject a file the coder sent as a patch, or Python that does not compile, before it is pushed."""
+    if _PATCH_START.match(content.lstrip()):
+        raise ValueError(f"{path} is a patch, not the full file text")
+    if path.endswith(".py"):
+        try:
+            compile(content, path, "exec")
+        except SyntaxError as exc:
+            raise ValueError(f"{path} line {exc.lineno}: {exc.msg}") from None
 
 
 def _load_json(raw: str):
