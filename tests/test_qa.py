@@ -6,7 +6,10 @@ import urllib.request
 from gud import compose
 from gud.bugs import is_bug_report
 from gud.lead import Lead, ScriptedPlanner
-from gud.qa import QA, LocalSite, _parse_agent_output, _runner_kind
+from gud.qa import (
+    QA, LocalSite, _AGENT_PY, _OUTLINE_CHARS, _agent_envs, _outline_page, _parse_agent_output,
+    _prompt, _runner_kind, _structure_outline, _vision_enabled,
+)
 from gud.testkit import World
 from gud.wire import parse_body
 
@@ -211,4 +214,141 @@ def test_agent_stdout_parses_the_last_json_line():
     findings, usage = _parse_agent_output(text)
     assert findings[0]["title"] == "No table"
     assert usage["total_cost"] == 0.01
-    assert "sk-" not in __import__("gud.qa", fromlist=["_AGENT_PY"])._AGENT_PY
+    assert "sk-" not in _AGENT_PY
+    assert "GUD_QA_VISION" in _AGENT_PY
+    assert "use_vision=use_vision" in _AGENT_PY
+    compile(_AGENT_PY, "<qa-agent>", "exec")
+
+
+_CARDS = """
+<!doctype html>
+<html><head>
+  <title>Pricing</title>
+  <link rel="stylesheet" href="styles.css">
+</head><body>
+  <h1>Pricing Plans</h1>
+  <div class="pricing-table">
+    <div class="plan"><h2>Free</h2><ul><li>A</li><li>B</li></ul></div>
+    <div class="plan"><h2>Pro</h2><ul><li>A</li><li>B</li></ul></div>
+    <div class="plan"><h2>Team</h2><ul><li>A</li><li>B</li></ul></div>
+  </div>
+  <a href="index.html">Home</a>
+  <img src="images/logo.png" alt="Acme">
+  <form action="/signup"><input type="email"><button type="submit">Go</button></form>
+</body></html>
+"""
+
+
+def test_outline_reports_repeated_groups_and_says_when_there_is_no_table():
+    line = _outline_page(_CARDS)
+    assert "tables: none" in line
+    assert "3x div.plan" in line
+    assert 'h1 "Pricing Plans"' in line
+    assert "h2 \"Free\"" in line
+    assert "3x ul (2 items)" in line
+    assert "form (2 fields)" in line
+    assert "index.html" in line
+    assert "logo.png" in line
+    assert "styles.css" not in line
+    assert "doctype" not in line.lower()
+    assert len(line) <= _OUTLINE_CHARS
+
+
+def test_outline_counts_table_shape_and_ignores_script_and_head():
+    html = """
+    <head><title>Hidden</title><link rel="stylesheet" href="styles.css"></head>
+    <body>
+      <script>var t = '<table><tr><td>nope</td></tr></table><div class="plan">';</script>
+      <table>
+        <tr><th>A</th><th colspan="2">B</th></tr>
+        <tr><td>1</td><td>2</td><td>3</td></tr>
+      </table>
+      <table>
+        <tr><td>only</td><td>
+          <table><tr><td>i</td><td>j</td><td>k</td></tr></table>
+        </td></tr>
+      </table>
+      <dl><dt>One</dt><dd>Detail</dd></dl>
+    </body>
+    """
+    line = _outline_page(html)
+    assert "tables: none" not in line
+    assert "2 rows x 3 cols" in line
+    assert "1 row x 2 cols" in line
+    assert "1 row x 3 cols" in line
+    assert "div.plan" not in line
+    assert "styles.css" not in line
+    assert 'h1 "Hidden"' not in line
+    assert "dl (1 item)" in line
+
+
+def test_structure_outline_is_one_capped_line_per_html_page():
+    tree = {
+        "pricing.html": '<div class="plan"></div>' * 3,
+        "index.html": "<h1>Home</h1><ul><li>a</li><li>b<ul><li>c</li></ul></li></ul>",
+        "styles.css": "div.plan { }",
+        "readme.md": "<table><tr><td>x</td></tr></table>",
+    }
+    text = _structure_outline(tree)
+    lines = text.splitlines()
+    assert lines[0].startswith("- index.html:")
+    assert any(line.startswith("- pricing.html:") and "3x div.plan" in line and "tables: none" in line
+               for line in lines)
+    assert "styles.css" not in text
+    assert "readme.md" not in text
+    assert "ul (2 items)" in text
+    assert "ul (1 item)" in text
+    assert _structure_outline({}) == "(no HTML pages)"
+    assert _structure_outline({"a.txt": "<table></table>"}) == "(no HTML pages)"
+    hrefs = "".join(f'<a href="{"p" * 70}{i}.html">x</a>' for i in range(20))
+    long = _outline_page(f"<body><h1>{'H' * 80}</h1>{hrefs}<img src=\"data:image/png;base64,aaaa\"></body>")
+    assert len(long) <= _OUTLINE_CHARS
+    assert "tables:" in long
+    fitted = _outline_page('<body><a href="a.html">A</a><img src="logo.png"></body>')
+    assert "a.html" in fitted
+    assert "logo.png" in fitted
+    assert _outline_page("<div") != ""
+
+
+def test_prompt_includes_the_source_outline(tmp_path):
+    structure = "- pricing.html: tables: none; repeated: 3x div.plan"
+    text = _prompt(
+        "Build the site", "Use a comparison table.", ["pricing.html"], "http://qa.test/", structure,
+    )
+    assert "Page structure (from source):\n" + structure in text
+    assert "You may use the page structure outline to check structural requirements." in text
+    assert "if that line shows none, report the mismatch" in text
+    assert "not a table unless the outline shows a table" in text
+    assert "do not report it missing and do not require a button" in text
+    assert "that page's outline shows none" in text
+    assert "requirement written in the task" in text
+    assert "placeholder copy" in text
+    assert "Requirements about <head> markup are covered by tests." in text
+    assert "doctype" in text
+
+    w = _world(tmp_path)
+    html = "<h1>Plans</h1>" + '<div class="plan">x</div>' * 3
+    tip = w.genesis({"pricing.html": html, "notes.txt": "nope"})
+    _done(w, tip, "three plans in a comparison table")
+    browser = FakeBrowser([])
+    assert _qa(w, browser).step() == []
+    task = browser.calls[0]["task"]
+    assert "Page structure (from source):" in task
+    assert "- pricing.html:" in task
+    assert "3x div.plan" in task
+    assert "tables: none" in task
+    outline = task.split("Page structure (from source):\n", 1)[1].split("\n\nCheck every", 1)[0]
+    assert "notes.txt" not in outline
+    assert "three plans in a comparison table" in task
+
+
+def test_vision_defaults_on_and_is_passed_to_the_box(monkeypatch):
+    monkeypatch.delenv("GUD_QA_VISION", raising=False)
+    assert _vision_enabled() is True
+    assert _agent_envs("k", "m", 8, "http://x", "task")["GUD_QA_VISION"] == "1"
+    for off in ("0", "off", "false", "no"):
+        monkeypatch.setenv("GUD_QA_VISION", off)
+        assert _vision_enabled() is False
+        assert _agent_envs("k", "m", 8, "http://x", "task")["GUD_QA_VISION"] == "0"
+    monkeypatch.setenv("GUD_QA_VISION", "on")
+    assert _vision_enabled() is True

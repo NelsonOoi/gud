@@ -11,6 +11,10 @@ already reported. A tip with no findings is remembered only in this process.
 The public port stays published until the next check replaces the site, or until
 `close` (swarm shutdown). `GUD_QA_HOLD=0` unpublishes and stops http.server as
 soon as the agent returns. The box itself is kept.
+
+The task prompt includes a short per-page structure outline taken from the HTML
+source (`Page structure (from source)`). `GUD_QA_VISION` defaults on; set it to
+`0` to send the browser agent no screenshots.
 """
 
 from __future__ import annotations
@@ -27,6 +31,8 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections import Counter
+from html.parser import HTMLParser
 from pathlib import Path
 
 from .bugs import bugs_address_for
@@ -46,6 +52,21 @@ _VENV = "/data/home/qa-venv"
 _SITE_ROOT = "/data/home/site"
 _CHECKED = re.compile(r"(?m)^QA-Checked:[ \t]+(\S+)[ \t]+(\S+)[ \t]*$")
 _OPENROUTER = "https://openrouter.ai/api/v1"
+_OUTLINE_CHARS = 480
+_OUTLINE_HEADINGS = 6
+_OUTLINE_LINKS = 8
+_OUTLINE_IMAGES = 4
+_OUTLINE_GROUPS = 6
+_OUTLINE_LISTS = 4
+_OUTLINE_TABLES = 4
+_OUTLINE_FORMS = 3
+_HEADING_CHARS = 48
+_IGNORE_TAGS = frozenset({"head", "script", "style", "noscript", "template", "svg"})
+_HEADINGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
+_LISTS = frozenset({"ul", "ol", "dl"})
+_VISION_OFF = frozenset({"0", "off", "false", "no"})
+# Drop cheaper lines first so a long page still keeps tables and repeated groups.
+_OUTLINE_DROP = ("images", "links", "forms", "lists", "headings", "repeated", "tables")
 
 # Runs inside the box. The OpenRouter key arrives as an exec env var, never in this text.
 _AGENT_PY = r'''
@@ -68,6 +89,8 @@ def main():
     model = os.environ.get("GUD_QA_MODEL") or "google/gemini-2.5-flash"
     key = os.environ.get("OPENROUTER_API_KEY") or ""
     steps = max(1, int(os.environ.get("GUD_QA_MAX_STEPS") or "8"))
+    vision = (os.environ.get("GUD_QA_VISION") or "1").strip().lower()
+    use_vision = vision not in ("0", "off", "false", "no")
     if not key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
     binary = chromium()
@@ -99,7 +122,7 @@ def main():
     )
     agent = Agent(
         task=task, llm=llm, browser=browser, output_model_schema=Report,
-        use_vision=False, flash_mode=True, use_judge=False, calculate_cost=True,
+        use_vision=use_vision, flash_mode=True, use_judge=False, calculate_cost=True,
         enable_planning=False, enable_signal_handler=False, max_failures=2,
         max_actions_per_step=4, step_timeout=50, llm_timeout=45,
     )
@@ -163,6 +186,296 @@ def _html_pages(tree: Tree) -> list[str]:
     return [path for path in sorted(tree) if path.lower().endswith((".html", ".htm"))]
 
 
+def _vision_enabled() -> bool:
+    raw = (os.environ.get("GUD_QA_VISION") or "1").strip().lower()
+    return raw not in _VISION_OFF
+
+
+def _agent_envs(openrouter_key: str, model: str, max_steps: int, url: str, task: str) -> dict[str, str]:
+    return {
+        "OPENROUTER_API_KEY": openrouter_key,
+        "GUD_QA_MODEL": model,
+        "GUD_QA_MAX_STEPS": str(max_steps),
+        "GUD_QA_URL": url,
+        "GUD_QA_TASK_B64": base64.b64encode(task.encode()).decode(),
+        "GUD_QA_VISION": "1" if _vision_enabled() else "0",
+        "BROWSER_USE_SETUP_LOGGING": "false",
+    }
+
+
+def _clip_text(text: str, limit: int) -> str:
+    text = " ".join((text or "").split()).replace('"', "'")
+    if len(text) > limit:
+        return text[: limit - 1].rstrip() + "…"
+    return text
+
+
+def _colspan(raw: str) -> int:
+    try:
+        return min(20, max(1, int(raw)))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _image_label(attrs: dict) -> str:
+    src = (attrs.get("src") or "").strip()
+    if src.startswith("data:"):
+        return "data-image"
+    if src:
+        name = src.split("?", 1)[0].rstrip("/").split("/")[-1]
+        return _clip_text(name or src, 60)
+    alt = (attrs.get("alt") or "").strip()
+    return _clip_text(alt, 40) if alt else "img"
+
+
+class _PageOutline(HTMLParser):
+    """Structure of one HTML page. Head, script, style, and svg children are skipped."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._ignore = 0
+        self._heading: tuple[str, list[str]] | None = None
+        self._table_stack: list[dict] = []
+        self._list_stack: list[dict] = []
+        self._form_stack: list[dict] = []
+        self.headings: list[tuple[str, str]] = []
+        self.tables: list[dict] = []
+        self.lists: list[dict] = []
+        self.forms: list[dict] = []
+        self.links: list[str] = []
+        self.images: list[str] = []
+        self.groups: Counter = Counter()
+
+    def handle_starttag(self, tag, attrs):
+        tag = (tag or "").lower()
+        attrs = {str(key).lower(): ("" if value is None else str(value)) for key, value in attrs}
+        if tag in _IGNORE_TAGS:
+            self._ignore += 1
+            if tag == "svg" and self._ignore == 1:
+                self.images.append("svg")
+            return
+        if self._ignore:
+            return
+        if tag in _HEADINGS:
+            self._finish_heading()
+            self._heading = (tag, [])
+        elif tag == "table":
+            rec = {"rows": 0, "max_cols": 0, "cells": 0, "in_row": False}
+            self.tables.append(rec)
+            self._table_stack.append(rec)
+        elif tag == "tr" and self._table_stack:
+            rec = self._table_stack[-1]
+            if rec["in_row"]:
+                rec["max_cols"] = max(rec["max_cols"], rec["cells"])
+            rec["rows"] += 1
+            rec["cells"] = 0
+            rec["in_row"] = True
+        elif tag in ("td", "th") and self._table_stack and self._table_stack[-1]["in_row"]:
+            self._table_stack[-1]["cells"] += _colspan(attrs.get("colspan"))
+        elif tag in _LISTS:
+            rec = {"tag": tag, "items": 0}
+            self.lists.append(rec)
+            self._list_stack.append(rec)
+        elif tag == "li" and self._list_stack and self._list_stack[-1]["tag"] in ("ul", "ol"):
+            self._list_stack[-1]["items"] += 1
+        elif tag == "dt" and self._list_stack and self._list_stack[-1]["tag"] == "dl":
+            self._list_stack[-1]["items"] += 1
+        elif tag == "form":
+            rec = {"fields": 0}
+            self.forms.append(rec)
+            self._form_stack.append(rec)
+        elif tag in ("input", "select", "textarea", "button") and self._form_stack:
+            self._form_stack[-1]["fields"] += 1
+        elif tag == "a":
+            href = _clip_text(attrs.get("href", "").strip(), 80)
+            if href:
+                self.links.append(href)
+        elif tag == "img":
+            self.images.append(_image_label(attrs))
+        seen: set[str] = set()
+        for token in attrs.get("class", "").split():
+            if not token or token in seen or len(token) > 40:
+                continue
+            seen.add(token)
+            self.groups[f"{tag}.{token}"] += 1
+
+    def handle_endtag(self, tag):
+        tag = (tag or "").lower()
+        if tag in _IGNORE_TAGS and self._ignore:
+            self._ignore -= 1
+            return
+        if self._ignore:
+            return
+        if tag in _HEADINGS:
+            self._finish_heading(tag)
+        elif tag == "tr" and self._table_stack and self._table_stack[-1]["in_row"]:
+            rec = self._table_stack[-1]
+            rec["max_cols"] = max(rec["max_cols"], rec["cells"])
+            rec["in_row"] = False
+            rec["cells"] = 0
+        elif tag == "table" and self._table_stack:
+            rec = self._table_stack.pop()
+            if rec["in_row"]:
+                rec["max_cols"] = max(rec["max_cols"], rec["cells"])
+                rec["in_row"] = False
+        elif tag in _LISTS and self._list_stack and self._list_stack[-1]["tag"] == tag:
+            self._list_stack.pop()
+        elif tag == "form" and self._form_stack:
+            self._form_stack.pop()
+
+    def handle_data(self, data):
+        if self._ignore or self._heading is None or not data:
+            return
+        self._heading[1].append(data)
+
+    def close(self):
+        super().close()
+        self._finish_heading()
+        while self._table_stack:
+            rec = self._table_stack.pop()
+            if rec["in_row"]:
+                rec["max_cols"] = max(rec["max_cols"], rec["cells"])
+
+    def _finish_heading(self, tag: str | None = None):
+        if self._heading is None:
+            return
+        level, parts = self._heading
+        if tag is not None and tag != level:
+            return
+        self.headings.append((level, _clip_text("".join(parts), _HEADING_CHARS)))
+        self._heading = None
+
+
+def _counted(n: int, singular: str, plural: str) -> str:
+    return f"{n} {singular if n == 1 else plural}"
+
+
+def _format_outline(page: _PageOutline) -> str:
+    parts: list[str] = []
+    if page.headings:
+        shown = page.headings[:_OUTLINE_HEADINGS]
+        bits = [f'{level} "{text}"' if text else level for level, text in shown]
+        extra = len(page.headings) - len(shown)
+        line = ", ".join(bits)
+        if extra:
+            line += f", +{extra}"
+        parts.append("headings: " + line)
+    else:
+        parts.append("headings: none")
+    if page.tables:
+        shown = page.tables[:_OUTLINE_TABLES]
+        bits = [
+            f"{_counted(rec['rows'], 'row', 'rows')} x {_counted(rec['max_cols'], 'col', 'cols')}"
+            for rec in shown
+        ]
+        extra = len(page.tables) - len(shown)
+        line = ", ".join(bits)
+        if extra:
+            line += f", +{extra}"
+        parts.append("tables: " + line)
+    else:
+        parts.append("tables: none")
+    if page.lists:
+        counts = Counter((rec["tag"], rec["items"]) for rec in page.lists)
+        bits = []
+        seen: set[tuple[str, int]] = set()
+        hidden = 0
+        for rec in page.lists:
+            key = (rec["tag"], rec["items"])
+            if key in seen:
+                continue
+            seen.add(key)
+            if len(bits) >= _OUTLINE_LISTS:
+                hidden += counts[key]
+                continue
+            label = f"{rec['tag']} ({_counted(rec['items'], 'item', 'items')})"
+            bits.append(f"{counts[key]}x {label}" if counts[key] > 1 else label)
+        line = ", ".join(bits)
+        if hidden:
+            line += f", +{hidden}"
+        parts.append("lists: " + line)
+    else:
+        parts.append("lists: none")
+    if page.forms:
+        shown = page.forms[:_OUTLINE_FORMS]
+        bits = [f"form ({_counted(rec['fields'], 'field', 'fields')})" for rec in shown]
+        extra = len(page.forms) - len(shown)
+        line = ", ".join(bits)
+        if extra:
+            line += f", +{extra}"
+        parts.append("forms: " + line)
+    else:
+        parts.append("forms: none")
+    if page.links:
+        uniq: list[str] = []
+        for href in page.links:
+            if href not in uniq:
+                uniq.append(href)
+        shown = uniq[:_OUTLINE_LINKS]
+        extra = len(uniq) - len(shown)
+        line = ", ".join(shown)
+        if extra:
+            line += f", +{extra}"
+        parts.append("links: " + line)
+    else:
+        parts.append("links: none")
+    if page.images:
+        shown = page.images[:_OUTLINE_IMAGES]
+        extra = len(page.images) - len(shown)
+        line = ", ".join(shown)
+        if extra:
+            line += f", +{extra}"
+        parts.append("images: " + line)
+    else:
+        parts.append("images: none")
+    groups = sorted(
+        ((name, count) for name, count in page.groups.items() if count >= 2),
+        key=lambda item: (-item[1], item[0]),
+    )
+    if groups:
+        shown = groups[:_OUTLINE_GROUPS]
+        extra = len(groups) - len(shown)
+        line = ", ".join(f"{count}x {name}" for name, count in shown)
+        if extra:
+            line += f", +{extra}"
+        parts.append("repeated: " + line)
+    return _cap_outline(parts)
+
+
+def _cap_outline(parts: list[str]) -> str:
+    kept = list(parts)
+
+    def kind(part: str) -> str:
+        return part.split(":", 1)[0]
+
+    for drop in _OUTLINE_DROP:
+        if len("; ".join(kept)) <= _OUTLINE_CHARS:
+            break
+        kept = [part for part in kept if kind(part) != drop]
+    line = "; ".join(kept)
+    if len(line) > _OUTLINE_CHARS:
+        return line[: _OUTLINE_CHARS - 1].rstrip() + "…"
+    return line
+
+
+def _outline_page(html: str) -> str:
+    page = _PageOutline()
+    try:
+        page.feed(html or "")
+        page.close()
+    except Exception:
+        return "unparsed"
+    return _format_outline(page)
+
+
+def _structure_outline(tree: Tree) -> str:
+    """One capped line per HTML page: headings, tables, lists, forms, links, images, repeats."""
+    pages = _html_pages(tree)
+    if not pages:
+        return "(no HTML pages)"
+    return "\n".join(f"- {path}: {_outline_page(tree.get(path) or '')}" for path in pages)
+
+
 def _chromium() -> str | None:
     """Newest local Chromium. PLAYWRIGHT_BROWSERS_PATH is often an empty sandbox cache."""
     import glob
@@ -201,18 +514,31 @@ def _field(text: str) -> str:
     return _untag("\n".join(kept))
 
 
-def _prompt(title: str, description: str, pages: list[str], url: str) -> str:
+def _prompt(title: str, description: str, pages: list[str], url: str, structure: str = "") -> str:
     listed = "\n".join(f"- {page}" for page in pages) or "- (none)"
+    outline = ""
+    if structure.strip():
+        outline = f"Page structure (from source):\n{structure.strip()}\n\n"
     return (
         f"The site is at {url}\n"
         f"Task: {title}\n{description.strip()}\n\n"
         f"HTML pages:\n{listed}\n\n"
+        f"{outline}"
         "Check every requirement in the task that a visitor can see on the rendered pages: "
         "content, prices, links, layout, and whether something is laid out as the task names it "
         "(a table has rows and columns, a list has items). "
+        "You may use the page structure outline to check structural requirements. "
+        "When the task requires a table, list, or form, the outline is the source structure: "
+        "if that line shows none, report the mismatch. "
+        "A repeated group of elements is not a table unless the outline shows a table. "
+        "If the outline lists a link target the task names, that link is present; do not report it missing and do not require a button. "
+        "Before you return, include a finding for every page where the task requires a table, list, or form and that page's outline shows none. "
+        "Report a defect only when a requirement written in the task is missing or wrong on the rendered page. "
+        "Do not report placeholder copy, wording, or polish the task does not require. "
         "Click the nav links and open every HTML page. "
+        "Requirements about <head> markup are covered by tests. "
         "Do not report markup the browser does not display, such as the doctype, meta tags, "
-        "or the <title> and stylesheet links in <head>; the test suite checks those. "
+        "or the <title> and stylesheet links in <head>. "
         "Report only concrete, reproducible defects. "
         "If the site meets the task, return an empty findings list."
     )
@@ -410,6 +736,7 @@ class InstaBoxSite:
             timeout=20,
         )
         print("qa: chromium " + ((which.get("stdout") or "").strip().splitlines() or ["missing"])[0][:160], flush=True)
+        print(f"qa: vision {'on' if _vision_enabled() else 'off'}", flush=True)
         print("qa: browser-use starting", flush=True)
         started = time.monotonic()
         try:
@@ -418,6 +745,9 @@ class InstaBoxSite:
             self.agent_seconds = time.monotonic() - started
             self.browser.seconds = self.agent_seconds
         self.browser.last_usage = usage
+        cost = None if not usage else usage.get("total_cost")
+        tokens = None if not usage else usage.get("total_tokens")
+        print(f"qa: usage tokens={tokens} cost={cost} ({self.agent_seconds:.1f}s)", flush=True)
         return findings
 
     def stop(self) -> None:
@@ -564,14 +894,7 @@ class InstaBoxSite:
         result = self._exec(
             mid, f"{shlex.quote(_VENV + '/bin/python')} -",
             stdin=_AGENT_PY, timeout=600, cwd="/data/home",
-            envs={
-                "OPENROUTER_API_KEY": self.openrouter_key,
-                "GUD_QA_MODEL": self.model,
-                "GUD_QA_MAX_STEPS": str(self.max_steps),
-                "GUD_QA_URL": url,
-                "GUD_QA_TASK_B64": base64.b64encode(task.encode()).decode(),
-                "BROWSER_USE_SETUP_LOGGING": "false",
-            },
+            envs=_agent_envs(self.openrouter_key, self.model, self.max_steps, url, task),
         )
         text = result.get("stdout") or ""
         err = result.get("stderr") or ""
@@ -699,7 +1022,7 @@ class BrowserUse:
         )
         agent = Agent(
             task=task, llm=llm, browser=browser, output_model_schema=Report,
-            use_vision=False, flash_mode=True, use_judge=False, calculate_cost=True,
+            use_vision=_vision_enabled(), flash_mode=True, use_judge=False, calculate_cost=True,
             enable_planning=False, enable_signal_handler=False, max_failures=2,
             max_actions_per_step=4, step_timeout=90, llm_timeout=60,
             include_attributes=["class", "href", "id", "role", "type", "title"],
@@ -835,11 +1158,12 @@ class QA:
         if label and hasattr(self.runner, "set_label"):
             self.runner.set_label(label)
         pages = _html_pages(tree)
+        structure = _structure_outline(tree)
         url = self.runner.serve(tree)
         self._last_url = getattr(self.runner, "public_url", None) or url
         target = getattr(self.runner, "agent_url", None) or url
         try:
-            raw = self._agent().run(target, _prompt(title, description, pages, target), pages)
+            raw = self._agent().run(target, _prompt(title, description, pages, target, structure), pages)
         finally:
             self.runner.stop()
         return _normalize(raw)[: self.max_findings]
