@@ -19,6 +19,7 @@ from gud import compose, sig
 from gud.analytics import instrument, tracked, unwrap
 from gud.compose import Identity
 from gud.patch import apply_diff, diff_trees
+from gud.tasks import derive as derive_tasks
 from gud.wire import normalize, parse_body, short
 
 try:
@@ -383,6 +384,18 @@ class GudTools:
             if task["status"] != "done" and task["subtasks"]:
                 if any(sub["status"] == "landed" for sub in task["subtasks"]):
                     task["status"] = "in_progress"
+        derived = {item.id: item for item in derive_tasks(chain)}
+        for task in tasks.values():
+            src = derived.get(task["id"])
+            if src is None:
+                continue
+            by_id = {sub.id: sub for sub in src.subtasks}
+            for sub in task["subtasks"]:
+                match = by_id.get(sub["id"])
+                if match is not None and match.status == "no-change":
+                    sub["status"] = "no-change"
+            if src.status == "done":
+                task["status"] = "done"
         return tasks, order
 
     def _open_subtasks(self, chain, emails) -> list[dict]:
@@ -391,7 +404,7 @@ class GudTools:
         out = []
         for tid in order:
             for sub in tasks[tid]["subtasks"]:
-                if sub["assignee"] == me and sub["status"] != "landed":
+                if sub["assignee"] == me and sub["status"] not in {"landed", "no-change"}:
                     out.append(sub)
         return out
 
@@ -692,7 +705,7 @@ class GudTools:
 
     @tracked("gud")
     def tasks(self) -> str:
-        """Tasks and subtasks from task, subtask, and task-done emails. A subtask is landed when a link carries its Gud-Task."""
+        """Tasks and subtasks from task, subtask, task-done, and no-change emails. A subtask is landed when a link carries its Gud-Task, or no-change when the assignee signed that nothing needs to change."""
         chain = self.repo().refresh()
         tasks, order = self._task_index(self._emails(), chain)
         if not order:

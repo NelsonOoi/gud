@@ -87,7 +87,7 @@ def text_fallback(data: dict) -> str:
     lines.append(f"tasks: {len(open_tasks)} open / {len(tasks)}")
     for task in tasks:
         subs = task.get("subtasks") or []
-        done = sum(1 for sub in subs if sub.get("status") == "landed")
+        done = sum(1 for sub in subs if sub.get("status") in {"landed", "no-change"})
         lines.append(f"  {task['id']} {task.get('status')} {done}/{len(subs)} {task.get('title') or ''}".rstrip())
     lines.append("recent:")
     recent = data.get("events") or []
@@ -368,6 +368,11 @@ def feed_events(chain, bugs, bug_mail) -> list[dict]:
             events.append(_event(*base, "approve", text or "approve"))
         elif kind == "object":
             events.append(_event(*base, "object", _clip(parsed.get("Gud-Reason") or text)))
+        elif kind == "no-change":
+            events.append(_event(
+                email.message_id, email.received_at, actor, task, parsed.get("Gud-Tip") or target,
+                "no-change", _clip(parsed.get("Gud-Reason") or text or "no change"),
+            ))
         elif kind == "task-done":
             events.append(_event(*base, "task-done", text or "done"))
         elif kind is None:

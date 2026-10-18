@@ -1,7 +1,9 @@
-"""Task state, derived from `task`, `subtask`, `task-done` and `notify` emails plus the chain.
+"""Task state, derived from `task`, `subtask`, `task-done`, `no-change` and `notify` emails plus the chain.
 
 A later `subtask` email with the same id overrides the assignee (and the title,
 description, and message id). That is how the lead reassigns a stale subtask.
+A `no-change` from the current assignee completes a subtask that needs nothing,
+until a later link changes the files that subtask names.
 """
 
 from __future__ import annotations
@@ -9,8 +11,12 @@ from __future__ import annotations
 import re
 from dataclasses import asdict, dataclass, field
 
+from .sig import verify
 from .types import Email
 from .wire import parse_body
+
+# A push that can still link. no-change waits it out so task-done does not race the edit.
+_IN_FLIGHT = frozenset({"window", "testing", "needs_approval", "needs_quorum", "qualified"})
 
 TASK_ID = re.compile(r"^T(\d+)$")
 
@@ -21,10 +27,13 @@ class Subtask:
     assignee: str
     title: str
     description: str
-    status: str = "open"           # open | proposed | landed
+    status: str = "open"           # open | proposed | landed | no-change
     link_id: str | None = None
     message_id: str = ""
     after: list[str] = field(default_factory=list)   # Gud-After: subtasks that land first
+    reason: str = ""               # one line, when status is no-change
+    assigned_at: float = 0.0
+    closed_at: float | None = None # when the accepted no-change arrived
 
 
 @dataclass
@@ -88,9 +97,11 @@ def derive(chain) -> list[Task]:
                     st.description = p.text
                 st.message_id = e.message_id
                 st.after = _after(p.get("Gud-After"))
+                st.assigned_at = e.received_at
             else:
                 st = Subtask(tid, p.get("Gud-Assignee") or "", _title(e.subject), p.text,
-                             message_id=e.message_id, after=_after(p.get("Gud-After")))
+                             message_id=e.message_id, after=_after(p.get("Gud-After")),
+                             assigned_at=e.received_at)
                 subs[tid] = st
                 parent.subtasks.append(st)
         elif kind == "task-done" and tid in tasks:
@@ -101,6 +112,11 @@ def derive(chain) -> list[Task]:
     for st in subs.values():
         if st.id in landed:
             st.status, st.link_id = "landed", landed[st.id]
+            continue
+        accepted = _no_change_reason(chain, st)
+        if accepted is not None:
+            st.status = "no-change"
+            st.reason, st.closed_at = accepted
         elif st.id in proposed:
             st.status = "proposed"
     for t in tasks.values():
@@ -121,4 +137,109 @@ def next_task_id(emails: list[Email]) -> str:
 
 def open_subtasks_for(tasks: list[Task], handle: str) -> list[Subtask]:
     return [s for t in tasks if t.status != "done" for s in t.subtasks
-            if s.assignee == handle and s.status != "landed"]
+            if s.assignee == handle and s.status not in {"landed", "no-change"}]
+
+
+def _safe_path(path: str) -> bool:
+    if not path or path.startswith("/") or "\\" in path:
+        return False
+    return ".." not in path.split("/")
+
+
+def _mentions(path: str, text: str) -> bool:
+    if len(path) < 2:
+        return False
+    pattern = r"(?<![A-Za-z0-9_./-])" + re.escape(path) + r"(?![A-Za-z0-9_./-])"
+    return re.search(pattern, text) is not None
+
+
+def named_paths(title: str, description: str, tree: dict) -> list[str]:
+    """Paths a subtask is about: its `Files:` line, plus any cited-tree path named in the text.
+
+    Empty means the subtask named nothing, so the whole tree is relevant.
+    """
+    text = f"{title}\n{description}"
+    chosen: list[str] = []
+    seen: set[str] = set()
+
+    def add(path: str) -> None:
+        path = path.strip().strip("`\"'")
+        if not _safe_path(path) or path in seen:
+            return
+        seen.add(path)
+        chosen.append(path)
+
+    for line in text.splitlines():
+        if line.lower().startswith("files:"):
+            for part in line.split(":", 1)[1].split(","):
+                add(part)
+    for path in sorted(tree):
+        if _mentions(path, text):
+            add(path)
+    return chosen
+
+
+def _still_matches(cited, tip, sub: Subtask) -> bool:
+    """True when nothing the subtask names changed between the cited link and the tip."""
+    named = named_paths(sub.title, sub.description, cited.tree)
+    if not named:
+        return cited.tree_hash == tip.tree_hash
+    return all(cited.tree.get(path) == tip.tree.get(path) for path in named)
+
+
+def _signing_member(chain, author: str, cited):
+    """The key that signed the check: the cited link's member, else the tip's."""
+    groups = [cited.members]
+    if chain.tip is not None:
+        groups.append(chain.tip.members)
+    for members in groups:
+        member = members.get(author)
+        if member is not None and member.public_key and member.role != "human":
+            return member
+    return None
+
+
+def _signed_by(email, parsed, member) -> bool:
+    if member is None or not email.sender_verified:
+        return False
+    if email.from_addr.lower() != member.address.lower():
+        return False
+    return verify(member.public_key, parsed.trailers, parsed.diff)
+
+
+def _in_flight(chain, sub: Subtask) -> bool:
+    for prop in chain.proposals.values():
+        if prop.task == sub.id and prop.author == sub.assignee and prop.status in _IN_FLIGHT:
+            return True
+    return False
+
+
+def _no_change_reason(chain, sub: Subtask) -> tuple[str, float] | None:
+    """`(reason, received_at)` of the latest `no-change` that still holds, or None.
+
+    Accepted only from the current assignee, signed, citing a link, received at or
+    after the current assignment, with the named files still equal to that link.
+    """
+    if chain.tip is None or _in_flight(chain, sub):
+        return None
+    best = None
+    for email in chain.emails:
+        parsed = parse_body(email.body)
+        if parsed.kind != "no-change" or parsed.get("Gud-Task") != sub.id:
+            continue
+        if parsed.get("Gud-Author") != sub.assignee or email.received_at < sub.assigned_at:
+            continue
+        reason = " ".join((parsed.get("Gud-Reason") or parsed.text or "").split())[:300]
+        if not reason:
+            continue
+        cited = chain.by_id.get(parsed.get("Gud-Tip") or "")
+        if cited is None or not _signed_by(email, parsed, _signing_member(chain, sub.assignee, cited)):
+            continue
+        if not _still_matches(cited, chain.tip, sub):
+            continue
+        row = (email.received_at, email.message_id, reason)
+        if best is None or row[:2] > best[:2]:
+            best = row
+    if best is None:
+        return None
+    return best[2], best[0]

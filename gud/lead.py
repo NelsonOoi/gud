@@ -12,8 +12,8 @@ import time
 
 from . import compose, notify, sig
 from .bugs import (
-    bugs_address_for, derive_bugs, is_bug_report, lead_noted, neutralize, requester_for,
-    review_requested, ticket_text,
+    bugs_address_for, derive_bugs, files_for_report, is_bug_report, lead_noted, neutralize,
+    requester_for, review_requested, ticket_text,
 )
 from .compose import Identity
 from .inbox import Gate, Inbox
@@ -337,7 +337,10 @@ class Lead:
 
     def _ask_bug_reviewer(self, report, tip) -> tuple[str, str]:
         try:
-            action, reason = self.bug_reviewer.review_bug(report.subject, report.text, sorted(tip.tree)[:80])
+            files = files_for_report(tip.tree, report.subject, report.text)
+            action, reason = self.bug_reviewer.review_bug(
+                report.subject, report.text, sorted(tip.tree)[:80], files,
+            )
         except Exception as exc:
             print(f"lead: bug review failed: {exc}", flush=True)
             return "abstain", str(exc)[:200]
@@ -491,7 +494,7 @@ class Lead:
             if task.status == "done":
                 continue
             for sub in task.subtasks:
-                if sub.status == "landed":
+                if sub.status in {"landed", "no-change"}:
                     continue
                 if _pushes_by(chain, sub.id, sub.assignee):
                     continue
@@ -514,7 +517,7 @@ class Lead:
     def _finish(self, chain, tasks, tip) -> list:
         sent = []
         for task in tasks:
-            ready = bool(task.subtasks) and all(sub.status == "landed" for sub in task.subtasks)
+            ready = bool(task.subtasks) and all(sub.status in {"landed", "no-change"} for sub in task.subtasks)
             if task.status != "done" and ready and task.id not in self._finished:
                 self._finished.add(task.id)
                 summary = _done_summary(task)
@@ -667,7 +670,7 @@ def _busy(tasks: list[Task]) -> set[str]:
         if task.status == "done":
             continue
         for sub in task.subtasks:
-            if sub.status != "landed" and sub.assignee:
+            if sub.status not in {"landed", "no-change"} and sub.assignee:
                 busy.add(sub.assignee)
     return busy
 
@@ -721,10 +724,15 @@ def _assigned_at(chain, sub_id: str) -> float | None:
 
 
 def _ready_at(chain, sub) -> float | None:
-    """When every `Gud-After` subtask had landed: 0 with none, None while one is still open."""
+    """When every `Gud-After` subtask had landed or signed no-change. 0 with none, None while one is open."""
     if not sub.after:
         return 0.0
     landed = {link.task: link.linked_at or link.received_at for link in chain.links if link.task}
+    if any(dep not in landed for dep in sub.after):
+        for task in derive(chain):
+            for item in task.subtasks:
+                if item.status == "no-change" and item.closed_at is not None:
+                    landed.setdefault(item.id, item.closed_at)
     if any(dep not in landed for dep in sub.after):
         return None
     return max(landed[dep] for dep in sub.after)
@@ -769,7 +777,10 @@ def _human_any(self, handle: str):
 def _done_summary(task: Task) -> str:
     lines = [task.title.strip() or task.id]
     for sub in task.subtasks:
-        lines.append(f"{sub.id} {sub.assignee} {sub.link_id or ''}".rstrip())
+        if sub.status == "no-change":
+            lines.append(f"{sub.id} {sub.assignee} no change: {sub.reason or 'no change needed'}")
+        else:
+            lines.append(f"{sub.id} {sub.assignee} {sub.link_id or ''}".rstrip())
     return "\n".join(lines)
 
 

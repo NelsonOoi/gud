@@ -9,7 +9,7 @@ Tree = dict[str, str]
 # Per file, one entry per line: (owner handle, message id of the link that wrote it).
 Blame = dict[str, list[tuple[str, str]]]
 
-Kind = Literal["push", "object", "approve", "test", "task", "subtask", "task-done", "notify"]
+Kind = Literal["push", "object", "approve", "test", "task", "subtask", "task-done", "no-change", "notify"]
 Role = Literal["agent", "lead", "tester", "console", "human"]
 VOTER_ROLES: frozenset[str] = frozenset({"agent", "lead", "human"})
 

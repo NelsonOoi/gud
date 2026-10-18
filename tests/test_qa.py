@@ -74,7 +74,7 @@ class Approve:
     def __init__(self):
         self.subjects = []
 
-    def review_bug(self, subject, text, paths):
+    def review_bug(self, subject, text, paths, files=None):
         self.subjects.append(subject)
         return "approve", "The pricing page is missing a comparison table."
 
