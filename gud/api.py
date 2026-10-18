@@ -19,16 +19,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from . import compose, config, sig, tasks as tasklib
+from . import compose, config, sig
 from .bugs import bugs_address_for, derive_bugs
 from .chain import Repo
 from .config import domain_address
+from .console import Console, ConsoleError, activity, all_members, email_kind, handle_of
 from .hostauth import verify_request
 from .joins import join_requests
-from .memberfile import by_address
+from .keys import load_identity
 from .patch import diffstat
 from .types import Email, LinkState, Member, ProposalState
-from .wire import parse_body, short
+from .wire import parse_body
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "testclient"})
 
@@ -51,12 +52,13 @@ class Ctx:
         self._welcome_lock = threading.Lock()
         self._welcomed: set[str] = set()
         self._welcome_thread: threading.Thread | None = None
+        self.console = Console(cfg, mailbox=self.mailbox, clock=clock)
 
     def identity(self, handle: str) -> compose.Identity:
-        path = self.cfg.key_path(handle)
-        if not path.exists():
-            raise HTTPException(400, f"no local key for {handle}")
-        return compose.Identity(handle, domain_address(self.cfg.domain, handle), sig.load_private(path))
+        try:
+            return load_identity(self.cfg, handle, address=domain_address(self.cfg.domain, handle))
+        except (FileNotFoundError, OSError):
+            raise HTTPException(400, f"no local key for {handle}") from None
 
 
 def link_json(l: LinkState) -> dict:
@@ -93,40 +95,6 @@ def bug_rows(ctx) -> list[Email]:
         return ctx.mailbox.list(recipient=bugs_address(ctx))
     except Exception:
         return []
-
-
-def all_members(chain) -> dict[str, Member]:
-    out: dict[str, Member] = {}
-    for l in chain.links:
-        out.update(l.members)
-    return out
-
-
-def handle_of(chain, address: str) -> str:
-    m = by_address(all_members(chain), address)
-    return m.handle if m else address
-
-
-def email_kind(e: Email) -> str:
-    return parse_body(e.body).kind or "human"
-
-
-def activity(chain, limit: int = 100) -> list[dict]:
-    items = []
-    for e in chain.emails:
-        p = parse_body(e.body)
-        kind = p.kind or "human"
-        summary = (p.get("Gud-Reason") or p.text or "").strip().splitlines()
-        items.append({"id": e.message_id, "at": e.received_at, "kind": kind,
-                      "from": p.get("Gud-Author") or handle_of(chain, e.from_addr),
-                      "subject": e.subject, "summary": (summary[0] if summary else "")[:200],
-                      "target": p.get("Gud-Target") or e.in_reply_to})
-    for l in chain.links[1:]:
-        items.append({"id": f"link:{l.message_id}", "at": l.linked_at, "kind": "link", "from": l.author,
-                      "subject": l.subject, "summary": f"link #{l.seq} {short(l.state)}",
-                      "target": l.message_id})
-    items.sort(key=lambda a: a["at"], reverse=True)
-    return items[:limit]
 
 
 def email_json(chain, e: Email) -> dict:
@@ -371,43 +339,25 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
 
     @app.get("/api/tasks")
     def get_tasks():
-        return [t.to_json() for t in tasklib.derive(chain())]
+        return ctx.console.task_rows(chain())
 
     @app.get("/api/bugs")
     def get_bugs():
-        current = chain()
-        members = current.tip.members if current.tip else {}
-        return [report.to_json() for report in derive_bugs(bug_rows(ctx), current.emails, members, bugs_address(ctx))]
+        return ctx.console.bug_rows_json(chain())
 
     @app.post("/api/bugs/{id:path}/review")
     def review_bug(id: str, body: dict):
-        """Simulate a human review on the local mailbox. The lead opens the ticket after it."""
-        if ctx.cfg.mailbox != "fake":
-            raise HTTPException(400, "human replies are only simulated with the fake mailbox")
-        current = chain()
-        if current.tip is None:
-            raise HTTPException(409, "no genesis yet")
-        who = body.get("from") or "@nelson"
-        member = all_members(current).get(who)
-        if member is None or member.role != "human":
-            raise HTTPException(400, f"{who} is not a human member")
+        """A human review. The lead opens the ticket after an approval. Works on Primitive too."""
+        chain()
         action = (body.get("action") or "").strip().lower()
         if action not in {"approve", "reject"}:
             raise HTTPException(400, "action must be approve or reject")
-        address = bugs_address(ctx)
-        reports = derive_bugs(bug_rows(ctx), current.emails, current.tip.members, address)
-        report = next((item for item in reports if item.id == id), None)
-        if report is None:
-            raise HTTPException(404, "unknown bug report")
-        if report.status != "pending" or report.verdict:
-            raise HTTPException(409, "bug report is already reviewed")
-        reason = (body.get("reason") or "").strip()
-        text = action if not reason else f"{action}\n{reason}"
-        email = ctx.mailbox.send(
-            from_addr=member.address, to=ctx.mailbox.repo_address,
-            subject=f"Re: {report.subject}", body=text + "\n", in_reply_to=report.id,
-        )
-        return {"id": email.message_id}
+        who = body.get("from") or "@nelson"
+        try:
+            return {"id": ctx.console.decide(id, action, body.get("reason") or "", who)}
+        except ConsoleError as exc:
+            message = "unknown bug report" if exc.status == 404 else str(exc)
+            raise HTTPException(exc.status, message) from exc
 
     @app.get("/api/activity")
     def get_activity(limit: int = 100):
@@ -420,14 +370,11 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
 
     @app.post("/api/tasks")
     def post_task(body: TaskIn):
-        c = chain()
-        tid = tasklib.next_task_id(c.emails)
-        console = ctx.identity("@console")
-        text = compose.task_body(console, tid, body.requester, body.description or body.title)
-        members = c.tip.members if c.tip else {}
-        compose.send(ctx.mailbox, console, members, f"[gud] {tid}: {body.title}", text,
-                     cc_handles=compose.role_handles(members, "lead") or None)
-        return {"id": tid}
+        chain()
+        try:
+            return {"id": ctx.console.create_task(body.title, body.description, body.requester)}
+        except ConsoleError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
 
     @app.post("/api/members")
     def post_member(body: MemberIn):
@@ -453,20 +400,11 @@ def create_app(ctx: Ctx | None = None) -> FastAPI:
 
     @app.post("/api/reply")
     def post_reply(body: dict):
-        if ctx.cfg.mailbox != "fake":
-            raise HTTPException(400, "human replies are only simulated with the fake mailbox")
-        c = chain()
-        who = body.get("from") or "@nelson"
-        member = all_members(c).get(who)
-        if member is None or member.role != "human":
-            raise HTTPException(400, f"{who} is not a human member")
-        target = next((e for e in c.emails if e.message_id == body["target"]), None)
-        if target is None:
-            raise HTTPException(404, "unknown target")
-        e = ctx.mailbox.send(from_addr=member.address, to=ctx.mailbox.repo_address,
-                             subject=f"Re: {target.subject}", body=body["text"].strip() + "\n",
-                             in_reply_to=target.message_id)
-        return {"id": e.message_id}
+        chain()
+        try:
+            return {"id": ctx.console.human_reply(body["target"], body.get("from") or "@nelson", body["text"])}
+        except ConsoleError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
 
     @app.post("/api/approve")
     def post_approve(body: dict):

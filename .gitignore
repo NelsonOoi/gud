@@ -1,4 +1,6 @@
 .venv/
+.venv-app/
+.gud-home-app/
 __pycache__/
 *.pyc
 .env

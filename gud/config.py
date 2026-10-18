@@ -53,6 +53,8 @@ class Config:
     member_address: str | None = None # GUD_ADDRESS, the address GUD_HANDLE sends from
     audit_skew: float = 120.0         # GUD_AUDIT_SKEW, seconds
     bugs_address: str = ""             # GUD_BUGS_ADDRESS; empty means bugs@<domain>
+    human: str = "@nelson"             # GUD_HUMAN, the member decisions go out as
+    mcp_token: str | None = None       # GUD_MCP_TOKEN; write tools require it when set
 
     def address(self, handle: str) -> str:
         """``GUD_ADDRESS`` for ``GUD_HANDLE``; ``handle@domain`` for everyone else."""
@@ -100,4 +102,6 @@ def load() -> Config:
         member_address=_blank(os.environ.get("GUD_ADDRESS")),
         audit_skew=float(os.environ.get("GUD_AUDIT_SKEW", "120")),
         bugs_address=(os.environ.get("GUD_BUGS_ADDRESS") or f"bugs@{domain}").strip(),
+        human=_at(os.environ.get("GUD_HUMAN") or "@nelson"),
+        mcp_token=_blank(os.environ.get("GUD_MCP_TOKEN")),
     )

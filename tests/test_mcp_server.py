@@ -86,9 +86,11 @@ def test_server_lists_gud_tools(tmp_path, monkeypatch):
     assert sorted(t.name for t in tools) == sorted(TOOL_NAMES)
     read = next(t for t in tools if t.name == "read")
     push = next(t for t in tools if t.name == "push")
-    assert "path" in read.input_schema["properties"]
-    assert "self" not in read.input_schema["properties"]
-    assert "edits" in push.input_schema["properties"]
+    read_props = (getattr(read, "input_schema", None) or read.inputSchema)["properties"]
+    push_props = (getattr(push, "input_schema", None) or push.inputSchema)["properties"]
+    assert "path" in read_props
+    assert "self" not in read_props
+    assert "edits" in push_props
     assert "wait" in (push.description or "").lower() or "full" in (push.description or "").lower()
 
 

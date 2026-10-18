@@ -1,6 +1,13 @@
-"""Local Ed25519 identities. Private keys live under ``cfg.keys_dir``, never in the tree or the mailbox."""
+"""Local Ed25519 identities. Private keys live under ``cfg.keys_dir``, never in the tree or the mailbox.
+
+A host with no key files (Manufact) can set ``GUD_KEY_<HANDLE>`` to the base64 raw
+Ed25519 private key. ``GUD_KEY`` is that key for ``@console``.
+"""
 
 from __future__ import annotations
+
+import base64
+import os
 
 from . import sig
 from .compose import Identity
@@ -26,8 +33,26 @@ def create_identity(cfg: Config, handle: str, overwrite: bool = False) -> tuple[
 
 def load_identity(cfg: Config, handle: str, address: str | None = None) -> Identity:
     handle = _handle(handle)
-    raw = sig.load_private(cfg.key_path(handle))
+    path = cfg.key_path(handle)
+    if path.exists():
+        raw = sig.load_private(path)
+    else:
+        raw = env_private(handle)
+        if raw is None:
+            raise FileNotFoundError(path)
     return Identity(handle, address or cfg.address(handle), raw)
+
+
+def env_private(handle: str) -> bytes | None:
+    """Base64 raw Ed25519 key from ``GUD_KEY_<HANDLE>``, or ``GUD_KEY`` for ``@console``."""
+    handle = _handle(handle)
+    slug = handle.lstrip("@").upper().replace("-", "_")
+    raw = os.environ.get(f"GUD_KEY_{slug}")
+    if not raw and handle == "@console":
+        raw = os.environ.get("GUD_KEY")
+    if not raw or not raw.strip():
+        return None
+    return base64.b64decode(raw.strip())
 
 
 def human_identity(handle: str, address: str) -> Identity:
