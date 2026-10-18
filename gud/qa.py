@@ -1125,6 +1125,11 @@ class QA:
             key = (task_id, tip_id)
             if key in done:
                 continue
+            # A task whose subtasks all signed no-change finishes on a tip already browsed.
+            if any(tip == tip_id for _, tip in done):
+                self._checked.add(key)
+                done.add(key)
+                continue
             tries, retry_at = self._failed.get(key, (0, 0.0))
             if tries >= _ATTEMPTS:
                 continue

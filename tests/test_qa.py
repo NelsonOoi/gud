@@ -161,6 +161,21 @@ def test_agent_error_sends_nothing_and_retries_once_after_a_pause(tmp_path):
     assert _bugs(w) == []
 
 
+def test_a_tip_already_browsed_under_another_task_is_not_browsed_again(tmp_path):
+    w = _world(tmp_path)
+    tip = w.genesis({"index.html": "<h1>Home</h1>\n"})
+    _done(w, tip)
+    browser = FakeBrowser([FINDING])
+    qa = _qa(w, browser)
+    assert len(qa.step()) == 1
+
+    done = compose.task_done_body(w.ids["@lead"], "T2", tip.id, "no change needed")
+    compose.send(w.mailbox, w.ids["@lead"], w.members, "[gud] T2 done: Fix it", done)
+    assert qa.step() == []
+    assert len(browser.calls) == 1
+    assert len(_bugs(w)) == 1
+
+
 def test_findings_are_capped(tmp_path):
     w = _world(tmp_path)
     tip = w.genesis({"index.html": "<h1>Home</h1>\n"})
