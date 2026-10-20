@@ -997,8 +997,9 @@ class Mailbox(Protocol):
     def send(self, message: Outgoing | bytes) -> Sent: ...        # raw bytes are sent unchanged
     def list(self, *, since: str | None = None, limit: int = 500) -> tuple[list[Received], str | None]: ...
     def wait(self, *, since: str | None, timeout: float) -> list[Received]: ...
-    def subscribe(self, callback: Callable[[Received], None]) -> Subscription: ...
+    def subscribe(self, callback: Callable[[Received], None], *, since: str | None = None) -> Subscription: ...
         # push intake; reconnects internally and catches up with list(); callback may be called twice for one message
+        # without `since`: from the head (mail arriving after the call); with `since`: catch up from that cursor first
     def close(self) -> None: ...
 
 class WebhookVerifier(Protocol):                     # adapters with webhook intake implement this
@@ -1478,3 +1479,18 @@ These names are public and part of the contract:
 - `gud.core.hostlog`: `HostLog.repo`, `HostLog.entries(since=0, limit=None)`.
 
 Event data carries every event-id key. That adds `approved.approve`, `held.hold`, `test.*.test`, `claim.lapsed.lapsed_at` and `task.ready.link`. See "Implementation notes (core)" at the end of SPEC-v1.md, which binds every later module.
+
+## Addendum: transport layer (gud/transport)
+
+Public additions and changes, all backward compatible with the sections above. See "Implementation notes (transport)" in SPEC-v1.md and `docs/v1/TRANSPORTS.md`.
+
+- **`Mailbox.subscribe(callback, *, since: str | None = None)`**: the optional `since` catches up from a cursor first. Without it the subscription starts at the head.
+- `gud.transport.base`: `PushKind`, `AuthResultsKind`, `ENVELOPE_CAP`, `MIME_OVERHEAD`, `envelope_budget(max_message_bytes, host_max_message_bytes=None) -> int` (§6 budget, 57/78 erratum), `now_ms(clock)`, `ThreadSubscription(target, *, name)` (a `Subscription` running `target(stop_event)` on a daemon thread), `safe_call(callback, item)`, and the string-config helpers `cfg_bool`, `cfg_int`, `cfg_list` used by every `from_config`. `Mailbox` is `runtime_checkable`.
+- `gud.transport.mime`: `ENV_FILENAME`, `ParsedMime.has_text` (a field with default `False`), `make_message_id(from_addr)`, `qp_encode(text)`, `b64_lines(data)`, `is_envelope_part(part)`, `outgoing_from_raw(raw) -> Outgoing` (for structured-send providers), `recipients(raw) -> tuple[str, ...]`. `to_email` also returns `None` for an unsigned message without a `text/plain` part (§2.2).
+- `gud.transport.auth`: `prepend(raw, value) -> bytes` (prepend one `Authentication-Results` line in the message's own line ending), `sender_verified(auth_results, from_addr, authserv_id) -> bool` (§8.1(2) for one message). `synthesize` raises `ValueError` for an authserv-id or domain that is not a token. `auth` imports only `core.envelope`.
+- `gud.transport.registry`: `BUILTINS`. A built-in whose module does not exist yet (jmap, ses, postmark, gmail) raises `TransportError("... not implemented yet")`. `member_config` merges top-level keys with a table named after the transport and resolves `<key>_env` from the environment.
+- Every built-in adapter also has `head() -> str | None`, the cursor just after the newest message (not part of the protocol; the conformance suite uses it when present).
+- `gud.transport.fake`: `FAKE_AUTHSERV_ID = "fake.gud.invalid"`, `DEFAULT_MAX_MESSAGE_BYTES` (10 MiB). `FakeMailbox(root, address, *, clock, max_message_bytes, authserv_id, poll_interval)` plus `head()`, `deliver(raw, recipients=None, *, received_at=None)` (inject from an outside MTA). `Faults(delay_ms, jitter_ms, duplicate, drop, seed)`. `FakeNetwork(*, start_ms, faults, max_message_bytes, authserv_id)` with `now_ms`, `clock()`, `mailbox(address) -> NetworkMailbox`, `advance(ms)`, `advance_to(ms)`, `next_due()`, `pending`, `set_faults`, `submit(raw, recipients)`. `NetworkMailbox` adds `deliver(raw, recipients=None)` and `head()`; its `wait` advances virtual time instead of sleeping.
+- `gud.transport.imap_smtp`: constructor keywords `imap_tls`/`smtp_tls` (`"ssl" | "starttls" | "none"`), `smtp_username`, `smtp_password`, `max_message_bytes`, `authserv_id` (the provider's, reported in capabilities), `send_quota_per_day`, `preserves_message_id`, `idle_poll`, `timeout`, `ssl_context`, `clock`. Helpers `encode_cursor`, `decode_cursor`, `parse_internaldate`.
+- `gud.transport.primitive`: `PrimitiveMailbox(api_key, address, *, base_url, client, webhook_secret, authserv_id, subscribe_wait, send_quota_per_day, max_message_bytes, clock, sleep)` implements `Mailbox` and `WebhookVerifier`. It adds `accept_webhook(headers, body, now=None) -> list[Received]` (verify, parse, hand to subscribers), `fetch_webhook_secret()` and `head()`. Also exported: `AUTHSERV_ID = "primitive.gud.invalid"`, `MAX_MESSAGE_BYTES`, `PrimitiveError(TransportError)`, `PrimitiveQuotaError(PrimitiveError, QuotaExceeded)`, `signature_header`, `verify_signature`, `dmarc_for`, `unwrap_webhook`, `event_name`, `encode_cursor`, `decode_cursor`, `parse_time`.
+- The conformance suite lives at `tests/v1/transport/conformance.py` (checks) and `tests/v1/transport/test_conformance.py` (transports), replacing the `tests/transport_conformance.py` named under "Test obligations".
