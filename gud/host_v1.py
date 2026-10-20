@@ -472,17 +472,11 @@ def serve_dir(root: Path, *, bind: str = "127.0.0.1:8787", webhook_bind: str | N
     under the same log. While serving, the directory's `serve.lock` is held and local-mode
     members only read (`gud.wc.remote.LocalHost.served`)."""
     import fcntl
-    import tomllib
 
     root = Path(root)
     meta = json.loads((root / "host.json").read_text("utf-8"))
     private = _decode_key((root / "key").read_text("ascii"))
-    data = tomllib.loads((root / "transport.toml").read_text("utf-8"))
-    name = str(data.get("transport") or "")
-    cfg = {k: (("true" if v else "false") if isinstance(v, bool) else str(v))
-           for k, v in data.items() if k != "transport" and not isinstance(v, dict)}
-    if isinstance(data.get(name), dict):
-        cfg.update({k: str(v) for k, v in data[name].items() if not isinstance(v, dict)})
+    name, cfg = transports.read_transport_toml(root / "transport.toml")     # `<key>_env` from the environment
     mailbox = transports.open_mailbox(name, cfg)
     objects = Path(meta.get("objects") or (root / "objects"))
     lock = open(root / "serve.lock", "a+b")

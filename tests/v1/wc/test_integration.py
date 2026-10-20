@@ -140,6 +140,21 @@ def test_on_delta_hook_sees_working_copy_syncs(tmp_path: Path):
     assert deltas and any(e.type == "linked" and e.data["push"] == p for e in events)
 
 
+def test_host_transport_secrets_come_from_the_environment(tmp_path: Path, monkeypatch):
+    """Regression (live run): a host directory's transport.toml with `<key>_env` (so the API key
+    is not on disk) was read without resolving it, so `gud host serve` had no key."""
+    from gud.transport.registry import read_transport_toml
+    from gud.wc.remote import LocalHost
+    monkeypatch.setenv("GUD_TEST_MAIL_ROOT", str(tmp_path / "mail"))
+    host = LocalHost.create(tmp_path / "host", repo="repo@example.org", transport="fake",
+                            cfg={"root_env": "GUD_TEST_MAIL_ROOT"})
+    text = (tmp_path / "host" / "transport.toml").read_text()
+    assert "root_env" in text and str(tmp_path / "mail") not in text
+    name, cfg = read_transport_toml(tmp_path / "host" / "transport.toml")
+    assert name == "fake" and cfg["root"] == str(tmp_path / "mail")
+    assert Path(host.mailbox().root) == (tmp_path / "mail").resolve()
+
+
 def test_resolve_accepts_mail_forms(tmp_path: Path):
     net = Net(tmp_path)
     g = net.genesis({"a.txt": "a\n"})

@@ -614,8 +614,13 @@ def _setup_host(ctx: Ctx, args: argparse.Namespace, repo: str) -> str:
         path = ctx.home / "members" / ctx.handle / "transport.toml"
         if not path.exists():
             raise CliError("no transport for the repo mailbox: pass --transport NAME [--set k=v]", 2)
-        from gud.wc.remote import _read_toml_transport
-        name, cfg = _read_toml_transport(path)
+        import tomllib
+        data = tomllib.loads(path.read_text("utf-8"))      # unresolved: `<key>_env` stays a reference
+        name = str(data.get("transport") or "")
+        cfg = {k: (("true" if v else "false") if isinstance(v, bool) else str(v))
+               for k, v in data.items() if k != "transport" and not isinstance(v, dict)}
+        if isinstance(data.get(name), dict):
+            cfg.update({k: str(v) for k, v in data[name].items() if not isinstance(v, dict)})
     LocalHost.create(root, repo=repo, transport=name, cfg={k: v for k, v in cfg.items() if k != "address"},
                      objects=ctx.home / "objects")
     return f"local:{root}"

@@ -146,14 +146,8 @@ def _write_atomic(path: Path, data: bytes) -> None:
 
 
 def _read_toml_transport(path: Path) -> tuple[str, dict[str, str]]:
-    data = tomllib.loads(path.read_text("utf-8"))
-    name = str(data.get("transport") or "").strip().lower()
-    cfg = {k: (("true" if v else "false") if isinstance(v, bool) else str(v))
-           for k, v in data.items() if k != "transport" and not isinstance(v, dict)}
-    table = data.get(name)
-    if isinstance(table, dict):
-        cfg.update({k: str(v) for k, v in table.items() if not isinstance(v, dict)})
-    return name, cfg
+    from gud.transport.registry import read_transport_toml
+    return read_transport_toml(path)
 
 
 def write_transport_toml(path: Path, name: str, cfg: Mapping[str, str]) -> None:
