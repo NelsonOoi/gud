@@ -50,6 +50,15 @@ def load(name: str) -> Spec:
     return Spec(name, title, body, root / "seed", HIDDEN / name)
 
 
+def meta(spec: Spec) -> dict:
+    """`specs/<name>/meta.json` (analysis hints such as `guard_files`; never copied to agents), or {}."""
+    path = SPECS / spec.name / "meta.json"
+    if not path.is_file():
+        return {}
+    import json
+    return json.loads(path.read_text())
+
+
 def read_tree(root: Path) -> dict[str, str]:
     out: dict[str, str] = {}
     for path in sorted(Path(root).rglob("*")):
