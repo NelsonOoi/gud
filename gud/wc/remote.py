@@ -53,13 +53,16 @@ from gud.core.replay import ChainReader, ReplayError, Replayer, Snapshot
 from gud.core.types import (
     Chain, ChainDelta, Email, Envelope, Handle, Hex, LogEntry, Member, Ms, ObjectStoreLike, Record, Seen,
 )
+from gud.events.dispatch import (
+    AUTH_HANDLE, AUTH_SIG, AUTH_TIME, MAX_SKEW_S, format_time, request_bytes, sign_request, verify_request,
+)
 from gud.transport import mime
 from gud.transport.base import Mailbox, Outgoing, envelope_budget
 
-HANDLE_HEADER = "X-Gud-Handle"
-TIME_HEADER = "X-Gud-Time"
-SIG_HEADER = "X-Gud-Sig"
-MAX_SKEW = 300
+# Mirror auth v1 (§21) has one implementation, in gud.events.dispatch (the host verifies with
+# the same code); these names are re-exported for members.
+HANDLE_HEADER, TIME_HEADER, SIG_HEADER = AUTH_HANDLE, AUTH_TIME, AUTH_SIG
+MAX_SKEW = MAX_SKEW_S
 API = "/api/v1"
 PAGE = 500
 _BLOB_HEADROOM = 2048            # bytes of a blob envelope that are not chunk data
@@ -68,60 +71,6 @@ _TICK_GAP_MS = 1000              # local host: append a tick when the head is th
 
 class RemoteError(RuntimeError):
     """The mirror is unreachable, refused a request, or served data that fails verification."""
-
-
-# ---------------------------------------------------------------- mirror auth v1 (§21)
-
-def format_time(now: float) -> str:
-    """Stable decimal unix time (the v0 `hostauth.format_time` form): no fraction when whole."""
-    text = format(float(now), ".6f")
-    if "." in text:
-        text = text.rstrip("0").rstrip(".")
-    return text
-
-
-def request_bytes(method: str, path_with_query: str, time_token: str, body: bytes = b"") -> bytes:
-    """`"{METHOD} {path_with_query} {time} {sha256(body)}"` (the hash of b"" for no body)."""
-    return f"{method.upper()} {path_with_query} {time_token} {sha256_hex(body or b'')}".encode("utf-8")
-
-
-def sign_request(handle: Handle, private_raw: bytes, method: str, path_with_query: str,
-                 body: bytes, now: float) -> dict[str, str]:
-    """Headers for one mirror request. The time is whole unix seconds."""
-    token = format_time(math.floor(now))
-    return {
-        HANDLE_HEADER: handle,
-        TIME_HEADER: token,
-        SIG_HEADER: E.sign_bytes(private_raw, request_bytes(method, path_with_query, token, body)),
-    }
-
-
-def _header(headers: Mapping[str, str], name: str) -> str | None:
-    for key in headers:
-        if key.lower() == name.lower():
-            return headers[key]
-    return None
-
-
-def verify_request(members: Any, method: str, path_with_query: str, body: bytes,
-                   headers: Mapping[str, str], now: float, max_skew: int = MAX_SKEW) -> Handle | None:
-    """The member handle when `headers` carry a valid mirror signature by a member of `members`
-    (a `gud.core.config.Members` at the tip) within `max_skew` seconds, else None."""
-    handle, token, sig = (_header(headers, n) for n in (HANDLE_HEADER, TIME_HEADER, SIG_HEADER))
-    if not handle or not token or not sig:
-        return None
-    try:
-        when = float(token)
-    except ValueError:
-        return None
-    if not math.isfinite(when) or abs(float(now) - when) > max_skew:
-        return None
-    member = members.get(handle) if members is not None else None
-    if member is None or not member.public_key:
-        return None
-    if not E.verify_bytes(member.public_key, request_bytes(method, path_with_query, token, body), sig):
-        return None
-    return member.handle
 
 
 # ---------------------------------------------------------------- keys and small helpers
@@ -261,7 +210,9 @@ class HttpMirror:
         import httpx
         headers = {"Content-Type": "application/json"} if body else {}
         if signed:
-            headers.update(sign_request(self.handle, self._key, method, self._prefix + path, body, self._clock()))
+            # X-Gud-Time is whole unix seconds (wc note 7)
+            headers.update(sign_request(self.handle, self._key, method, self._prefix + path, body,
+                                        math.floor(self._clock())))
         try:
             resp = self._http.request(method, self.base_url + path, content=body or None, headers=headers)
         except httpx.HTTPError as exc:
