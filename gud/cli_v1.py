@@ -453,6 +453,35 @@ def cmd_import_archive(args: argparse.Namespace) -> int:
                          f"run `gud host serve --dir {root}`")
 
 
+def cmd_host_line(args: argparse.Namespace) -> int:
+    """Members push recording the new host key (and address) in `.gud/members` after a handover."""
+    ctx = Ctx(args)
+    client = ctx.synced()
+    ctx.need_sender(client)
+    from gud.ops.keys import KeysError, host_key_push
+    try:
+        pid = host_key_push(client, args.key, reason=args.message or "", address=args.address)
+    except KeysError as exc:
+        raise CliError(str(exc)) from exc
+    ctx.wait_logged(pid)
+    return ctx.out({"push": pid, "key": args.key, "address": args.address},
+                   f"members push {_short(pid)} records host {args.key}; it needs a human approve (members rule)")
+
+
+def cmd_delivery(args: argparse.Namespace) -> int:
+    """§19.3: how the host delivers this member's events (POST /api/v1/delivery)."""
+    ctx = Ctx(args)
+    client = ctx.client()
+    if args.webhook:
+        body: dict[str, Any] = {"webhook": args.webhook}
+    elif args.sse:
+        body = {"sse": True}
+    else:
+        body = {"email": True}
+    client.set_delivery(body)
+    return ctx.out({"handle": client.handle, **body}, f"{client.handle}: events by {next(iter(body))}")
+
+
 def cmd_host_trust(args: argparse.Namespace) -> int:
     ctx = Ctx(args)
     client = ctx.client()
@@ -1397,10 +1426,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--new-repo", help="the repo's new address, when it moves (integration note 4)")
     p.add_argument("--dir", help="host directory (default: this member's local host, or the only one)")
     p.add_argument("--repo", help="pick the host directory by repo address")
+    p = add("line", cmd_host_line, "members push recording the new host key (and address)", host)
+    p.add_argument("key")
+    p.add_argument("--address", help="the repo's new address, when it moved")
+    p.add_argument("-m", "--message")
     p = add("follow", cmd_host_follow, "move to the new host after a handover (keeps the cache)", host)
     p.add_argument("host_url")
     p = add("trust", cmd_host_trust, "trust a host key after an unplanned handover (§11.6)", host)
     p.add_argument("key")
+
+    p = add("delivery", cmd_delivery, "how the host delivers my events: --webhook URL, --sse or --email")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--webhook", metavar="URL")
+    g.add_argument("--sse", action="store_true")
+    g.add_argument("--email", action="store_true")
 
     p = add("doctor", cmd_doctor, "check key, transport (round trip), mirror and membership")
     transport_args(p)
