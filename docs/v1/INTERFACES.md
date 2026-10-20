@@ -1780,3 +1780,57 @@ def main(argv: list[str] | None = None) -> int   # gud agent --handle @x [--home
 ```
 
 Runtime state lives in `GUD_HOME/members/<handle>/agent/`: `runtime.json` (routed journal cursor, aliases, SDK session ids per thread, notes, idle signature), `budget.json`, `events.json` (the `EventClient` cursor and seen ids), `turns.jsonl` (one record per turn) and `transcripts/<thread>.jsonl`. `pyproject.toml` has the optional extra `agent = ["claude-agent-sdk>=0.2.168"]`.
+
+## Addendum: ui view API
+
+The host's dashboard API (see "Implementation notes (ui)" in SPEC-v1.md). `gud/host_view.py` imports `core.*`, `events.*`, `transport.*`, `wc.review` and `ops.audit`; `host_v1` imports it. All additions are backward compatible.
+
+```python
+# gud/host_view.py
+class EventFeed:
+    def __init__(self, path: Path | None, journal: Journal | None = None) -> None   # JSONL; backfills from journals
+    def add(self, events: Sequence[Event]) -> int     # new ones only (dedupe by id); wakes waiters
+    def since(self, after: int, limit: int = 500) -> list[tuple[int, Event]]     # numbered from 1
+    def head(self) -> int
+    def wait(self, after: int, timeout: float) -> bool
+def load_signers(homes: Iterable[Path]) -> dict[Handle, bytes]   # every members/<handle>/key ("ed25519:<b64 seed>")
+def default_ui_dist() -> Path | None                             # $GUD_UI_DIST, else ui/dist of the checkout, if built
+class HostView:
+    def __init__(self, intake, *, repo, dispatcher=None, registry=None, feed=None, bugs=None, signers=None, clock=None)
+    # one method per endpoint below (state, chain, proposals, tasks, escalations, members, tree, file, blame, diff,
+    # thread, needs, host, events, stream) and act_task / act_vote / act_comment / act_admit
+def add_view_routes(app, view: HostView, *, caller, is_loopback, sse_keepalive_s=15.0) -> None
+def add_static_routes(app, dist: Path | None) -> None            # "/" and non-/api paths; index.html fallback
+```
+
+| Method | Path | Result |
+| --- | --- | --- |
+| GET | `/api/v1/view/state` | `{repo, bugs_address, host_key, transport, now, t, log_head{seq,hash,time,type}, processed{seq,hash}, config, test_policy, tip: Link, red, counts{links, proposals_live, tasks_open, claims_active, escalations_open}, ui{signers[{handle,role}], human, console, actions}}`; `red` = `RedState` + `red_link_seq`, `last_green_seq`, `first_bad_seq`, `first_bad_author`, `first_bad_title`, `fix_task{id, alias, status, title, offered_to, offer_until, cited_link, holder}` |
+| GET | `/api/v1/view/chain?limit=200&before=<seq>` | `{links, total, next_before}`, newest first; Link = `{seq, state, push, kind, author, intent, title, tree_hash, parent, named_parent, carried_from, carried_from_seq, revert_of, received_at, linked_at, task, task_alias, files, verdict, verdict_at, red_role, diffstat{added, removed, files, binary}}` (`verdict`: the counting tip-scope result; `red_role`: `first_bad`, `red_link`, `last_green` or null) |
+| GET | `/api/v1/view/proposals?dead=50` | `{proposals, live, dead_shown}`; each `{id, push, kind, author, title, intent, received_at, status, reason, live, dead, parent, parent_seq, named_parent, named_parent_seq, carried, task, task_alias, revises, negotiation, files, tree_hash, timers{window_open, window_closes_at, grace_until, park_at, expires_at, window, grace, held, held_by, qualified_at}, plan{line_owners, askers, declared[{path, rule, owners}], quorum_needed, quorum_have, members_rule, waiting_on}, approvals[{by, at}], objections[{id, by, reason, received, kind, evidence{path, sha256, size}, status, answered_by, episode, blocking}], rounds, revisions[{push, candidate, status, received_at, revises, current}], linked_revisions, test{needed, result}, pending_blobs, escalation, race, blocks_tip, join}` (`kind` of an objection: `reason`, `evidence` or `veto`) |
+| GET | `/api/v1/view/tasks` | `{tasks, claims, overlaps, bugs}`: `TaskState` fields + `parent_alias, holder, has_criteria, cited_seq, cited_author, waiting (acceptance / criteria / null), claims, links`; `ClaimState` + `task_alias, overlaps`; overlaps `[{claims, holders, tasks, globs, paths}]`; bugs `[{id, from, subject, text, received_at, task, task_alias}]` |
+| GET | `/api/v1/view/escalations` | `{escalations}`: `EscalationState` + `pushes[{root, push, author, title, status, confirmed_evidence}]`, `default{chosen, declined, why}` |
+| GET | `/api/v1/view/members` | `{members: [{handle, role, address, key, key_short, sponsor, votes, lines, lines_live, added_seq, delivery{channel, url, registered, journal_head, acked}}], removed: [{handle, role, address, removed_seq, removed_link, lines}], joins: [{id, handle, role, address, key, key_short, sponsor, reason, received_at, status (pending / proposed / member), push}]}` |
+| GET | `/api/v1/view/tree?at=` | `{at{kind (link / proposal), state, seq or push, status}, files: [{path, mode, size, sha256, binary, lines, owners{handle: n}, live_owners{handle: n}, former}]}` |
+| GET | `/api/v1/view/file?path=&at=` | `{path, at, mode, size, sha256, kind (text / binary / symlink), text, truncated, lines, target, placeholder}` |
+| GET | `/api/v1/view/blame?path=&at=` | `{path, at, binary, own_links, own_time, t, lines: [{n, text, owner, seq, link, intent, live, voter, member, expires_at, links_left}]}` (links only; 400 for a proposal) |
+| GET | `/api/v1/view/diff/<id>` | `{kind (link / proposal), push, author, available, why, ops (the signed §5.3 ops), files: [{op (add / modify / delete / rename / mode), path, src, binary, old_mode, new_mode, old_size, new_size, added, removed, hunks, placeholder}], unified, ...}` |
+| GET | `/api/v1/view/thread/<id>` | `{head{id, type (link / proposal / task / claim / escalation / message), ...}, messages: [{id, seq, received_at, kind, author, from, subject, signed, text, message_id, headers{target, task, revises, ...}, evidence}]}` |
+| GET | `/api/v1/view/needs?member=` | `{member, items}` from `gud.wc.review.needs` (default: the first human UI signer) |
+| GET | `/api/v1/view/host?limit=50` | `{repo, key, repos, head, processed_seq, entries, counts, tail[{seq, type, time, hash, id, kind, author, summary, fields}], handed_over, missing_mail, last_error, next_wakeup, intake, dispatch, deliveries[{handle, channel, url, journal_head, acked}], feed_head, audit{ok, exit_status, log_ok, log_error, checked_at, mail_entries, seen_mismatches, fork_proofs, late_votes, missing_mail, altered, details}}` |
+| GET | `/api/v1/view/events?after=&limit=` | `{events: [{n, id, type, at, concerns, data}], head}` |
+| GET | `/api/v1/view/stream?after=&follow=&max=` | SSE: `id` / `event` / `data` per feed item (§19.1 JSON with `repo`), `event: head` frames, keepalive comments; `Last-Event-ID` resumes |
+| POST | `/api/v1/view/act/task` | loopback; `{title, description?, requester?, accept?, accept_cmds?, bug?, as?}` → `{id, kind, as, logged, events}` |
+| POST | `/api/v1/view/act/vote` | loopback; `{kind (approve / object / veto / hold), target, text?, as?}` |
+| POST | `/api/v1/view/act/comment` | loopback; `{target, text, task?, verdict? ("reject"), as?}` |
+| POST | `/api/v1/view/act/admit` | loopback; `{join, text?, as?}` → also `member` |
+
+Ids in paths and queries: a full id, a hex prefix of 4 or more (links, pushes, candidates, tasks, claims, escalations, then logged messages), a task alias (`T3`, `T3.1`) or `tip`. Errors: 400 malformed or ambiguous, 401 unsigned from outside loopback, 403 an action from outside loopback or a signer that may not do it, 404 unknown, 409 no usable signer or no genesis.
+
+Other additions:
+
+- `gud.core.replay.ChainReader.tip_verdicts() -> dict[Hex, tuple[str, Ms]]` and `ChainReader.joins() -> tuple[Hex, ...]` (read-only views of replay state; they need `index`).
+- `gud.events.intake.Intake.lock` (the intake's `RLock`, for readers of replay state on other threads).
+- `gud.events.dispatch.Dispatcher.observers: list[Callable[[Sequence[Event]], None]]`, called with every non-empty `publish` batch before journaling (exceptions are swallowed).
+- `gud.host_v1.create_app(..., feed=None, ui_signers=None, ui_dist=None)` (`ui_dist=False`: no page); `Host.feed`, `Host.ui_signers`; `open_host(..., ui_signers=None)` (keeps `ui-events.jsonl` in the host directory); `run_host(..., ui_signers=None, ui_dist=None)`; `serve_dir(..., ui_signers=None, ui_dist=None)`; `load_signers` re-exported.
+- `gud.cli_v1`: `host serve [--ui-home GUD_HOME]... [--ui-dist DIR] [--no-ui] [--no-ui-actions]`; the ready line also reports `ui`, `ui_dist` and `ui_signers`.

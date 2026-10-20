@@ -14,6 +14,9 @@ Endpoints (`create_app`):
 | GET | `/api/v1/bugs` | member |
 | POST | `/api/v1/webhook/<provider>` | the provider's own signature (`WebhookVerifier`) |
 | POST | `/api/v1/admin/{tick,catch-up,pump,inject,handover}` | loopback only |
+| GET | `/api/v1/view/*` (UI views, all-events SSE at `/api/v1/view/stream`) | member (`gud.host_view`) |
+| POST | `/api/v1/view/act/{task,vote,comment,admit}` | loopback only; signed with a `--ui-home` key |
+| GET | `/`, `/assets/*`, other non-API paths | open: the built web UI (`ui/dist`) |
 
 "Member" is mirror auth v1 (§21): `X-Gud-Handle`, `X-Gud-Time`, `X-Gud-Sig` over
 `"{METHOD} {path_with_query} {time} {sha256(body)}"`, verified against `.gud/members` at the tip,
@@ -51,12 +54,13 @@ from gud.events.dispatch import (
 )
 from gud.events.intake import Intake, IntakeError, WebhookRejected, received_now
 from gud.events.model import Delivery
+from gud.host_view import EventFeed, HostView, add_static_routes, add_view_routes, default_ui_dist, load_signers
 from gud.transport import mime, registry as transports
 from gud.transport.base import Mailbox, TransportError
 
 __all__ = [
     "create_app", "create_webhook_app", "verify_request", "sign_request", "request_bytes", "format_time",
-    "Host", "open_host", "run_host", "serve", "serve_dir", "LOOPBACK_HOSTS",
+    "Host", "open_host", "run_host", "serve", "serve_dir", "LOOPBACK_HOSTS", "load_signers",
 ]
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
@@ -71,8 +75,14 @@ def _path_with_query(request) -> str:
 
 def create_app(intake: Intake, dispatcher: Dispatcher, registry: DeliveryRegistry, *, repo: str,
                bugs: Mailbox | None = None, loopback_hosts: frozenset[str] | set[str] | None = None,
-               clock: Callable[[], float] | None = None, sse_keepalive_s: float = 15.0) -> FastAPI:
-    """The §21 mirror, delivery registration, SSE, provider webhooks and loopback admin."""
+               clock: Callable[[], float] | None = None, sse_keepalive_s: float = 15.0,
+               feed: EventFeed | None = None, ui_signers: Mapping[Handle, bytes] | None = None,
+               ui_dist: Path | None | bool = None) -> FastAPI:
+    """The §21 mirror, delivery registration, SSE, provider webhooks and loopback admin, plus the
+    UI view API (`gud.host_view`, `/api/v1/view/*`) and the built UI at `/`. `feed` is the
+    host's all-events feed (an in-memory one, backfilled from the journals, when None);
+    `ui_signers` are member keys the loopback UI actions may sign with; `ui_dist` is the built UI
+    (default `gud.host_view.default_ui_dist()`, False for none)."""
     app = FastAPI(title="gud host v1")
     loopback = frozenset(LOOPBACK_HOSTS if loopback_hosts is None else loopback_hosts)
     now = clock or intake.clock
@@ -287,6 +297,14 @@ def create_app(intake: Intake, dispatcher: Dispatcher, registry: DeliveryRegistr
     async def intake_error(_request, exc):  # pragma: no cover - defensive
         return JSONResponse({"detail": str(exc)}, status_code=500)
 
+    if feed is None:
+        feed = EventFeed(None, dispatcher.journal)
+        dispatcher.observers.append(feed.add)
+    view = HostView(intake, repo=repo, dispatcher=dispatcher, registry=registry, feed=feed, bugs=bugs,
+                    signers=ui_signers, clock=now)
+    app.state.view = view
+    add_view_routes(app, view, caller=caller, is_loopback=is_loopback, sse_keepalive_s=sse_keepalive_s)
+    add_static_routes(app, None if ui_dist is False else (ui_dist if ui_dist is not None else default_ui_dist()))
     return app
 
 
@@ -326,8 +344,12 @@ class Host:
     replayer: Replayer
     mailbox: Mailbox
     bugs: Mailbox | None = None
+    feed: EventFeed | None = None
+    ui_signers: Mapping[Handle, bytes] | None = None
 
     def app(self, **kw) -> FastAPI:
+        kw.setdefault("feed", self.feed)
+        kw.setdefault("ui_signers", self.ui_signers)
         return create_app(self.intake, self.dispatcher, self.registry, repo=self.repo, bugs=self.bugs, **kw)
 
     def save(self) -> None:
@@ -338,7 +360,7 @@ def open_host(home: Path, *, repo: str, mailbox: Mailbox, host_private: bytes, b
               clock: Callable[[], float] = time.time, http: httpx.Client | None = None,
               store: ObjectStoreLike | None = None, persist_replay: bool = True,
               dispatcher_kw: Mapping | None = None, intake_kw: Mapping | None = None,
-              base: Path | None = None) -> Host:
+              base: Path | None = None, ui_signers: Mapping[Handle, bytes] | None = None) -> Host:
     """Build (or resume) a host under `home/host/` (or `base`): log.jsonl, mail/, journal/,
     delivery.json, intake.json, replay/ (the replay cache) and `home/objects` (the object store)."""
     home = Path(home)
@@ -365,6 +387,8 @@ def open_host(home: Path, *, repo: str, mailbox: Mailbox, host_private: bytes, b
 
     dispatcher = Dispatcher(journal, reg, repo=repo, host_private=host_private, send=mailbox.send, members=members,
                             http=http, clock=clock, **dict(dispatcher_kw or {}))
+    feed = EventFeed(base / "ui-events.jsonl", journal)
+    dispatcher.observers.append(feed.add)
     kw = dict(repo=repo, mailbox=mailbox, log_path=base / "log.jsonl", host_private=host_private,
               mail_store=base / "mail", dispatcher=dispatcher, clock=clock, **dict(intake_kw or {}))
     try:
@@ -374,19 +398,21 @@ def open_host(home: Path, *, repo: str, mailbox: Mailbox, host_private: bytes, b
             raise
         intake = Intake(replayer=Replayer(store, state_dir=state_dir), **kw)   # stale cache: rebuild
     holder["intake"] = intake
-    return Host(home, repo, intake, dispatcher, reg, intake.replayer, mailbox, bugs)
+    return Host(home, repo, intake, dispatcher, reg, intake.replayer, mailbox, bugs, feed=feed, ui_signers=ui_signers)
 
 
 def run_host(home: Path, *, repo: str, mailbox: Mailbox, host_private: bytes, bind: str = "127.0.0.1:8787",
              webhook_bind: str | None = None, bugs: Mailbox | None = None, stop: threading.Event | None = None,
              log_level: str = "warning", base: Path | None = None, store: ObjectStoreLike | None = None,
-             on_ready: Callable[[Host], None] | None = None) -> None:
+             on_ready: Callable[[Host], None] | None = None, ui_signers: Mapping[Handle, bytes] | None = None,
+             ui_dist: Path | None | bool = None) -> None:
     """Run a host until `stop` (or Ctrl-C): intake loop + dispatcher thread + the HTTP app (and,
     with `webhook_bind`, a second server with only the provider webhook route)."""
     import uvicorn
 
     stop = stop or threading.Event()
-    host = open_host(home, repo=repo, mailbox=mailbox, host_private=host_private, bugs=bugs, base=base, store=store)
+    host = open_host(home, repo=repo, mailbox=mailbox, host_private=host_private, bugs=bugs, base=base, store=store,
+                     ui_signers=ui_signers)
     if on_ready is not None:
         on_ready(host)
     worker = threading.Thread(target=host.intake.run, args=(stop,), name="gud-intake", daemon=True)
@@ -397,7 +423,7 @@ def run_host(home: Path, *, repo: str, mailbox: Mailbox, host_private: bytes, bi
         h, _, p = where.rpartition(":")
         return uvicorn.Server(uvicorn.Config(app, host=h or "127.0.0.1", port=int(p), log_level=log_level))
 
-    servers.append(server(host.app(), bind))
+    servers.append(server(host.app(ui_dist=ui_dist), bind))
     if webhook_bind:
         servers.append(server(create_webhook_app(host.intake), webhook_bind))
     threads = [threading.Thread(target=s.run, daemon=True) for s in servers]
@@ -465,7 +491,8 @@ def _decode_key(text: str) -> bytes:
 
 def serve_dir(root: Path, *, bind: str = "127.0.0.1:8787", webhook_bind: str | None = None,
               stop: threading.Event | None = None, log_level: str = "warning",
-              on_ready: Callable[[Host], None] | None = None) -> None:
+              on_ready: Callable[[Host], None] | None = None, ui_signers: Mapping[Handle, bytes] | None = None,
+              ui_dist: Path | None | bool = None) -> None:
     """`gud host serve`: serve a host directory made by `gud host init` (or `gud init`'s local
     host): `key`, `host.json` (repo, objects), `transport.toml` (the repo mailbox), and the log and
     mail it already holds (`log.jsonl`, `mail/`), so a repo started in local host mode continues
@@ -487,7 +514,7 @@ def serve_dir(root: Path, *, bind: str = "127.0.0.1:8787", webhook_bind: str | N
             raise SystemExit(f"{root} is already being served") from exc
         run_host(root, repo=meta["repo"], mailbox=mailbox, host_private=private, bind=bind,
                  webhook_bind=webhook_bind or cfg.get("webhook_bind") or None, stop=stop, log_level=log_level,
-                 base=root, store=DiskStore(objects), on_ready=on_ready)
+                 base=root, store=DiskStore(objects), on_ready=on_ready, ui_signers=ui_signers, ui_dist=ui_dist)
     finally:
         lock.close()
 

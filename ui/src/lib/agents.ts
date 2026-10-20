@@ -1,5 +1,11 @@
 const KNOWN: Record<string, string> = {
-  "@lead": "#e8b931",
+  "@human": "#f27bd4",
+  "@alice": "#5b8def",
+  "@bob": "#3dbe7a",
+  "@carol": "#b07cff",
+  "@dana": "#ff9f6b",
+  "@t1": "#2fbfb0",
+  "@host": "#e8b931",
   "@auth-agent": "#5b8def",
   "@billing-agent": "#3dbe7a",
   "@api-agent": "#b07cff",
