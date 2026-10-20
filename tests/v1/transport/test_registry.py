@@ -12,10 +12,14 @@ from gud.transport.fake import FakeMailbox
 from gud.transport.primitive import PrimitiveMailbox
 
 
-def test_names_and_lazy_errors() -> None:
+def test_names_and_lazy_errors(monkeypatch) -> None:
     assert registry.names()[:7] == ("fake", "imap_smtp", "jmap", "primitive", "ses", "postmark", "gmail")
+    for name in ("jmap", "ses", "postmark", "gmail"):   # every built-in is implemented and checks its config
+        with pytest.raises(TransportError, match="needs"):
+            registry.open_mailbox(name, {})
+    monkeypatch.setattr(registry, "BUILTINS", registry.BUILTINS + ("future_adapter",))
     with pytest.raises(TransportError, match="not implemented"):
-        registry.open_mailbox("jmap", {})
+        registry.open_mailbox("future_adapter", {})
     with pytest.raises(TransportError, match="unknown"):
         registry.open_mailbox("carrier_pigeon", {})
 
@@ -59,7 +63,8 @@ def test_member_config(tmp_path: Path, monkeypatch) -> None:
 
 def test_v1_transport_does_not_import_v0() -> None:
     code = ("import sys, gud.transport.registry, gud.transport.fake, gud.transport.imap_smtp, "
-            "gud.transport.primitive, gud.transport.auth, gud.transport.mime\n"
+            "gud.transport.primitive, gud.transport.auth, gud.transport.mime, gud.transport.jmap, "
+            "gud.transport.ses, gud.transport.postmark, gud.transport.gmail, gud.transport.spool\n"
             "v0 = {'gud.types','gud.wire','gud.replay','gud.mail_primitive','gud.mail_fake','gud.webhook',"
             "'gud.mail_hosted','gud.mail_remote','gud.mailbox','gud.config'}\n"
             "bad = sorted(v0 & set(sys.modules)); assert not bad, bad\n"

@@ -1052,9 +1052,9 @@ Each module exposes one class implementing `Mailbox` (and `WebhookVerifier` wher
 | --- | --- | --- |
 | `fake.py` | `FakeMailbox(root: Path, address: str, *, clock: Callable[[], float] = time.time)` | Local JSONL store shared by addresses under one root; `send` delivers raw bytes to every recipient with a strictly increasing `received_at`; `subscribe` via file watch or in-process callbacks. Also `FakeNetwork` (in-memory, deterministic clock, fault injection: delay, duplicate, drop, reorder) for protocol tests. |
 | `imap_smtp.py` | `ImapSmtpMailbox(imap_host, imap_port, smtp_host, smtp_port, username, password, address, *, folders=("INBOX", "Junk"))` | IDLE with reconnect; cursor `"<folder>:<UIDVALIDITY>:<UID>"`; received time = INTERNALDATE; SMTP submission (RFC 6409). |
-| `jmap.py` | `JmapMailbox(session_url, token, address)` | Email/query + Email/changes, EventSource push, EmailSubmission; cursor = JMAP state; received = `receivedAt`. |
+| `jmap.py` | `JmapMailbox(session_url, token, address)` | Email/query + Email/changes, EventSource push, upload + Email/import + EmailSubmission; cursor = JMAP state (+ receivedAt position); received = `receivedAt`. |
 | `primitive.py` | `PrimitiveMailbox(api_key, address, *, base_url=...)` + `WebhookVerifier` (HMAC) | Port of `gud/mail_primitive.py` minus inline-body handling; raw MIME required; synthesizes A-R if only JSON auth is exposed. |
-| `ses.py` | `SesMailbox(region, credentials, address, *, inbound_bucket=None)` + `WebhookVerifier` (SNS signature) | Outbound SendRawEmail; inbound via SNS→webhook, raw MIME from S3. |
+| `ses.py` | `SesMailbox(region, credentials, address, *, inbound_bucket=None, topic_arns=())` + `WebhookVerifier` (SNS signature) | Outbound SESv2 SendEmail (Raw); inbound via SNS→webhook, raw MIME inline or from S3; local spool. |
 | `postmark.py` | `PostmarkMailbox(server_token, address)` + `WebhookVerifier` (basic auth) | Inbound JSON includes `RawEmail` when enabled (required). |
 | `gmail.py` | `GmailMailbox(credentials_path, address)` + `WebhookVerifier` (Pub/Sub JWT) | `history.list` sync, `users.watch`; raw via `format=raw`; quota reported (humans and small swarms only). |
 
@@ -1488,11 +1488,18 @@ Public additions and changes, all backward compatible with the sections above. S
 - `gud.transport.base`: `PushKind`, `AuthResultsKind`, `ENVELOPE_CAP`, `MIME_OVERHEAD`, `envelope_budget(max_message_bytes, host_max_message_bytes=None) -> int` (§6 budget, 57/78 erratum), `now_ms(clock)`, `ThreadSubscription(target, *, name)` (a `Subscription` running `target(stop_event)` on a daemon thread), `safe_call(callback, item)`, and the string-config helpers `cfg_bool`, `cfg_int`, `cfg_list` used by every `from_config`. `Mailbox` is `runtime_checkable`.
 - `gud.transport.mime`: `ENV_FILENAME`, `ParsedMime.has_text` (a field with default `False`), `make_message_id(from_addr)`, `qp_encode(text)`, `b64_lines(data)`, `is_envelope_part(part)`, `outgoing_from_raw(raw) -> Outgoing` (for structured-send providers), `recipients(raw) -> tuple[str, ...]`. `to_email` also returns `None` for an unsigned message without a `text/plain` part (§2.2).
 - `gud.transport.auth`: `prepend(raw, value) -> bytes` (prepend one `Authentication-Results` line in the message's own line ending), `sender_verified(auth_results, from_addr, authserv_id) -> bool` (§8.1(2) for one message). `synthesize` raises `ValueError` for an authserv-id or domain that is not a token. `auth` imports only `core.envelope`.
-- `gud.transport.registry`: `BUILTINS`. A built-in whose module does not exist yet (jmap, ses, postmark, gmail) raises `TransportError("... not implemented yet")`. `member_config` merges top-level keys with a table named after the transport and resolves `<key>_env` from the environment.
+- `gud.transport.registry`: `BUILTINS`. Every built-in is implemented; a built-in whose module is missing raises `TransportError("... not implemented yet")`. `member_config` merges top-level keys with a table named after the transport and resolves `<key>_env` from the environment.
 - Every built-in adapter also has `head() -> str | None`, the cursor just after the newest message (not part of the protocol; the conformance suite uses it when present).
 - `gud.transport.fake`: `FAKE_AUTHSERV_ID = "fake.gud.invalid"`, `DEFAULT_MAX_MESSAGE_BYTES` (10 MiB). `FakeMailbox(root, address, *, clock, max_message_bytes, authserv_id, poll_interval)` plus `head()`, `deliver(raw, recipients=None, *, received_at=None)` (inject from an outside MTA). `Faults(delay_ms, jitter_ms, duplicate, drop, seed)`. `FakeNetwork(*, start_ms, faults, max_message_bytes, authserv_id)` with `now_ms`, `clock()`, `mailbox(address) -> NetworkMailbox`, `advance(ms)`, `advance_to(ms)`, `next_due()`, `pending`, `set_faults`, `submit(raw, recipients)`. `NetworkMailbox` adds `deliver(raw, recipients=None)` and `head()`; its `wait` advances virtual time instead of sleeping.
 - `gud.transport.imap_smtp`: constructor keywords `imap_tls`/`smtp_tls` (`"ssl" | "starttls" | "none"`), `smtp_username`, `smtp_password`, `max_message_bytes`, `authserv_id` (the provider's, reported in capabilities), `send_quota_per_day`, `preserves_message_id`, `idle_poll`, `timeout`, `ssl_context`, `clock`. Helpers `encode_cursor`, `decode_cursor`, `parse_internaldate`.
 - `gud.transport.primitive`: `PrimitiveMailbox(api_key, address, *, base_url, client, webhook_secret, authserv_id, subscribe_wait, send_quota_per_day, max_message_bytes, clock, sleep)` implements `Mailbox` and `WebhookVerifier`. It adds `accept_webhook(headers, body, now=None) -> list[Received]` (verify, parse, hand to subscribers), `fetch_webhook_secret()` and `head()`. Also exported: `AUTHSERV_ID = "primitive.gud.invalid"`, `MAX_MESSAGE_BYTES`, `PrimitiveError(TransportError)`, `PrimitiveQuotaError(PrimitiveError, QuotaExceeded)`, `signature_header`, `verify_signature`, `dmarc_for`, `unwrap_webhook`, `event_name`, `encode_cursor`, `decode_cursor`, `parse_time`.
+- `gud.transport.httputil` (new): `RETRY_STATUSES`, `retry_delay(resp, attempt)`, `parse_iso_ms(value)`, `iso_ms(ms, fraction=True)`, `header(headers, name)`.
+- `gud.transport.spool` (new): `Spool(root, *, poll_interval=0.05)` with `ingest(raw, received_at, provider_id, *, source="") -> Received | None` (one copy per provider id), `list`, `head`, `wait(since, timeout, on_idle=None, idle_every=0)`, `has`, `ids`; `parse_cursor`. The local store behind the SES and Postmark adapters.
+- `gud.transport.jmap`: `JmapMailbox(session_url, token, address, *, username, password, client, account_id, authserv_id, max_message_bytes, send_quota_per_day, received_time_resolution_ms=1000, preserves_message_id=True, ping=15, poll_interval=10, clock, sleep)` implements `Mailbox`, plus `session()`, `mailbox_roles()`, `head()`. Also `CORE`, `MAIL`, `SUBMISSION`, `JmapError(type_, description, status)` (`.type`), `JmapQuotaError`, `encode_cursor`, `decode_cursor`, `expand` (URL templates), `iter_sse`.
+- `gud.transport.ses`: `SesMailbox(region, credentials, address, *, inbound_bucket, inbound_prefix, topic_arns, store, client, ses_endpoint, s3_endpoint, authserv_id, max_message_bytes, send_quota_per_day, configuration_set, catchup_interval=60, confirm_subscriptions=True, clock, sleep)` implements `Mailbox` and `WebhookVerifier` (SNS), plus `accept_webhook(headers, body, now=None) -> list[Received]` (verify; confirm subscriptions; store), `confirm(msg)`, `catch_up() -> int`, `head()`. Also `AUTHSERV_ID = "ses.gud.invalid"`, `MAX_MESSAGE_BYTES`, `SNS_CONTENT_MAX`, `AwsCredentials(access_key_id, secret_access_key, session_token=None)` (`.from_env()`), `sigv4_headers(method, url, *, region, service, credentials, body, headers, amz_date, unsigned_payload)`, `SnsVerifier(client, topic_arns)`, `sns_string_to_sign`, `check_sns_url`, `message_id_domain(region)`, `SesError`, `SesQuotaError`, `SnsVerificationError`.
+- `gud.transport.postmark`: `PostmarkMailbox(server_token, address, *, base_url, client, store, message_stream="outbound", webhook_username, webhook_password, allowed_ips, inbound_aliases, authserv_id=None, max_message_bytes, send_quota_per_day, preserves_message_id=False, catchup_interval=60, clock, sleep)` implements `Mailbox` and `WebhookVerifier`; `verify` takes an extra keyword `remote_addr=None` (default: the `X-Gud-Remote-Addr` header). Plus `accept_webhook(headers, body, now=None, *, remote_addr=None) -> list[Received]`, `catch_up() -> int`, `head()`. Also `WEBHOOK_IPS`, `REMOTE_ADDR_HEADER`, `MAX_MESSAGE_BYTES`, `MESSAGE_ID_DOMAIN`, `basic_auth_header`, `PostmarkError(code, message, status)`, `PostmarkQuotaError`.
+- `gud.transport.gmail`: `GmailMailbox(credentials_path, address, *, oauth, client, token_cache, account_type="auto", send_quota_per_day, max_message_bytes, pubsub_topic, push_audience, push_service_account, poll_interval=10, preserves_message_id=False, report_message_id=True, api_base, upload_base, clock, sleep)` implements `Mailbox` and `WebhookVerifier` (Pub/Sub JWT; `parse` returns `[]`, since a push carries no mail), plus `accept_webhook(headers, body, now=None) -> dict` (the notification; wakes subscriptions), `watch()`, `notification(body)`, `head()`. Also `AUTHSERV_ID = "mx.google.com"`, `CONSUMER_SEND_PER_DAY = 500`, `WORKSPACE_SEND_PER_DAY = 2000`, `SCOPES`, `OAuthClient(client_id, client_secret, refresh_token, token_uri)` (`.from_file(path)`), `TokenCache`, `GoogleJwtVerifier(client, *, audience, service_account, jwks_uri, clock, leeway)`, `consent_url`, `authorize_installed_app(client_id, client_secret, *, scopes, login_hint, open_browser, client, timeout) -> refresh token`, `delivered(labels)`, `encode_cursor`, `decode_cursor`, `GmailError`, `GmailQuotaError`, `GmailAuthError`, `JwtError`.
+- Constructor signatures differ from the adapter table above as follows: `SesMailbox` takes `topic_arns` (required for SNS intake) and `store`; `PostmarkMailbox` and `SesMailbox` keep received mail in a `Spool`; `GmailMailbox(credentials_path=None, ..., oauth=...)` also accepts the OAuth client directly.
 - The conformance suite lives at `tests/v1/transport/conformance.py` (checks) and `tests/v1/transport/test_conformance.py` (transports), replacing the `tests/transport_conformance.py` named under "Test obligations".
 
 ## Addendum: public additions from the replay engine
@@ -1676,3 +1683,96 @@ Public additions from joining the layers (see "Implementation notes (integration
 - `gud.cli_v1`: `tester` takes `--runner --parallel --interval --once --host-url --repo`; `host serve [--dir D] [--repo R] [--bind] [--webhook-bind]`; `host key --dir D`; `host handover KEY [--new-repo ADDR] [--dir D]`; `host follow URL`; `export-archive OUT [--host [--dir D]]`; `import-archive ARCHIVE [--repo] [--dir] --transport N [--set k=v] [--trust-unplanned]`; `audit [--evidence FILE]` exits with the report's status. `agent` is still a stub.
 - Tests: `tests/v1/procs.py` (subprocess helpers: `gud`, `Proc`, `serve`, `wait_for`); the CLI suite runs in local host mode and against `gud host serve`.
 
+- The §21 host test double used by the wc tests is `tests/v1/wc/host_double.py` (`HostDouble`, `InProcess`, `Clock`); it is not product code.
+
+## Addendum: mcp and agent
+
+Public names in `gud/mcp_v1.py` and `gud/agent/`, as built. See "Implementation notes (mcp/agent)" in SPEC-v1.md. Neither module imports `cli_v1`. The `gud agent` stub in `cli_v1` already calls `gud.agent.runtime.main(argv)`.
+
+```python
+# gud/mcp_v1.py
+TOOL_NAMES: tuple[str, ...]          # status clone sync diff push verify inflight tasks task task_new claim claim_update
+                                     # release subtask no_change comment approve object hold inbox wait
+                                     # read ls blame log thread search forecast
+INSTRUCTIONS: str
+class ToolError(Exception)
+class GudTools:
+    def __init__(self, client: RepoClient, wc_root: Path | str | None, *, json: bool = False,
+                 events: MemberEvents | None = None, log_wait_s: float | None = None,   # default $GUD_WAIT or 10
+                 poll_s: float = 1.0, sleep=time.sleep) -> None
+    me: Handle; wc_root: Path | None      # every tool returns a str: text, or JSON when json=True ({"error": ...} on failure)
+class MemberEvents:                       # GUD_HOME/members/<handle>/events.jsonl
+    def __init__(self, home: Path, handle: Handle) -> None
+    def record(self, events) -> list[tuple[int, Event]]   # only events concerning the member; dedupe by id
+    def head(self) -> int; def since(self, n: int) -> list[tuple[int, Event]]; def all(self)
+def journal_deltas(client: RepoClient, journal: MemberEvents) -> None   # wrap client.sync_log so every delta is journaled
+def open_member(home=None, handle=None, wc=None, *, clock=time.time) -> tuple[RepoClient, Path | None]
+def describe_event(event: Event, chain: Chain | None = None, me: Handle | None = None) -> str
+def explain_proposal(prop: ProposalState, now: Ms) -> str
+def is_echo(event: Event, me: Handle) -> bool                      # own claim.won / linked
+ARTIFACT_PATTERNS: tuple[str, ...]; def artifacts(paths) -> list[str]
+def build_server(tools: GudTools) -> "mcp.server.mcpserver.MCPServer"   # FastMCP on mcp < 2
+def main(argv: list[str] | None = None) -> None   # python -m gud.mcp_v1 [--home H] [--handle @x] [--wc DIR] [--json]
+```
+
+Changes to the `gud/mcp_v1.py` tool table above:
+
+- **Changed:** `push(intent, task=None, revises=None, carry=True, edits=None, base=None, allow_artifacts=False)` sends the working copy's diff, or `edits` for members without a filesystem. It replaces both `push_working_copy` and the edits-only `push`. Each edit is `{path, content | content_b64, mode?}`, `{path, delete: true}` or `{path, rename_to}`.
+- Added tools: `task(id)`, `verify()`.
+- Added arguments: `inflight(paths=[], include_mine=False)`, `log(limit=20, path=None)`, `search(query, regex=False, at=None, ignore_case=False, glob=None, limit=500)`, `wait(timeout=60, types=[], push=None)`, `claim(task, files, after=[], note="")`, `release(claim, note="")`, `comment(target, text, task=None, escalate=None)`, `subtask(..., accept_paths=[], accept_cmds=[])`, `object(target, reason, evidence_path=None, evidence_content=None, evidence_file=None)`.
+- `read`, `ls` and `search` also take `at` = an in-flight push (its proposed tree). There is no `veto` tool.
+
+```python
+# gud/agent/budget.py
+@dataclass class Budget: usd, tokens, spent_usd=0.0, spent_tokens=0; charge(usd, tokens); exhausted; remaining_usd;
+                         describe(); to_json(); from_json(d)
+def turn_tokens(usage: Mapping | None) -> int          # input + output + cache creation + cache reads / 10
+@dataclass class Ledger: member: Budget, task_usd=None, task_tokens=None, path=None, tasks, escalated, member_escalated
+    @classmethod load(member, *, task_usd=None, task_tokens=None, path=None) -> Ledger
+    task(id) -> Budget; charge(usd, tokens, task=None); blocked(task=None) -> str | None; save()
+
+# gud/agent/prompt.py
+SYSTEM_PROMPT: str                     # format fields {handle}, {wc}, {budget}
+SUMMARY_PROMPT: str; IDLE_PROMPT: str
+def system_prompt(handle, wc, *, budget="...", extra="") -> str
+def render_event(event, chain) -> str
+def render_batch(events, chain, *, key="", notes=(), status="", idle=False) -> str   # changed: keyword options
+
+# gud/agent/sessions.py
+@dataclass class SessionTurn: text, usd=0.0, tokens=0, session_id=None, is_error=False, tool_calls={}, error=""
+class Session(Protocol): send(text) -> SessionTurn; close(summary=True) -> str
+class SessionManager:
+    def __init__(self, factory, *, debounce_s=1.0, max_open=8, max_delay_s=5.0, key=None, render=None,
+                 before_turn=None, after_turn=None, finished=None, on_close=None, clock=time.monotonic) -> None
+    aliases: dict[str, str]; sessions: OrderedDict[str, Session]; summaries; turns; skipped; errors
+    def route(events); def wake(key, events=()); def pump(now=None) -> int; def flush() -> int
+    def key_of(event) -> str; def alias(thread, session_key); def threads_of(key) -> list[str]
+    def close(key, summary=True) -> str; def close_finished(chain) -> list[str]; def close_all(summary=False)
+    pending: int; def next_due() -> float | None
+def thread_finished(key: str, chain: Chain, me: Handle | None = None) -> bool
+class AsyncLoop: run(coro, timeout=None); stop()
+class ClaudeSession(key, options: Callable[[str | None], ClaudeAgentOptions], loop: AsyncLoop, *, resume=None,
+                    turn_timeout_s=1800.0, on_message=None, on_extra_turn=None, summary_prompt="")   # implements Session
+def summarise_usage(turns) -> dict
+
+# gud/agent/runtime.py
+DEFAULT_MODEL = "claude-sonnet-5-5"; NATIVE_TOOLS = ("Read", "Edit", "Write", "Bash", "Grep", "Glob")
+class AgentRuntime:
+    def __init__(self, client, wc, *, model=DEFAULT_MODEL, budget: Budget, listen=None, task_budget: Budget | None = None,
+                 session_factory=None, state_dir=None, debounce_s=1.0, max_open=8, poll_s=2.0, idle_s=300.0,
+                 advertise=None, max_turns=80, turn_timeout_s=1800.0, extra_prompt="", deny_paths=(),
+                 mcp_env=None, clock=time.time, monotonic=time.monotonic, log=None) -> None
+    def run(self, stop: threading.Event) -> None
+    def on_events(self, events) -> None                # journal, then route new journal entries
+    def claude_session(self, thread_key: str) -> Session
+    def step(self, *, poll=True) -> int                # one loop pass; turns run
+    def accept_webhook(self, headers, body) -> int     # HTTP status
+    def idle_check(self, *, force=False, startup=False) -> bool
+    def quiet(self, event) -> bool; def options(self, resume=None) -> ClaudeAgentOptions; def mcp_server_config(self) -> dict
+    ledger: Ledger; journal: MemberEvents; events: EventClient; manager: SessionManager; stopped_reason: str | None
+def main(argv: list[str] | None = None) -> int   # gud agent --handle @x [--home H] [--wc DIR] [--listen [HOST]:PORT]
+    # [--advertise URL] [--model M] [--budget-usd N] [--budget-tokens N] [--task-budget-usd N] [--task-budget-tokens N]
+    # [--debounce S] [--max-open N] [--poll S] [--idle S] [--max-turns N] [--deny-path P]...
+```
+
+Runtime state lives in `GUD_HOME/members/<handle>/agent/`: `runtime.json` (routed journal cursor, aliases, SDK session ids per thread, notes, idle signature), `budget.json`, `events.json` (the `EventClient` cursor and seen ids), `turns.jsonl` (one record per turn) and `transcripts/<thread>.jsonl`. `pyproject.toml` has the optional extra `agent = ["claude-agent-sdk>=0.2.168"]`.
