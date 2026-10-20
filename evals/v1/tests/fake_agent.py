@@ -197,6 +197,73 @@ def gud_work(out: Out, handle: str, prompt: str, mcp_path: str) -> str:
     return "gave up"
 
 
+# -- gud v1 arm (gud1-cc) ---------------------------------------------------------------------------
+
+def gud1_work(out: Out, handle: str, mcp_path: str) -> str:
+    """Claim T1 (the first claimant wins; the rest work unclaimed), check inflight, write this agent's files
+    into the working copy, push, and wait. When the push is superseded (another agent's link touched
+    README.md), restore README.md to the base, sync, re-apply the note and push again."""
+    cfg = json.loads(Path(mcp_path).read_text())["mcpServers"]["gud"]
+    args = cfg["args"]
+    sys.path.insert(0, cfg["env"]["PYTHONPATH"])
+    from gud.mcp_v1 import GudTools, open_member
+
+    client, wc_root = open_member(args[args.index("--home") + 1], handle, args[args.index("--wc") + 1])
+    tools = GudTools(client, wc_root, poll_s=0.3)
+    cwd = Path.cwd()
+
+    def call(name: str, **kw) -> str:
+        result = getattr(tools, name)(**kw)
+        out.tool(f"mcp__gud__{name}", kw, result)
+        return result
+
+    files = my_files(handle)
+    conflict = os.environ.get("FAKE_CONFLICT") == "1"
+    call("tasks")
+    call("claim", task="T1", files=sorted(files) + (["README.md"] if conflict else []))
+    call("inflight")
+    out.tool("Read", {"file_path": str(cwd / "README.md")}, (cwd / "README.md").read_text())
+
+    def apply() -> None:
+        for rel, text in files.items():
+            (cwd / rel).parent.mkdir(parents=True, exist_ok=True)
+            (cwd / rel).write_text(text)
+            out.tool("Write", {"file_path": str(cwd / rel), "content": "..."}, "ok")
+        if conflict:
+            readme = cwd / "README.md"
+            readme.write_text(readme.read_text() + f"Owner note from {handle}.\n")
+
+    def redo() -> None:
+        (cwd / "README.md").write_text(call("read", path="README.md", at="base"))
+        call("sync")
+        if conflict:
+            readme = cwd / "README.md"
+            readme.write_text(readme.read_text() + f"Owner note from {handle}.\n")
+
+    def push() -> str:
+        for _ in range(3):
+            res = call("push", intent=f"work from {handle}", task="T1")
+            if not res.startswith("error"):
+                return res.split()[1]
+            redo()            # "links since your base changed README.md ... sync first"
+        raise SystemExit("push kept failing")
+
+    apply()
+    sh(out, "python -m pytest -q", cwd)
+    pid = push()
+    deadline = time.time() + float(os.environ.get("FAKE_DEADLINE", "60"))
+    while time.time() < deadline:
+        call("wait", push=pid, timeout=3)
+        chain = client.chain()
+        if any(l.push == pid for l in chain.links):
+            return f"linked {pid[:12]}"
+        prop = chain.push_status(pid)
+        if prop is not None and prop.status in ("superseded", "stale", "conflict"):
+            redo()
+            pid = push()
+    return "gave up"
+
+
 def main() -> int:
     argv = sys.argv[1:]
     opts = args_of(argv)
@@ -223,7 +290,9 @@ def main() -> int:
     if mode == "sleep":
         time.sleep(600)
         return 0
-    if "--mcp-config" in opts:
+    if "--mcp-config" in opts and "gud.cli_v1" in Path(opts["--mcp-config"]).read_text():
+        text = gud1_work(out, handle, opts["--mcp-config"])
+    elif "--mcp-config" in opts:
         text = gud_work(out, handle, opts["-p"], opts["--mcp-config"])
     else:
         text = git_work(out, handle)

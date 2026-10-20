@@ -1,0 +1,631 @@
+{
+  "arm": "gud1-ref",
+  "spec": "acme-site-shared",
+  "agents_n": 4,
+  "trial": 1,
+  "requested_model": "claude-sonnet-5-5",
+  "budget_usd": 1.2,
+  "agent_budget_usd": 0.3,
+  "timeout_s": 1200.0,
+  "window_s": 20.0,
+  "test_policy": "tip",
+  "agent_cmd": "gud.agent.runtime",
+  "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-gud1-ref-1f2z9msf",
+  "fairness": {
+    "agent": "reference agent (Claude Agent SDK)",
+    "tools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "mcp__gud__*"
+    ],
+    "test_command": "python -m pytest -q -x",
+    "same_prompt_preamble": false
+  },
+  "ref_stop": "settled",
+  "outcome": "completed",
+  "harness_errors": [],
+  "killed": {},
+  "model": "claude-sonnet-5-5",
+  "wall_s": 104.6,
+  "drain_s": 0.0,
+  "cost_usd": 0.1933,
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_creation": 0
+  },
+  "tokens_total": 0,
+  "turns": 25,
+  "hidden": {
+    "passed": 28,
+    "failed": 0,
+    "total": 28,
+    "pass_rate": 1.0
+  },
+  "spec_checks": {
+    "test_build_runs": true,
+    "test_site_is_not_committed": true,
+    "test_page_built[index.html]": true,
+    "test_page_built[features.html]": true,
+    "test_page_built[pricing.html]": true,
+    "test_page_built[about.html]": true,
+    "test_page_built[contact.html]": true,
+    "test_page_basics[index.html]": true,
+    "test_page_basics[features.html]": true,
+    "test_page_basics[pricing.html]": true,
+    "test_page_basics[about.html]": true,
+    "test_page_basics[contact.html]": true,
+    "test_nav_order_and_current[index.html]": true,
+    "test_nav_order_and_current[features.html]": true,
+    "test_nav_order_and_current[pricing.html]": true,
+    "test_nav_order_and_current[about.html]": true,
+    "test_nav_order_and_current[contact.html]": true,
+    "test_nav_shared": true,
+    "test_nav_has_one_source": true,
+    "test_index_hero_cards_cta": true,
+    "test_features_six": true,
+    "test_pricing_table": true,
+    "test_about_story_and_team": true,
+    "test_contact_form": true,
+    "test_styles_cover_components": true,
+    "test_styles_responsive_under_700px": true,
+    "test_one_stylesheet": true,
+    "test_local_links_resolve": true
+  },
+  "final_tests_pass": true,
+  "final_files": [
+    ".gitignore",
+    ".gudignore",
+    "README.md",
+    "build.py",
+    "components/nav.html",
+    "pages/about.html",
+    "pages/contact.html",
+    "pages/features.html",
+    "pages/index.html",
+    "pages/pricing.html",
+    "styles.css",
+    "tests/test_site.py",
+    "tests/test_smoke.py"
+  ],
+  "escalations": 0,
+  "local_test_runs": 1,
+  "hidden_access": [],
+  "integrations": 1,
+  "integrations_per_min": 0.574,
+  "test_runs": 3,
+  "test_runs_per_integration": 3.0,
+  "conflicts_total": 0,
+  "conflicts_resolved": 0,
+  "gud1": {
+    "links": 1,
+    "links_per_min": 0.574,
+    "first_link_s": 64.4,
+    "pushes": 1,
+    "pushes_by_end": {
+      "linked": 1
+    },
+    "carried_links": 0,
+    "carried_events": 0,
+    "superseded": 0,
+    "colliding_pushes": 0,
+    "emails": 8,
+    "emails_by_kind": {
+      "claim": 1,
+      "comment": 1,
+      "notify": 1,
+      "push": 1,
+      "task": 1,
+      "test": 3
+    },
+    "emails_per_link": 8.0,
+    "test_runs": 3,
+    "test_runs_by_scope": {
+      "accept": 1,
+      "tip": 2
+    },
+    "test_failures": 0,
+    "test_runs_per_link": 3.0,
+    "claims": {
+      "won": 1,
+      "lost": 0,
+      "updates": 0,
+      "releases": 0,
+      "lapsed": 0,
+      "scopes": [
+        {
+          "holder": "@a3",
+          "task": "T1",
+          "files": [
+            "**"
+          ],
+          "status": "done"
+        }
+      ],
+      "scope_exceeded": 0
+    },
+    "overlaps": {
+      "total": 0,
+      "by_settlement": {},
+      "list": []
+    },
+    "comments": {
+      "total": 1,
+      "by_target": {
+        "task": 1
+      },
+      "escalation_comments": 0
+    },
+    "objections": {
+      "total": 0,
+      "reason": 0,
+      "evidence": 0,
+      "answered": {},
+      "list": []
+    },
+    "approvals": 0,
+    "holds": 0,
+    "escalations": {
+      "consent": [],
+      "task": [],
+      "resolved_by": {}
+    },
+    "red_tip": {
+      "episodes": 0,
+      "closed": 0,
+      "median_to_green_s": null,
+      "red_at_end": false,
+      "fix_tasks": 0,
+      "list": []
+    },
+    "task": {
+      "alias": "T1",
+      "status": "done",
+      "subtasks": 0,
+      "subtask_status": {},
+      "work_done_s": 64.4,
+      "done_s": 66.9
+    },
+    "events": {
+      "claim.won": 1,
+      "commented": 1,
+      "linked": 2,
+      "push.received": 1,
+      "review.requested": 1,
+      "task.done": 1,
+      "task.opened": 1,
+      "task.ready": 1,
+      "test.passed": 3,
+      "window.closing": 1
+    },
+    "per_agent": {
+      "@a1": {
+        "pushes": 0,
+        "links": 0,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 0,
+        "claim_msgs": 0,
+        "comments": 0,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [],
+        "claim_scopes_all": []
+      },
+      "@a2": {
+        "pushes": 0,
+        "links": 0,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 0,
+        "claim_msgs": 0,
+        "comments": 0,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [],
+        "claim_scopes_all": []
+      },
+      "@a3": {
+        "pushes": 1,
+        "links": 1,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 1,
+        "claim_msgs": 1,
+        "comments": 0,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [
+          [
+            "**"
+          ]
+        ],
+        "claim_scopes_all": [
+          [
+            "**"
+          ]
+        ]
+      },
+      "@a4": {
+        "pushes": 0,
+        "links": 0,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 0,
+        "claim_msgs": 0,
+        "comments": 1,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [],
+        "claim_scopes_all": []
+      }
+    },
+    "link_list": [
+      {
+        "seq": 1,
+        "author": "@a3",
+        "carried": false,
+        "files": [
+          "build.py",
+          "components/nav.html",
+          "pages/about.html",
+          "pages/contact.html",
+          "pages/features.html",
+          "pages/index.html",
+          "pages/pricing.html",
+          "styles.css",
+          "tests/test_site.py"
+        ],
+        "at_s": 64.4,
+        "intent": "Build five-page Acme Notes site with shared nav, styles, tests"
+      }
+    ],
+    "push_list": [
+      {
+        "id": "0653f765aebc",
+        "author": "@a3",
+        "t": 39.4,
+        "files": [
+          "build.py",
+          "components/nav.html",
+          "pages/about.html",
+          "pages/contact.html",
+          "pages/features.html",
+          "pages/index.html",
+          "pages/pricing.html",
+          "styles.css",
+          "tests/test_site.py"
+        ],
+        "base_seq": 0,
+        "end": "linked",
+        "end_t": 64.4,
+        "carried": false,
+        "link_seq": 1,
+        "task": "77b63805ec00ab4c2e7cc98e7bd07705f3a327bc7c51c11f1dd296bbf2215125",
+        "revises": null,
+        "intent": "Build five-page Acme Notes site with shared nav, styles, tests",
+        "collides_with": []
+      }
+    ],
+    "conflicts": []
+  },
+  "agents": [
+    {
+      "handle": "@a1",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 103.1,
+      "turns": 5,
+      "wakeups": 1,
+      "tokens": {
+        "ledger": 9749
+      },
+      "cost_usd": 0.033954,
+      "cost_source": "ledger",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": null,
+      "mcp_servers": null,
+      "tool_calls": 3,
+      "tool_counts": {
+        "Bash": 1,
+        "mcp__gud__claim": 1,
+        "mcp__gud__tasks": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "Task is held by @a3 for all files; I'll leave it.\n\nI didn't claim T1 because @a3 already holds it with a claim on all files (`**`). I made no changes.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "turn_keys": [
+        "task:77b63805ec00ab4c2e7"
+      ],
+      "local_test_runs": 0
+    },
+    {
+      "handle": "@a2",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 103.0,
+      "turns": 5,
+      "wakeups": 1,
+      "tokens": {
+        "ledger": 9498
+      },
+      "cost_usd": 0.032965,
+      "cost_source": "ledger",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": null,
+      "mcp_servers": null,
+      "tool_calls": 3,
+      "tool_counts": {
+        "Bash": 1,
+        "mcp__gud__claim": 1,
+        "mcp__gud__tasks": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "Another member (@a3) holds T1, so I'm not claiming it.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "turn_keys": [
+        "task:77b63805ec00ab4c2e7"
+      ],
+      "local_test_runs": 0
+    },
+    {
+      "handle": "@a3",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 103.0,
+      "turns": 9,
+      "wakeups": 1,
+      "tokens": {
+        "ledger": 23905
+      },
+      "cost_usd": 0.09026,
+      "cost_source": "ledger",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": null,
+      "mcp_servers": null,
+      "tool_calls": 7,
+      "tool_counts": {
+        "Bash": 3,
+        "mcp__gud__claim": 1,
+        "mcp__gud__push": 1,
+        "mcp__gud__tasks": 1,
+        "mcp__gud__wait": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "I built all five Acme Notes pages and pushed them as 0653f765aebc, which is still in its consent window (it closes soon). I haven't seen it link yet.\n\nThe local `python -m pytest -q` run passed, with 3 tests. Besides the pages, the push includes:\n- the shared nav with all five links\n- `aria-current=\"page\"` added to the matching nav link when `build.py` renders each page\n- the shared `styles.css`, with the responsive layout under 700px\n- new tests in `tests/test_site.py` that build the site and check titles, nav, links and page content\n\nThe About page team names (Ada Lovelace, Grace Hopper, Alan Turing) and the plan feature rows on Pricing are placeholders I made up. `site/` is not committed.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "turn_keys": [
+        "task:77b63805ec00ab4c2e7"
+      ],
+      "local_test_runs": 1
+    },
+    {
+      "handle": "@a4",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 103.0,
+      "turns": 6,
+      "wakeups": 1,
+      "tokens": {
+        "ledger": 11349
+      },
+      "cost_usd": 0.03616,
+      "cost_source": "ledger",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": null,
+      "mcp_servers": null,
+      "tool_calls": 4,
+      "tool_counts": {
+        "Bash": 1,
+        "mcp__gud__comment": 1,
+        "mcp__gud__inflight": 1,
+        "mcp__gud__tasks": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "I didn't claim T1 because @a3 already holds it with a `**` claim. I left a comment saying I can review their push when it lands.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "turn_keys": [
+        "task:77b63805ec00ab4c2e7"
+      ],
+      "local_test_runs": 0
+    }
+  ],
+  "tokens_ledger": 54501,
+  "analysis": {
+    "summary": {
+      "files_read_per_agent": 6.5,
+      "reads_outside_own_changes_per_agent": 4.5,
+      "reads_outside_claims_per_agent": 4.0,
+      "agents_with_claims": 1,
+      "colliding_pushes": 0,
+      "colliding_with_inflight_before": 0,
+      "colliding_with_comment_before": 0,
+      "colliding_with_inflight_since_last_push": 0,
+      "push_refusals": 0,
+      "stale_base_refusals": 0,
+      "inflight_calls": 1,
+      "comment_calls": 1,
+      "claim_calls": 3,
+      "claim_update_calls": 0,
+      "subtask_calls": 0
+    },
+    "agents": {
+      "@a1": {
+        "files_read": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/about.html",
+          "pages/contact.html",
+          "pages/features.html",
+          "pages/index.html",
+          "pages/pricing.html",
+          "tests/test_site.py",
+          "tests/test_smoke.py"
+        ],
+        "files_changed": [],
+        "reads_outside_own_changes": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/about.html",
+          "pages/contact.html",
+          "pages/features.html",
+          "pages/index.html",
+          "pages/pricing.html",
+          "tests/test_site.py",
+          "tests/test_smoke.py"
+        ],
+        "gud_tools": {
+          "claim": 1,
+          "tasks": 1
+        },
+        "claim_scopes": [],
+        "reads_outside_claims": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/about.html",
+          "pages/contact.html",
+          "pages/features.html",
+          "pages/index.html",
+          "pages/pricing.html",
+          "tests/test_site.py",
+          "tests/test_smoke.py"
+        ],
+        "changes_outside_claims": [],
+        "pushes": 0,
+        "colliding_pushes": [],
+        "push_refusals": []
+      },
+      "@a2": {
+        "files_read": [
+          "README.md",
+          "build.py",
+          "components/nav.html"
+        ],
+        "files_changed": [],
+        "reads_outside_own_changes": [
+          "README.md",
+          "build.py",
+          "components/nav.html"
+        ],
+        "gud_tools": {
+          "claim": 1,
+          "tasks": 1
+        },
+        "claim_scopes": [],
+        "reads_outside_claims": [
+          "README.md",
+          "build.py",
+          "components/nav.html"
+        ],
+        "changes_outside_claims": [],
+        "pushes": 0,
+        "colliding_pushes": [],
+        "push_refusals": []
+      },
+      "@a3": {
+        "files_read": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/about.html",
+          "pages/contact.html",
+          "pages/index.html",
+          "pages/pricing.html",
+          "styles.css",
+          "tests/test_site.py",
+          "tests/test_smoke.py"
+        ],
+        "files_changed": [
+          "build.py",
+          "components/nav.html",
+          "pages/about.html",
+          "pages/contact.html",
+          "pages/features.html",
+          "pages/index.html",
+          "pages/pricing.html",
+          "styles.css",
+          "tests/test_site.py"
+        ],
+        "reads_outside_own_changes": [
+          "README.md",
+          "tests/test_smoke.py"
+        ],
+        "gud_tools": {
+          "claim": 1,
+          "tasks": 1,
+          "wait": 1,
+          "push": 1
+        },
+        "claim_scopes": [
+          [
+            "**"
+          ]
+        ],
+        "reads_outside_claims": [],
+        "changes_outside_claims": [],
+        "pushes": 1,
+        "colliding_pushes": [],
+        "push_refusals": []
+      },
+      "@a4": {
+        "files_read": [
+          "README.md",
+          "build.py",
+          "components/nav.html"
+        ],
+        "files_changed": [],
+        "reads_outside_own_changes": [
+          "README.md",
+          "build.py",
+          "components/nav.html"
+        ],
+        "gud_tools": {
+          "inflight": 1,
+          "comment": 1,
+          "tasks": 1
+        },
+        "claim_scopes": [],
+        "reads_outside_claims": [
+          "README.md",
+          "build.py",
+          "components/nav.html"
+        ],
+        "changes_outside_claims": [],
+        "pushes": 0,
+        "colliding_pushes": [],
+        "push_refusals": []
+      }
+    }
+  },
+  "requested_budget_usd": 1.2,
+  "cap": {
+    "cap_usd": 30.0,
+    "spent_usd": 5.9945,
+    "reserved_usd": 3.6,
+    "remaining_usd": 20.4055
+  }
+}

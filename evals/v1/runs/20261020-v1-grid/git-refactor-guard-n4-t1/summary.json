@@ -1,0 +1,405 @@
+{
+  "arm": "git",
+  "spec": "refactor-guard",
+  "agents_n": 4,
+  "trial": 1,
+  "requested_model": "claude-sonnet-5-5",
+  "budget_usd": 1.2,
+  "agent_budget_usd": 0.3,
+  "timeout_s": 1200.0,
+  "window_s": null,
+  "test_policy": null,
+  "agent_cmd": "/Users/nelson/.local/bin/claude",
+  "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-git-lugm8peh",
+  "fairness": {
+    "agent": "Claude Code headless",
+    "tools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep"
+    ],
+    "test_command": "python -m pytest -q -x",
+    "same_prompt_preamble": true
+  },
+  "outcome": "completed",
+  "harness_errors": [],
+  "killed": {},
+  "model": "claude-sonnet-5-5",
+  "wall_s": 127.1,
+  "drain_s": null,
+  "cost_usd": 0.5025,
+  "tokens": {
+    "input": 8390,
+    "output": 19163,
+    "cache_read": 416398,
+    "cache_creation": 54882
+  },
+  "tokens_total": 498833,
+  "turns": 33,
+  "hidden": {
+    "passed": 23,
+    "failed": 0,
+    "total": 23,
+    "pass_rate": 1.0
+  },
+  "spec_checks": {
+    "test_slugify[Caf\\xe9 au lait-caf\\xe9-au-lait]": true,
+    "test_slugify[Stra\\xdfe 5-stra\\xdfe-5]": true,
+    "test_slugify[\\u6771\\u4eac \\u30e1\\u30e2-\\u6771\\u4eac-\\u30e1\\u30e2]": true,
+    "test_slugify[\\xdcn\\xefc\\xf6d\\xe9 \\u2014 notes!-\\xfcn\\xefc\\xf6d\\xe9-notes]": true,
+    "test_slugify[Hello, World!-hello-world]": true,
+    "test_slugify[  Release 2.0 plan  -release-2-0-plan]": true,
+    "test_slugify[!!!-untitled]": true,
+    "test_slugify[Cafe\\u0301-caf\\xe9]": true,
+    "test_unicode_note_round_trip": true,
+    "test_ascii_slugs_unchanged": true,
+    "test_gc_keeps_unicode_notes": true,
+    "test_gc_keeps_renamed_unicode_note": true,
+    "test_gc_still_removes_debris": true,
+    "test_tags_stored_and_listed": true,
+    "test_tag_command": true,
+    "test_rename": true,
+    "test_rename_collision": true,
+    "test_search": true,
+    "test_unknown_slug[args0]": true,
+    "test_unknown_slug[args1]": true,
+    "test_unknown_slug[args2]": true,
+    "test_unknown_slug[args3]": true,
+    "test_existing_commands_still_work": true
+  },
+  "final_tests_pass": true,
+  "final_files": [
+    ".gitignore",
+    "README.md",
+    "cli.py",
+    "conftest.py",
+    "notes/__init__.py",
+    "notes/cleanup.py",
+    "notes/slug.py",
+    "notes/store.py",
+    "tests/test_notes.py"
+  ],
+  "escalations": 0,
+  "local_test_runs": 14,
+  "hidden_access": [],
+  "integrations": 1,
+  "integrations_per_min": 0.472,
+  "test_runs": 1,
+  "test_runs_per_integration": 1.0,
+  "conflicts_total": 0,
+  "conflicts_resolved": 0,
+  "git": {
+    "merges": 1,
+    "merges_per_min": 0.472,
+    "prs_opened": 2,
+    "prs_closed": 0,
+    "approvals": 1,
+    "comments": 4,
+    "merge_attempts": 1,
+    "merge_rejections": {},
+    "gate_test_runs": 1,
+    "gate_test_failures": 0,
+    "test_runs_per_merge": 1.0,
+    "rebased_merges": 1,
+    "local_conflicts": {},
+    "push_rejections": {
+      "@a4": 1
+    },
+    "direct_main_push_rejected": 0,
+    "first_merge_s": 92.1,
+    "prs": [
+      {
+        "id": "PR1",
+        "author": "@a1",
+        "status": "merged",
+        "title": "a1: all four features (unicode, tags, rename, search) + gc fix",
+        "approvals": [
+          "@a2"
+        ],
+        "comments": 2,
+        "merge_attempts": 1
+      },
+      {
+        "id": "PR2",
+        "author": "@a3",
+        "status": "open",
+        "title": "a3: all four features (unicode, tags, rename, search) + gc fix + tests",
+        "approvals": [],
+        "comments": 2,
+        "merge_attempts": 0
+      }
+    ],
+    "conflicts": []
+  },
+  "agents": [
+    {
+      "handle": "@a1",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 99.8,
+      "turns": 8,
+      "tokens": {
+        "input": 2096,
+        "output": 4661,
+        "cache_read": 87993,
+        "cache_creation": 11767
+      },
+      "cost_usd": 0.113312,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 7,
+      "tool_counts": {
+        "Bash": 7
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "All four features are merged into main (PR1, approved by @a2), and `python -m pytest -q` passes (6 tests). I ran the tests on the branch, and `pr merge` re-ran them on the rebased result before landing it. I did all four myself in one PR and said so in a PR comment, so the others wouldn't duplicate the work.\n\n- **Unicode titles:** `slugify` now NFC-normalises, lowercases and keeps letters and digits from every script.\n- **`gc` fix:** `gc` used to delete any note file whose name wasn't plain ASCII. I changed its note-file check to accept unicode slugs, so `gc` no longer deletes unicode notes.\n- **Tags:** `new --tag` (repeatable), `tag SLUG TAG...` and `list --tag` work as specified. `show` now prints the stored file as is.\n- **Rename:** `rename SLUG NEW TITLE...` keeps tags and body and adds the `-2`, `-3` suffix when needed. Renaming a note to a title with the same slug keeps its slug.\n- **Search:** `search WORDS...` matches title or body, ignoring case, sorted by slug, and prints `No matches.` when nothing fits.\n- **Unknown slug:** `rename` on an unknown slug prints `Error: no note 'x'` to stderr and exits 1, and I added a test for it. I only tested that for `rename`; the other slug commands share the same handler.\n- **Tests:** `tests/test_notes.py` has two new tests covering all four features.\n\nI didn't update `README.md` with the new commands. Nothing is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 3
+    },
+    {
+      "handle": "@a2",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 97.8,
+      "turns": 8,
+      "tokens": {
+        "input": 2096,
+        "output": 4575,
+        "cache_read": 95536,
+        "cache_creation": 16218
+      },
+      "cost_usd": 0.131739,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 7,
+      "tool_counts": {
+        "Bash": 7
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "All four features are on main (`231ae3c`), landed through @a1's PR1. The 6 tests in that PR pass when run on its branch. I didn't re-run the suite on main after the merge.\n\nI had written my own version of the same work, but @a1 opened PR1 first with essentially identical code. I discarded mine and reviewed theirs instead. I read the diff and approved it, and the merge went through.\n\nPR1 covers the four features and the tests. It also includes a fix I'd have missed: `gc` in `notes/cleanup.py` would have deleted notes with non-ASCII slugs, and its check now accepts them.\n\nNo other PRs are open, and nobody is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 2
+    },
+    {
+      "handle": "@a3",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 127.1,
+      "turns": 8,
+      "tokens": {
+        "input": 2098,
+        "output": 4401,
+        "cache_read": 102447,
+        "cache_creation": 11806
+      },
+      "cost_usd": 0.113747,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 7,
+      "tool_counts": {
+        "Bash": 7
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "All four features are already on main, landed by another agent. `python -m pytest -q` passes there with 6 tests.\n\nI built the same features on a branch and opened PR2, but it's redundant. My own behaviour tests, including a unicode-slug test for `gc`, also pass against main's code (7 passed), so main behaves as the task describes. I commented on PR2 saying not to merge it. Nobody is waiting on a review from me.\n\nI also ran `gc` by hand on a note with a Japanese slug. It removed nothing and the file stayed.\n\nI didn't close PR2, so it's still open. Merging it would only add my extra tests.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 3
+    },
+    {
+      "handle": "@a4",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 113.5,
+      "turns": 9,
+      "tokens": {
+        "input": 2100,
+        "output": 5526,
+        "cache_read": 130422,
+        "cache_creation": 15091
+      },
+      "cost_usd": 0.143751,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 8,
+      "tool_counts": {
+        "Bash": 8
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "All four features are on main through @a1's PR1, and `python -m pytest -q` passes there (6 tests). I didn't land anything of my own.\n\nI had written my own implementation and test file, but @a1 opened PR1 first, so I didn't open a duplicate. My local `features` branch is unpushed and not needed.\n\nI reviewed PR1 and commented on it with a failing test: `test_tags_rename_search` searched for `mi LK` instead of `MILK`. It was merged (approved by @a2) before I approved, and main passes now. I then checked main by hand with a Japanese title and these commands:\n- `new` with duplicate tags\n- `gc`, which removed nothing\n- `tag`\n- `show`\n- `rename` to `Caf\u00e9`\n- `search CAF\u00c9`\n- `list --tag`\n- `show` on an unknown slug, which printed the error and exited 1\n\nAll worked as the task describes.\n\n@a3's PR2 does the same work and is still open. I commented suggesting it be closed, since it will conflict with main.\n\nI'm not waiting on any review.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 6
+    }
+  ],
+  "analysis": {
+    "summary": {
+      "files_read_per_agent": 6.5,
+      "reads_outside_own_changes_per_agent": 4.0,
+      "guard_read_by": [
+        "@a1",
+        "@a2",
+        "@a3",
+        "@a4"
+      ],
+      "guard_changed_by": [
+        "@a1",
+        "@a3"
+      ]
+    },
+    "agents": {
+      "@a1": {
+        "files_read": [
+          "README.md",
+          "cli.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "files_changed": [
+          "cli.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "reads_outside_own_changes": [
+          "README.md",
+          "notes/__init__.py"
+        ],
+        "gud_tools": {},
+        "guard_files_read": [
+          "notes/cleanup.py"
+        ],
+        "guard_files_changed": [
+          "notes/cleanup.py"
+        ]
+      },
+      "@a2": {
+        "files_read": [
+          "README.md",
+          "cli.py",
+          "conftest.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "files_changed": [],
+        "reads_outside_own_changes": [
+          "README.md",
+          "cli.py",
+          "conftest.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "gud_tools": {},
+        "guard_files_read": [
+          "notes/cleanup.py"
+        ],
+        "guard_files_changed": []
+      },
+      "@a3": {
+        "files_read": [
+          "cli.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "files_changed": [
+          "cli.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "reads_outside_own_changes": [
+          "notes/__init__.py"
+        ],
+        "gud_tools": {},
+        "guard_files_read": [
+          "notes/cleanup.py"
+        ],
+        "guard_files_changed": [
+          "notes/cleanup.py"
+        ]
+      },
+      "@a4": {
+        "files_read": [
+          "cli.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py"
+        ],
+        "files_changed": [],
+        "reads_outside_own_changes": [
+          "cli.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py"
+        ],
+        "gud_tools": {},
+        "guard_files_read": [
+          "notes/cleanup.py"
+        ],
+        "guard_files_changed": []
+      }
+    }
+  },
+  "context_check": {
+    "guard_files": [
+      "notes/cleanup.py"
+    ],
+    "guard_changed_in_final_tree": {
+      "notes/cleanup.py": true
+    },
+    "guard_tests_passed": {
+      "test_gc_keeps_unicode_notes": true,
+      "test_gc_keeps_renamed_unicode_note": true,
+      "test_gc_still_removes_debris": true
+    },
+    "read_by": [
+      "@a1",
+      "@a2",
+      "@a3",
+      "@a4"
+    ]
+  },
+  "requested_budget_usd": 1.2,
+  "cap": {
+    "cap_usd": 30.0,
+    "spent_usd": 8.2797,
+    "reserved_usd": 3.6,
+    "remaining_usd": 18.1203
+  }
+}

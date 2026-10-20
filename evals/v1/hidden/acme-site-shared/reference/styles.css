@@ -1,0 +1,82 @@
+/* Acme Notes: the one stylesheet for every page. */
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  color: #1d1d1f;
+  line-height: 1.5;
+}
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.site-nav {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem;
+  background: #1d1d1f;
+}
+
+.site-nav a {
+  color: #fff;
+  text-decoration: none;
+}
+
+.site-nav [aria-current="page"] {
+  font-weight: bold;
+  border-bottom: 2px solid #f5a623;
+}
+
+.hero {
+  padding: 3rem 1rem;
+  text-align: center;
+}
+
+.card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.cta {
+  display: inline-block;
+  padding: 0.75rem 1.5rem;
+  background: #f5a623;
+  color: #1d1d1f;
+  border-radius: 6px;
+}
+
+.feature {
+  margin-bottom: 1.5rem;
+}
+
+.pricing-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.pricing-table th,
+.pricing-table td {
+  border: 1px solid #ddd;
+  padding: 0.5rem;
+}
+
+.team {
+  display: flex;
+  gap: 1rem;
+}
+
+.contact-form {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 480px;
+}
+
+@media (max-width: 700px) {
+  .site-nav,
+  .team {
+    flex-direction: column;
+  }
+}

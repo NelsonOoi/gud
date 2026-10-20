@@ -1,0 +1,5 @@
+{
+  "guard_files": ["notes/cleanup.py"],
+  "guard_tests": ["test_gc_keeps_unicode_notes", "test_gc_keeps_renamed_unicode_note", "test_gc_still_removes_debris"],
+  "note": "The obvious change to notes/slug.py (unicode slugs) makes notes/cleanup.py's NOTE_FILE guard treat non-ASCII note files as debris, so `gc` deletes them. The task never mentions cleanup.py or gc; no visible test covers a non-ASCII gc."
+}

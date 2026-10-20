@@ -1,0 +1,387 @@
+{
+  "arm": "gud1-ref",
+  "spec": "todo-cli",
+  "agents_n": 2,
+  "trial": 1,
+  "requested_model": "claude-sonnet-5-5",
+  "budget_usd": 1.0,
+  "agent_budget_usd": 0.5,
+  "timeout_s": 900.0,
+  "window_s": 20.0,
+  "test_policy": "tip",
+  "agent_cmd": "gud.agent.runtime",
+  "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-gud1-ref-r_16bjtd",
+  "fairness": {
+    "agent": "reference agent (Claude Agent SDK)",
+    "tools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "mcp__gud__*"
+    ],
+    "test_command": "python -m pytest -q -x",
+    "same_prompt_preamble": false
+  },
+  "ref_stop": "settled",
+  "outcome": "completed",
+  "harness_errors": [],
+  "killed": {},
+  "model": "claude-sonnet-5-5",
+  "wall_s": 66.6,
+  "drain_s": 0.0,
+  "cost_usd": 0.158,
+  "tokens": {
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_creation": 0
+  },
+  "tokens_total": 0,
+  "turns": 11,
+  "hidden": {
+    "passed": 15,
+    "failed": 0,
+    "total": 15,
+    "pass_rate": 1.0
+  },
+  "spec_checks": {
+    "test_add_prints_and_stores": true,
+    "test_ids_increase": true,
+    "test_list_empty": true,
+    "test_list_shows_status": true,
+    "test_done": true,
+    "test_remove": true,
+    "test_next_id_after_remove_is_max_plus_one": true,
+    "test_unknown_id[done]": true,
+    "test_unknown_id[remove]": true,
+    "test_non_integer_id_is_usage_error": true,
+    "test_no_command_is_usage_error": true,
+    "test_help_lists_subcommands": true,
+    "test_todo_file_env": true,
+    "test_default_file_in_cwd": true,
+    "test_uses_argparse": true
+  },
+  "final_tests_pass": true,
+  "final_files": [
+    ".gudignore",
+    "README.md",
+    "tests/test_smoke.py",
+    "tests/test_todo.py",
+    "todo.py"
+  ],
+  "escalations": 0,
+  "local_test_runs": 1,
+  "hidden_access": [],
+  "integrations": 1,
+  "integrations_per_min": 0.9,
+  "test_runs": 3,
+  "test_runs_per_integration": 3.0,
+  "conflicts_total": 0,
+  "conflicts_resolved": 0,
+  "gud1": {
+    "links": 1,
+    "links_per_min": 0.9,
+    "first_link_s": 21.7,
+    "pushes": 1,
+    "pushes_by_end": {
+      "linked": 1
+    },
+    "carried_links": 0,
+    "carried_events": 0,
+    "superseded": 0,
+    "colliding_pushes": 0,
+    "emails": 6,
+    "emails_by_kind": {
+      "claim": 1,
+      "push": 1,
+      "task": 1,
+      "test": 3
+    },
+    "emails_per_link": 6.0,
+    "test_runs": 3,
+    "test_runs_by_scope": {
+      "accept": 1,
+      "tip": 2
+    },
+    "test_failures": 0,
+    "test_runs_per_link": 3.0,
+    "claims": {
+      "won": 1,
+      "lost": 0,
+      "updates": 0,
+      "releases": 0,
+      "lapsed": 0,
+      "scopes": [
+        {
+          "holder": "@a2",
+          "task": "T1",
+          "files": [
+            "todo.py",
+            "tests/**"
+          ],
+          "status": "done"
+        }
+      ],
+      "scope_exceeded": 0
+    },
+    "overlaps": {
+      "total": 0,
+      "by_settlement": {},
+      "list": []
+    },
+    "comments": {
+      "total": 0,
+      "by_target": {},
+      "escalation_comments": 0
+    },
+    "objections": {
+      "total": 0,
+      "reason": 0,
+      "evidence": 0,
+      "answered": {},
+      "list": []
+    },
+    "approvals": 0,
+    "holds": 0,
+    "escalations": {
+      "consent": [],
+      "task": [],
+      "resolved_by": {}
+    },
+    "red_tip": {
+      "episodes": 0,
+      "closed": 0,
+      "median_to_green_s": null,
+      "red_at_end": false,
+      "fix_tasks": 0,
+      "list": []
+    },
+    "task": {
+      "alias": "T1",
+      "status": "done",
+      "subtasks": 0,
+      "subtask_status": {},
+      "work_done_s": 21.7,
+      "done_s": 25.8
+    },
+    "events": {
+      "claim.won": 1,
+      "linked": 2,
+      "push.received": 1,
+      "task.done": 1,
+      "task.opened": 1,
+      "task.ready": 1,
+      "test.passed": 3
+    },
+    "per_agent": {
+      "@a1": {
+        "pushes": 0,
+        "links": 0,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 0,
+        "claim_msgs": 0,
+        "comments": 0,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [],
+        "claim_scopes_all": []
+      },
+      "@a2": {
+        "pushes": 1,
+        "links": 1,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 1,
+        "claim_msgs": 1,
+        "comments": 0,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [
+          [
+            "todo.py",
+            "tests/**"
+          ]
+        ],
+        "claim_scopes_all": [
+          [
+            "todo.py",
+            "tests/**"
+          ]
+        ]
+      }
+    },
+    "link_list": [
+      {
+        "seq": 1,
+        "author": "@a2",
+        "carried": false,
+        "files": [
+          "tests/test_todo.py",
+          "todo.py"
+        ],
+        "at_s": 21.7,
+        "intent": "Add todo.py CLI and tests"
+      }
+    ],
+    "push_list": [
+      {
+        "id": "b2a628169539",
+        "author": "@a2",
+        "t": 21.7,
+        "files": [
+          "tests/test_todo.py",
+          "todo.py"
+        ],
+        "base_seq": 0,
+        "end": "linked",
+        "end_t": 21.7,
+        "carried": false,
+        "link_seq": 1,
+        "task": "1693240d5e839820be6ef1762312375eec93dd38b16b9bd5d8b876d92d36025c",
+        "revises": null,
+        "intent": "Add todo.py CLI and tests",
+        "collides_with": []
+      }
+    ],
+    "conflicts": []
+  },
+  "agents": [
+    {
+      "handle": "@a1",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 66.6,
+      "turns": 3,
+      "wakeups": 1,
+      "tokens": {
+        "ledger": 15495
+      },
+      "cost_usd": 0.062568,
+      "cost_source": "ledger",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": null,
+      "mcp_servers": null,
+      "tool_calls": 1,
+      "tool_counts": {
+        "mcp__gud__tasks": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "I didn't claim anything. T1 (the todo app) is already claimed by @a2, so I left it alone.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "turn_keys": [
+        "task:1693240d5e839820be6"
+      ],
+      "local_test_runs": 0
+    },
+    {
+      "handle": "@a2",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 66.6,
+      "turns": 8,
+      "wakeups": 1,
+      "tokens": {
+        "ledger": 22830
+      },
+      "cost_usd": 0.095447,
+      "cost_source": "ledger",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": null,
+      "mcp_servers": null,
+      "tool_calls": 6,
+      "tool_counts": {
+        "Bash": 1,
+        "Write": 2,
+        "mcp__gud__claim": 1,
+        "mcp__gud__push": 1,
+        "mcp__gud__tasks": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "I built `todo.py` and `tests/test_todo.py` for T1 and pushed them; the push linked as seq 1.\n\n`python -m pytest -q` reported 3 passed before I pushed. My file has two test functions, so a third test already exists somewhere in the repo. The tests cover add, list, done and remove, the unknown-id error (stderr text, exit 1) and the argparse errors (non-integer id and no command, both exit 2). I didn't test the `TODO_FILE` environment variable path or the default `todos.json` in the current directory.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "turn_keys": [
+        "task:1693240d5e839820be6"
+      ],
+      "local_test_runs": 1
+    }
+  ],
+  "tokens_ledger": 38325,
+  "analysis": {
+    "summary": {
+      "files_read_per_agent": 0.0,
+      "reads_outside_own_changes_per_agent": 0.0,
+      "reads_outside_claims_per_agent": 0.0,
+      "agents_with_claims": 1,
+      "colliding_pushes": 0,
+      "colliding_with_inflight_before": 0,
+      "colliding_with_comment_before": 0,
+      "colliding_with_inflight_since_last_push": 0,
+      "push_refusals": 0,
+      "stale_base_refusals": 0,
+      "inflight_calls": 0,
+      "comment_calls": 0,
+      "claim_calls": 1,
+      "claim_update_calls": 0,
+      "subtask_calls": 0
+    },
+    "agents": {
+      "@a1": {
+        "files_read": [],
+        "files_changed": [],
+        "reads_outside_own_changes": [],
+        "gud_tools": {
+          "tasks": 1
+        },
+        "claim_scopes": [],
+        "reads_outside_claims": [],
+        "changes_outside_claims": [],
+        "pushes": 0,
+        "colliding_pushes": [],
+        "push_refusals": []
+      },
+      "@a2": {
+        "files_read": [],
+        "files_changed": [
+          "tests/test_todo.py",
+          "todo.py"
+        ],
+        "reads_outside_own_changes": [],
+        "gud_tools": {
+          "claim": 1,
+          "tasks": 1,
+          "push": 1
+        },
+        "claim_scopes": [
+          [
+            "todo.py",
+            "tests/**"
+          ]
+        ],
+        "reads_outside_claims": [],
+        "changes_outside_claims": [],
+        "pushes": 1,
+        "colliding_pushes": [],
+        "push_refusals": []
+      }
+    }
+  },
+  "requested_budget_usd": 1.0,
+  "cap": {
+    "cap_usd": 30.0,
+    "spent_usd": 0,
+    "reserved_usd": 2.0,
+    "remaining_usd": 28.0
+  }
+}

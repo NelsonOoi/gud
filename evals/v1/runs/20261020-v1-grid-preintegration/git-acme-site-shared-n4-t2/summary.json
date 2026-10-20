@@ -1,0 +1,462 @@
+{
+  "arm": "git",
+  "spec": "acme-site-shared",
+  "agents_n": 4,
+  "trial": 2,
+  "requested_model": "claude-sonnet-5-5",
+  "budget_usd": 1.2,
+  "agent_budget_usd": 0.3,
+  "timeout_s": 1200.0,
+  "window_s": null,
+  "test_policy": null,
+  "agent_cmd": "/Users/nelson/.local/bin/claude",
+  "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-git-ugpsd_em",
+  "fairness": {
+    "agent": "Claude Code headless",
+    "tools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep"
+    ],
+    "test_command": "python -m pytest -q -x",
+    "same_prompt_preamble": true
+  },
+  "outcome": "completed",
+  "harness_errors": [],
+  "killed": {},
+  "model": "claude-sonnet-5-5",
+  "wall_s": 155.1,
+  "drain_s": null,
+  "cost_usd": 0.6532,
+  "tokens": {
+    "input": 8990,
+    "output": 18034,
+    "cache_read": 1048788,
+    "cache_creation": 63572
+  },
+  "tokens_total": 1139384,
+  "turns": 73,
+  "hidden": {
+    "passed": 28,
+    "failed": 0,
+    "total": 28,
+    "pass_rate": 1.0
+  },
+  "spec_checks": {
+    "test_build_runs": true,
+    "test_site_is_not_committed": true,
+    "test_page_built[index.html]": true,
+    "test_page_built[features.html]": true,
+    "test_page_built[pricing.html]": true,
+    "test_page_built[about.html]": true,
+    "test_page_built[contact.html]": true,
+    "test_page_basics[index.html]": true,
+    "test_page_basics[features.html]": true,
+    "test_page_basics[pricing.html]": true,
+    "test_page_basics[about.html]": true,
+    "test_page_basics[contact.html]": true,
+    "test_nav_order_and_current[index.html]": true,
+    "test_nav_order_and_current[features.html]": true,
+    "test_nav_order_and_current[pricing.html]": true,
+    "test_nav_order_and_current[about.html]": true,
+    "test_nav_order_and_current[contact.html]": true,
+    "test_nav_shared": true,
+    "test_nav_has_one_source": true,
+    "test_index_hero_cards_cta": true,
+    "test_features_six": true,
+    "test_pricing_table": true,
+    "test_about_story_and_team": true,
+    "test_contact_form": true,
+    "test_styles_cover_components": true,
+    "test_styles_responsive_under_700px": true,
+    "test_one_stylesheet": true,
+    "test_local_links_resolve": true
+  },
+  "final_tests_pass": true,
+  "final_files": [
+    ".gitignore",
+    "README.md",
+    "build.py",
+    "components/nav.html",
+    "pages/about.html",
+    "pages/contact.html",
+    "pages/features.html",
+    "pages/index.html",
+    "pages/pricing.html",
+    "styles.css",
+    "tests/test_about_contact.py",
+    "tests/test_features.py",
+    "tests/test_nav.py",
+    "tests/test_pricing.py",
+    "tests/test_smoke.py"
+  ],
+  "escalations": 0,
+  "local_test_runs": 17,
+  "hidden_access": [],
+  "integrations": 6,
+  "integrations_per_min": 2.321,
+  "test_runs": 6,
+  "test_runs_per_integration": 1.0,
+  "conflicts_total": 0,
+  "conflicts_resolved": 0,
+  "git": {
+    "merges": 6,
+    "merges_per_min": 2.321,
+    "prs_opened": 8,
+    "prs_closed": 0,
+    "approvals": 7,
+    "comments": 13,
+    "merge_attempts": 6,
+    "merge_rejections": {},
+    "gate_test_runs": 6,
+    "gate_test_failures": 0,
+    "test_runs_per_merge": 1.0,
+    "rebased_merges": 5,
+    "local_conflicts": {},
+    "push_rejections": {},
+    "direct_main_push_rejected": 0,
+    "first_merge_s": 34.8,
+    "prs": [
+      {
+        "id": "PR1",
+        "author": "@a4",
+        "status": "merged",
+        "title": "a4: About + Contact pages (pages/about.html, pages/contact.html, tests). Not touching nav/styles/bui",
+        "approvals": [
+          "@a3"
+        ],
+        "comments": 1,
+        "merge_attempts": 1
+      },
+      {
+        "id": "PR2",
+        "author": "@a3",
+        "status": "merged",
+        "title": "a3: full nav + aria-current in build.py + nav test (I leave pages/styles to others; will also take p",
+        "approvals": [
+          "@a4"
+        ],
+        "comments": 1,
+        "merge_attempts": 1
+      },
+      {
+        "id": "PR3",
+        "author": "@a1",
+        "status": "merged",
+        "title": "a1: nav, build aria-current, styles.css, index page, tests/test_site.py (a2-a4: please take features",
+        "approvals": [
+          "@a4"
+        ],
+        "comments": 2,
+        "merge_attempts": 1
+      },
+      {
+        "id": "PR4",
+        "author": "@a2",
+        "status": "open",
+        "title": "a2: nav (5 links), aria-current in build.py, about.html, contact.html + tests. a2 will NOT touch ind",
+        "approvals": [],
+        "comments": 4,
+        "merge_attempts": 0
+      },
+      {
+        "id": "PR5",
+        "author": "@a3",
+        "status": "merged",
+        "title": "a3: pricing page + test",
+        "approvals": [
+          "@a4"
+        ],
+        "comments": 1,
+        "merge_attempts": 1
+      },
+      {
+        "id": "PR6",
+        "author": "@a4",
+        "status": "merged",
+        "title": "a4: features.html + test (only touches those files)",
+        "approvals": [
+          "@a2"
+        ],
+        "comments": 1,
+        "merge_attempts": 1
+      },
+      {
+        "id": "PR7",
+        "author": "@a2",
+        "status": "open",
+        "title": "a2: features.html + pricing.html + tests",
+        "approvals": [],
+        "comments": 3,
+        "merge_attempts": 0
+      },
+      {
+        "id": "PR8",
+        "author": "@a1",
+        "status": "merged",
+        "title": "a1: styles.css + home page (index.html); features still open (PR6/PR7)",
+        "approvals": [
+          "@a2",
+          "@a4"
+        ],
+        "comments": 0,
+        "merge_attempts": 1
+      }
+    ],
+    "conflicts": []
+  },
+  "agents": [
+    {
+      "handle": "@a1",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 155.1,
+      "turns": 16,
+      "tokens": {
+        "input": 2243,
+        "output": 4778,
+        "cache_read": 215002,
+        "cache_creation": 14471
+      },
+      "cost_usd": 0.150867,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 15,
+      "tool_counts": {
+        "Bash": 15
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "All five pages are on main and `python -m pytest -q` passes there (6 tests). I only ran `build.py` into a scratch directory and didn't open the pages, so the styling hasn't been looked at.\n\nMy part was `styles.css` and `pages/index.html`. The other agents landed the nav, the `aria-current` handling in `build.py`, and the features, pricing, about and contact pages, plus their tests.\n\nPR4 and PR7 from @a2 are still open. They duplicate work that's already on main, so they can probably be closed rather than merged. Nobody is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 3
+    },
+    {
+      "handle": "@a2",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 146.5,
+      "turns": 16,
+      "tokens": {
+        "input": 2243,
+        "output": 4873,
+        "cache_read": 220774,
+        "cache_creation": 14781
+      },
+      "cost_usd": 0.154212,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 15,
+      "tool_counts": {
+        "Bash": 15
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "All five pages, the shared nav and `styles.css` are now on main, and `python -m pytest -q` passes there (6 tests). I didn't check the merged pages against every line of the task text.\n\nMy own PRs turned out to duplicate the others' work. PR4 (About and Contact) and PR7 (Features and Pricing) are superseded, with the same content already merged from other agents' PRs. I commented on both to say so. I left them open because I have no close command, so they can be ignored. I approved PR6 (Features) and PR8 (home page and styles), and both have merged. Nobody is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 5
+    },
+    {
+      "handle": "@a3",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 143.5,
+      "turns": 20,
+      "tokens": {
+        "input": 2251,
+        "output": 4005,
+        "cache_read": 287056,
+        "cache_creation": 15692
+      },
+      "cost_usd": 0.162448,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 19,
+      "tool_counts": {
+        "Bash": 19
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "All five pages are on `main`, and `python -m pytest -q` passes there with 6 tests. I didn't re-check every item in the task text against the final `main`. For the home page and `styles.css` I only checked three `.card` elements, a `.cta` link to `pricing.html`, and the selectors and `@media (max-width: 700px)` rule. I confirmed six `.feature` articles in `features.html`.\n\nI landed the full five-link nav, `aria-current` marking in `build.py`, and `tests/test_nav.py`. I also landed the Pricing page and its test. I approved a4's About/Contact PR, which was merged; a1's Home/styles PR (PR8) was already merged when I reached it, though I had checked it first.\n\nTwo of a2's PRs are still open, but both duplicate pages already on `main`. PR4 is About/Contact and PR7 is Features/Pricing. I've commented on PR7 asking a2 to drop the duplicate pricing page. Neither is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 5
+    },
+    {
+      "handle": "@a4",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 149.0,
+      "turns": 21,
+      "tokens": {
+        "input": 2253,
+        "output": 4378,
+        "cache_read": 325956,
+        "cache_creation": 18628
+      },
+      "cost_usd": 0.185706,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 20,
+      "tool_counts": {
+        "Bash": 20
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "All five pages, the shared nav and `styles.css` are now on main, and `python -m pytest -q` passes there (6 tests).\n\n- **Mine:** `about.html` and `contact.html` landed together as PR1, and `features.html` as PR6.\n- **Other agents':** a3 did the nav with `aria-current` in `build.py` and the pricing page. a1 did `styles.css` and the home page. I approved those PRs.\n- **Still open:** PR4 (a2) and PR7 (a2) duplicate work that has already landed. I commented asking a2 to close them. Nothing is waiting on a review from me.\n\nI haven't checked the merged result against every line of the task text, such as the nav link order on built pages, the `<title>` formats, or that no other `.css` files or `<style>` blocks exist. The tests I ran only cover the pages I wrote, plus a3's nav test and whatever the other agents added.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 4
+    }
+  ],
+  "analysis": {
+    "summary": {
+      "files_read_per_agent": 10.0,
+      "reads_outside_own_changes_per_agent": 5.75
+    },
+    "agents": {
+      "@a1": {
+        "files_read": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/features.html",
+          "pages/index.html",
+          "pages/pricing.html",
+          "styles.css",
+          "tests/test_smoke.py"
+        ],
+        "files_changed": [
+          "pages/index.html",
+          "styles.css"
+        ],
+        "reads_outside_own_changes": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/features.html",
+          "pages/pricing.html",
+          "tests/test_smoke.py"
+        ],
+        "gud_tools": {}
+      },
+      "@a2": {
+        "files_read": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/about.html",
+          "pages/contact.html",
+          "pages/features.html",
+          "pages/index.html",
+          "pages/pricing.html",
+          "styles.css",
+          "tests/test_about_contact.py",
+          "tests/test_smoke.py"
+        ],
+        "files_changed": [
+          "pages/about.html",
+          "pages/contact.html",
+          "pages/features.html",
+          "pages/pricing.html",
+          "tests/test_about_contact.py",
+          "tests/test_features_pricing.py"
+        ],
+        "reads_outside_own_changes": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/index.html",
+          "styles.css",
+          "tests/test_smoke.py"
+        ],
+        "gud_tools": {}
+      },
+      "@a3": {
+        "files_read": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/features.html",
+          "pages/index.html",
+          "pages/pricing.html",
+          "styles.css",
+          "tests/test_nav.py",
+          "tests/test_pricing.py",
+          "tests/test_smoke.py"
+        ],
+        "files_changed": [
+          "build.py",
+          "components/nav.html",
+          "pages/pricing.html",
+          "tests/test_nav.py",
+          "tests/test_pricing.py"
+        ],
+        "reads_outside_own_changes": [
+          "README.md",
+          "pages/features.html",
+          "pages/index.html",
+          "styles.css",
+          "tests/test_smoke.py"
+        ],
+        "gud_tools": {}
+      },
+      "@a4": {
+        "files_read": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/about.html",
+          "pages/contact.html",
+          "pages/features.html",
+          "pages/index.html",
+          "styles.css",
+          "tests/test_about_contact.py",
+          "tests/test_features.py",
+          "tests/test_smoke.py"
+        ],
+        "files_changed": [
+          "pages/about.html",
+          "pages/contact.html",
+          "pages/features.html",
+          "tests/test_about_contact.py",
+          "tests/test_features.py"
+        ],
+        "reads_outside_own_changes": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/index.html",
+          "styles.css",
+          "tests/test_smoke.py"
+        ],
+        "gud_tools": {}
+      }
+    }
+  },
+  "requested_budget_usd": 1.2,
+  "cap": {
+    "cap_usd": 30.0,
+    "spent_usd": 3.317,
+    "reserved_usd": 3.6,
+    "remaining_usd": 23.083
+  },
+  "rescored": "acme-site-shared test_index_hero_cards_cta accepts a link inside a .cta element"
+}

@@ -78,8 +78,11 @@ ROWS = [
     ("wall time", lambda rows: span([r.get("wall_s") for r in rows], lambda v: f"{v:.0f} s")),
     ("cost (run)", lambda rows: span([r.get("cost_usd") for r in rows], _money)),
     ("cost per agent", lambda rows: span(_agent(rows, lambda a: a.get("cost_usd")), _money)),
-    ("tokens per agent (all kinds)", lambda rows: span(_agent(rows, lambda a: sum((a.get("tokens") or {}).values())),
+    ("tokens per agent (all kinds)", lambda rows: span(_agent(rows, lambda a: None if "ledger" in (a.get("tokens") or {})
+                                                              else sum((a.get("tokens") or {}).values())),
                                                        lambda v: f"{v:,.0f}")),
+    ("ledger tokens per agent (gud1-ref)", lambda rows: span(_agent(rows, lambda a: (a.get("tokens") or {}).get("ledger")),
+                                                             lambda v: f"{v:,.0f}")),
     ("output tokens per agent", lambda rows: span(_agent(rows, lambda a: (a.get("tokens") or {}).get("output")),
                                                   lambda v: f"{v:,.0f}")),
     ("turns per agent", lambda rows: span(_agent(rows, lambda a: a.get("turns")), _count)),
@@ -106,6 +109,84 @@ ROWS = [
     ("hidden-test access attempts", lambda rows: span([len(r.get("hidden_access") or []) for r in rows], _count)),
 ]
 
+
+def _g1(rows, fn):
+    """Values from the gud1 block of the runs that have one."""
+    out = []
+    for r in rows:
+        g = r.get("gud1")
+        if g:
+            try:
+                out.append(fn(g))
+            except (KeyError, TypeError):
+                out.append(None)
+    return out
+
+
+def _ana(rows, key):
+    return [((r.get("analysis") or {}).get("summary") or {}).get(key) for r in rows]
+
+
+def _mix_g1(rows, fn):
+    vals = _g1(rows, fn)
+    return _mix(vals) if vals else "—"
+
+
+ROWS_V1 = [
+    ("links per min (gud1)", lambda rows: span(_g1(rows, lambda g: g["links_per_min"]), lambda v: f"{v:.2f}")),
+    ("test runs per link (gud1)", lambda rows: span(_g1(rows, lambda g: g["test_runs_per_link"]), lambda v: f"{v:.2f}")),
+    ("pushes (gud1)", lambda rows: span(_g1(rows, lambda g: g["pushes"]), _count)),
+    ("carried links (gud1)", lambda rows: span(_g1(rows, lambda g: g["carried_links"]), _count)),
+    ("superseded pushes (gud1)", lambda rows: span(_g1(rows, lambda g: g["superseded"]), _count)),
+    ("colliding pushes (gud1)", lambda rows: span(_g1(rows, lambda g: g["colliding_pushes"]), _count)),
+    ("pushes refused before sending: stale base (gud1)", lambda rows: span(_ana(rows, "stale_base_refusals"), _count)),
+    ("claims won (gud1)", lambda rows: span(_g1(rows, lambda g: g["claims"]["won"]), _count)),
+    ("claim updates / releases (gud1)", lambda rows: span(_g1(rows, lambda g: g["claims"]["updates"]), _count)
+     + " / " + span(_g1(rows, lambda g: g["claims"]["releases"]), _count)),
+    ("subtasks posted (gud1)", lambda rows: span(_g1(rows, lambda g: g["task"]["subtasks"]), _count)),
+    ("claim overlaps (gud1)", lambda rows: span(_g1(rows, lambda g: g["overlaps"]["total"]), _count)),
+    ("overlap settlement (gud1)", lambda rows: ", ".join(
+        f"{k} ×{v}" for k, v in sorted(_sum_dicts(_g1(rows, lambda g: g["overlaps"]["by_settlement"])).items())) or "—"),
+    ("comments (gud1)", lambda rows: span(_g1(rows, lambda g: g["comments"]["total"]), _count)),
+    ("objections reason / evidence (gud1)", lambda rows: span(_g1(rows, lambda g: g["objections"]["reason"]), _count)
+     + " / " + span(_g1(rows, lambda g: g["objections"]["evidence"]), _count)),
+    ("consent escalations (gud1)", lambda rows: span(_g1(rows, lambda g: len(g["escalations"]["consent"])), _count)),
+    ("escalations resolved by (gud1)", lambda rows: ", ".join(
+        f"{k} ×{v}" for k, v in sorted(_sum_dicts(_g1(rows, lambda g: g["escalations"]["resolved_by"])).items())) or "—"),
+    ("task escalations (gud1)", lambda rows: span(_g1(rows, lambda g: len(g["escalations"]["task"])), _count)),
+    ("red-tip episodes (gud1)", lambda rows: span(_g1(rows, lambda g: g["red_tip"]["episodes"]), _count)),
+    ("median time to green (gud1)", lambda rows: span(_g1(rows, lambda g: g["red_tip"]["median_to_green_s"]),
+                                                      lambda v: f"{v:.0f} s")),
+    ("red at end (gud1)", lambda rows: _mix_g1(rows, lambda g: g["red_tip"]["red_at_end"])),
+    ("T1 status at end (gud1)", lambda rows: _mix_g1(rows, lambda g: g["task"]["status"])),
+    ("files read per agent", lambda rows: span(_ana(rows, "files_read_per_agent"), lambda v: f"{v:.1f}")),
+    ("reads outside own changes per agent", lambda rows: span(_ana(rows, "reads_outside_own_changes_per_agent"),
+                                                               lambda v: f"{v:.1f}")),
+    ("reads outside claimed scope per agent (gud1)", lambda rows: span(_ana(rows, "reads_outside_claims_per_agent"),
+                                                                        lambda v: f"{v:.1f}")),
+    ("colliding pushes with inflight before (gud1)", lambda rows: span(_ana(rows, "colliding_with_inflight_before"), _count)
+     + " of " + span(_ana(rows, "colliding_pushes"), _count)),
+    ("colliding pushes with comment before (gud1)", lambda rows: span(_ana(rows, "colliding_with_comment_before"), _count)),
+    ("inflight / comment calls (gud1)", lambda rows: span(_ana(rows, "inflight_calls"), _count) + " / "
+     + span(_ana(rows, "comment_calls"), _count)),
+    ("guard file read by an agent (context check)", lambda rows: _mix([bool((r.get("context_check") or {}).get("read_by"))
+                                                                     for r in rows if r.get("context_check")]) if any(
+        r.get("context_check") for r in rows) else "—"),
+    ("guard tests passed (context check)", lambda rows: span([sum(1 for v in (r.get("context_check") or {}).get(
+        "guard_tests_passed", {}).values() if v) for r in rows if r.get("context_check")], _count) if any(
+        r.get("context_check") for r in rows) else "—"),
+]
+
+
+def _sum_dicts(dicts) -> dict:
+    out: dict = {}
+    for d in dicts:
+        for k, v in (d or {}).items():
+            out[k] = out.get(k, 0) + v
+    return out
+
+EXCLUDED = ("harness_error", "skipped_cap")
+
 NOTES = [
     "Each cell is mean (min–max) over trials; per-agent rows pool every agent in every trial.",
     "Integrations are gud links (excluding genesis) or git PR merges into main.",
@@ -118,9 +199,11 @@ NOTES = [
 
 
 def report(paths: list[Path]) -> str:
-    rows = load(paths)
-    if not rows:
+    every = load(paths)
+    if not every:
         return "(no summary.json found)"
+    left_out = [r for r in every if r.get("outcome") in EXCLUDED]
+    rows = [r for r in every if r.get("outcome") not in EXCLUDED]
     groups: dict[tuple, list[dict]] = {}
     for row in rows:
         groups.setdefault((row["spec"], row["agents_n"], row["arm"]), []).append(row)
@@ -132,7 +215,8 @@ def report(paths: list[Path]) -> str:
         lines.append("")
         lines.append("| | " + " | ".join(f"{k[2]}" for k in cols) + " |")
         lines.append("| --- | " + " | ".join("---" for _ in cols) + " |")
-        for title, fn in ROWS:
+        v1 = any(r.get("gud1") or r.get("analysis") for k in cols for r in groups[k])
+        for title, fn in ROWS + (ROWS_V1 if v1 else []):
             lines.append(f"| {title} | " + " | ".join(fn(groups[k]) for k in cols) + " |")
         lines.append("")
         models = sorted({str(r.get("model")) for k in cols for r in groups[k]})
@@ -140,6 +224,12 @@ def report(paths: list[Path]) -> str:
                      f"${sum(r.get('cost_usd') or 0 for k in cols for r in groups[k]):.2f}.")
         lines.append("")
     lines.extend(f"- {note}" for note in NOTES)
+    if left_out:
+        lines.append("")
+        lines.append("Runs left out of the tables (not agent results):")
+        for r in left_out:
+            lines.append(f"- {r['arm']} {r['spec']} n{r['agents_n']} t{r['trial']}: {r.get('outcome')} "
+                         f"({'; '.join(map(str, r.get('harness_errors') or [])) or '-'}), ${r.get('cost_usd') or 0:.2f}")
     return "\n".join(lines)
 
 
