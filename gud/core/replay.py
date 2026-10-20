@@ -1052,9 +1052,11 @@ class Replayer:
                    prev: Mapping | None, tau: Ms, tree_root: Hex | None = None) -> dict | None:
         """Create the candidate of `p` on `parent` (the tip)."""
         members = self._rules(parent).members
-        m = members.get(p["author"])
-        if m is None or m.role not in _PUSH_ROLES:
-            self._kill(p, "bad_sig", "author is not a member of the parent with a push role", tau)
+        # Verify against the key at the candidate's parent, not only the named one, so a key
+        # rotated (or a member removed and re-added) after the named parent cannot carry a push.
+        if self._signer(p["id"], p["env"], p["author"], members, _PUSH_ROLES) is None:
+            self._kill(p, "bad_sig", "author is not a member of the parent with a push role, "
+                       "or the signature fails with their key there", tau)
             return None
         cid = carried_state(p["id"], parent.state) if carried else p["id"]
         cand: dict[str, Any] = {

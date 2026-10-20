@@ -109,8 +109,6 @@ def test_rotation_by_a_non_member_is_refused(world):
         keys.rotate_member_key(world["@alice"])
 
 
-@pytest.mark.xfail(strict=True, reason="SPEC hole (Implementation notes (ops) 4): a push signed with a "
-                   "rotated-out key that names a pre-rotation parent is verified at that parent and carried")
 def test_old_key_cannot_link_a_push_on_a_pre_rotation_parent(world):
     alice, nelson = world["@alice"], world["@nelson"]
     before = world.tip().state

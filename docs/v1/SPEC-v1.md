@@ -525,7 +525,7 @@ Genesis is the earliest-logged `push` with `Gud-Parent: ZERO` that: decodes; who
 For the current last link `Y` and time τ, the **candidates** of `Y` are: each push or revert with `Gud-Parent = Y.state` (native), and each live push carried onto `Y` (section 14). For each candidate `c` of push `P`, evaluation gives one of: **qualified at q** (q ≤ τ), **pending** (with a reason and a park time), or **dead** (terminal). Checks in order; the first that applies decides:
 
 1. **Intrinsic** (once, for the native candidate): malformed envelope or records → `malformed`; signature or role fails → `bad_sig`; operations fail on the named parent or the tree hash differs from `Gud-Tree` → `conflict`; resulting tree has an unparseable config file → `bad_config`. These are dead for all candidates of `P`.
-2. **Author removed**: the author is not a member of `Y` with an allowed role → dead `bad_sig`.
+2. **Author removed or key changed**: the author is not a member of `Y` with an allowed role, or the push's signature does not verify with the author's key in `Y`'s members → dead `bad_sig`. (A member who rotates keys re-sends pending pushes signed with the new key.)
 3. **Expired**: τ ≥ `received(P) + expire` → dead `expired`.
 4. **Veto**: a counting `veto` on `P` (section 13.5) visible at τ → dead `vetoed`.
 5. **Declined**: an escalation decided against `P` (section 13.7) → dead `declined`.
