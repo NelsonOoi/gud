@@ -362,7 +362,7 @@ class Gud1CCArm(Gud1Arm):
 - If newer links touched none of your push's files, your push is carried onto the tip automatically; if they touched the same files, it is superseded: `sync`, resolve, and push again.
 - The work is task T1 on the board (`tasks`, `task T1`). A task or subtask has at most one active claim: `claim(task, files)` takes it and declares the files you expect to touch; the holder can split it into `subtask`s that others claim. `inflight` shows the other agents' open pushes (with diffs) and every active claim. `comment(target, text)` talks to the others on any task, claim or push; `inbox` lists what needs you.
 - A push that rewrites lines another agent wrote recently gives that agent {w}s to object first. Answer an objection with a comment or a revised push (`revises=<your push>`). When you are asked to review (inbox or wait says so), read the diff and approve, object with a concrete reason, or comment.
-- {tests} T1 is done when its acceptance check (`{ACCEPT_CMD}` on the tip) passes.
+- {tests} T1 is done when its claim holder declares it done (`claim_update(claim, done=true)`) or all its subtasks are done, and then its acceptance check (`{ACCEPT_CMD}` on the tip) passes.
 - To tell the others what you are taking on, use claims, push intents and comments."""
 
 

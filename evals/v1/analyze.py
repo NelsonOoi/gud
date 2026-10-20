@@ -299,6 +299,20 @@ def gud1_metrics(client, *, t0: float, wall_s: float, genesis: str | None, task:
     t = chain.tasks.get(task) if task else None
     subtasks = [s for s in chain.tasks.values() if s.kind == "subtask"]
     fixes = [s for s in chain.tasks.values() if s.kind == "fix"]
+    # when T1 became done, against when the work landed: agent links after done mean done came too early
+    agent_links = [l for l in links if l.author in handles]
+    links_after_done = [l for l in agent_links if t is not None and t.done_at is not None and l.linked_at > t.done_at]
+    task_extra = {}
+    if t is not None:
+        task_extra = {
+            "opened_s": rel(t.opened_at),
+            "opened_to_done_s": round((t.done_at - t.opened_at) / 1000, 1) if t.done_at is not None else None,
+            "declared_by": t.declared_by,
+            "last_agent_link_s": rel(max((l.linked_at for l in agent_links), default=None)) if agent_links else None,
+            "agent_links_after_done": len(links_after_done),
+            "done_after_all_work": (t.done_at is not None and not links_after_done) if t.done_at is not None else None,
+            "subtask_holders": sorted({c.holder for c in claims if c.task in {s.id for s in subtasks}}),
+        }
 
     # contested pushes (the common conflict columns)
     contested = [p for p in pushes if p["end"] in ("superseded", "conflict", "stale", "declined", "expired")]
@@ -373,7 +387,8 @@ def gud1_metrics(client, *, t0: float, wall_s: float, genesis: str | None, task:
                     "red_at_end": bool(chain.red.red), "fix_tasks": len(fixes), "list": episodes},
         "task": None if t is None else {"alias": t.alias, "status": t.status, "subtasks": len(subtasks),
                                         "subtask_status": dict(Counter(s.status for s in subtasks)),
-                                        "work_done_s": rel(t.work_done_at), "done_s": rel(t.done_at)},
+                                        "work_done_s": rel(t.work_done_at), "done_s": rel(t.done_at), **task_extra},
+        "landed_authors": sorted({l.author for l in links}),
         "events": dict(sorted(ev_types.items())),
         "per_agent": per_agent,
         "link_list": [{"seq": l.seq, "author": l.author, "carried": bool(l.carried_from), "files": list(l.files),
@@ -623,9 +638,16 @@ def transcript_analysis(transcripts: Mapping[str, Sequence[dict]], *, roots: Map
         refusals = [x for a in agents.values() for x in a.get("push_refusals", [])]
         summary["push_refusals"] = len(refusals)
         summary["stale_base_refusals"] = sum(1 for x in refusals if x["stale_base"])
-    for tool in ("inflight", "comment", "claim", "claim_update", "subtask"):
+    for tool in ("inflight", "comment", "claim", "claim_update", "subtask", "release", "wait"):
         if pushes is not None or claims is not None:
             summary[f"{tool}_calls"] = sum(a["gud_tools"].get(tool, 0) for a in agents.values())
+    if pushes is not None or claims is not None:
+        waits = [r for rows in transcripts.values() for r in rows if r.get("name") == "mcp__gud__wait"]
+        timeouts = [r for r in waits if "timeout after" in str(r.get("result") or "")
+                    or '"timeout": true' in str(r.get("result") or "")]
+        summary["wait_timeouts"] = len(timeouts)
+        summary["wait_timeout_s"] = sorted(float((r.get("input") or {}).get("timeout") or 60)
+                                           for r in timeouts if isinstance(r.get("input"), dict))
     if guard_files:
         summary["guard_read_by"] = sorted(h for h, a in agents.items() if a["guard_files_read"])
         summary["guard_changed_by"] = sorted(h for h, a in agents.items() if a["guard_files_changed"])
