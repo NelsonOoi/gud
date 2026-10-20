@@ -60,6 +60,7 @@ class Transport:
     slow: float = 1.0                               # timeout multiplier
     host_user: str = "repo"
     count_sent: Callable[[], int] | None = None     # emails sent so far (where measurable)
+    env: dict[str, str] = field(default_factory=dict)   # extra environment for every process
 
     def args(self, user: str) -> list[str]:
         out = ["--transport", self.name]
@@ -93,7 +94,11 @@ class Scenario:
 
     def run(self, who: str, *args: str, code: int | None = 0, cwd: Path | None = None, timeout: float = 240) -> dict:
         m = self.members[who]
-        return gud(m.home, *args, cwd=cwd or m.wc or m.home, code=code, handle=m.handle, timeout=timeout)
+        return gud(m.home, *args, cwd=cwd or m.wc or m.home, code=code, handle=m.handle, timeout=timeout,
+                   extra_env=self.t.env)
+
+    def gud(self, home: Path, *args: str, **kw) -> dict:
+        return gud(home, *args, extra_env=self.t.env, **kw)
 
     def wait(self, pred, what: str, timeout: float = 60) -> object:
         return wait_for(pred, timeout=timeout * self.t.slow, what=what, interval=0.5)
@@ -135,16 +140,16 @@ class Scenario:
         t = self.t
         hoster = self.tmp / "homes" / "hoster"
         host_dir = self.tmp / "hostdir"
-        made = gud(hoster, "host", "init", "--repo", t.repo, *t.args(t.host_user), "--dir", str(host_dir),
-                   handle="@hoster")
+        made = self.gud(hoster, "host", "init", "--repo", t.repo, *t.args(t.host_user), "--dir", str(host_dir),
+                        handle="@hoster")
         self.host_key = made["host_key"]
-        server, self.url = serve(hoster, host_dir, self.tmp / "logs" / "host.log")
+        server, self.url = serve(hoster, host_dir, self.tmp / "logs" / "host.log", extra_env=t.env)
         self.procs.append(server)
 
         for user, role in (("human", "human"), ("alice", "agent"), ("bob", "agent"), ("box1", "tester")):
             self.members[user] = Member(f"@{user}", role, self.tmp / "homes" / user)
         human = self.members["human"]
-        gud(human.home, "keys", "new", "--address", t.address("human"), *t.args("human"), handle="@human")
+        self.gud(human.home, "keys", "new", "--address", t.address("human"), *t.args("human"), handle="@human")
         roster = self.tmp / "roster"
         roster.write_text(f"@human human {t.address('human')}\n@host host {t.repo}\n")
         human.wc = self.tmp / "wc-human"
@@ -157,7 +162,7 @@ class Scenario:
 
         for user in ("alice", "bob", "box1"):
             m = self.members[user]
-            j = gud(m.home, "join", self.url, "--handle", m.handle, "--address", t.address(user), "--role", m.role,
+            j = self.gud(m.home, "join", self.url, "--handle", m.handle, "--address", t.address(user), "--role", m.role,
                     "--sponsor", "@human", "--reason", f"{user} wants to help", *t.args(user))
             self.wait(lambda: self.run("human", "show", j["join"][:16], code=None).get("type") == "message",
                       f"join of {m.handle} logged")
@@ -166,16 +171,17 @@ class Scenario:
         for user in ("alice", "bob"):
             m = self.members[user]
             m.wc = self.tmp / f"wc-{user}"
-            c = gud(m.home, "clone", self.url, str(m.wc), handle=m.handle, cwd=self.tmp)
+            c = self.gud(m.home, "clone", self.url, str(m.wc), handle=m.handle, cwd=self.tmp)
             assert c["base"] == c["tip"], c
         # agent-side receivers: @bob by webhook (verified with the host key), @human by SSE
         self.receiver = Receiver(self.tmp / "bob-events.json", lambda: [self.host_key], time.time)
+        self.receiver.client.repo = t.repo                  # events name the repo they come from
         self.run("bob", "delivery", "--webhook", self.receiver.url)
         self.run("human", "delivery", "--sse")
         self.run("alice", "delivery", "--sse")
         self.run("box1", "delivery", "--sse")
         tester = Proc(self.members["box1"].home, "tester", "--interval", "0.5", log=self.tmp / "logs" / "tester.log",
-                      handle="@box1")
+                      handle="@box1", extra_env=t.env)
         self.procs.append(tester)
 
     # ------------------------------------------------------------ helpers on working copies
