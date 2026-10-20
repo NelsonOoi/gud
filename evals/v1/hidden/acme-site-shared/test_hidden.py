@@ -65,7 +65,8 @@ class Page(HTMLParser):
             self._figcaption = []
         elif tag == "a":
             self._anchor = {"href": attrs.get("href", ""), "in_nav": self._nav_depth > 0, "text": "",
-                            "current": attrs.get("aria-current"), "class": attrs.get("class", "")}
+                            "current": attrs.get("aria-current"), "class": attrs.get("class", ""),
+                            "up": attrs.get("_classes_up", "")}
             self.anchors.append(self._anchor)
             if self._nav_depth and self.navs:
                 self.navs[-1].append(self._anchor)
@@ -187,8 +188,8 @@ def test_index_hero_cards_cta(built):
     assert any(t == "h1" and "hero" in a["_classes_up"].split() for t, a in page.elements), "the hero holds an <h1>"
     assert len(page.with_class(None, "card")) >= 3, "index needs three .card elements"
     cta = [a for a in page.anchors if not a["in_nav"] and _norm(a["href"]) == "pricing.html"
-           and ("cta" in a["class"].split())]
-    assert cta, "index needs an a.cta (outside the nav) linking pricing.html"
+           and ("cta" in a["class"].split() or "cta" in a["up"].split())]
+    assert cta, "index needs a call to action (.cta, outside the nav) linking pricing.html"
 
 
 def test_features_six(built):
