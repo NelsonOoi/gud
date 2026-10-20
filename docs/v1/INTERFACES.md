@@ -1660,3 +1660,95 @@ Public additions and changes in `gud/wc/` and `gud/cli_v1.py`, all backward comp
   - Module functions: `build_push(client, parent, before, after, intent, *, kind="push", headers=None) -> (Envelope, blobs, ops)`, `create_genesis(client, files, intent="genesis") -> Hex`, `push_tree(client, parent, after, intent, *, headers=None) -> Hex`, `verify_cache(client, *, from_checkpoint=True, base=None) -> list[str]`, `conflict_markers(base, mine, theirs, tip_label="tip") -> bytes`, `find_root(start) -> Path | None`, `read_local_config(root)`, `write_local_config(root, data)`, constants `BASE_FILE`, `LOCAL_DIR`.
 - **`gud.cli_v1`**: console entry point `gud1 = "gud.cli_v1:main"` (`gud` stays v0). `build_parser()`. Every command is `cmd_<name>` (nested ones `cmd_<group>_<name>`, e.g. `cmd_task_new`, `cmd_host_init`, `cmd_keys_rotate`, `cmd_mirror_git`). Commands added to the table above: `keys new [--address A] [--transport N] [--set K=V]... [--force]`, `keys show`, `keys promote`, `admit JOIN [-m TEXT]`, `task list [--all]`, `task show ID`. Arguments added: global `-C DIR` and `--offline`; `init [DIR] [--from-git GIT_DIR] [--ref R] [--host-url URL] [--transport N] [--set K=V]... [-m INTENT]`; `import ... [--dir D] [--host-url URL]`; `join ... [--transport N] [--set K=V]...`; `host init ... [--set K=V]... [--dir D]`; `doctor [--transport N] [--set K=V]... [--no-send] [--timeout S]`; `object|veto ... [--test FILE [--test-path P]]`; `comment ... [--verdict reject]`; `checkpoint [--at-log N]`; `mirror git ... [--workdir D]`.
 - The §21 host test double used by the wc tests is `tests/v1/wc/host_double.py` (`HostDouble`, `InProcess`, `Clock`); it is not product code.
+
+## Addendum: mcp and agent
+
+Public names in `gud/mcp_v1.py` and `gud/agent/`, as built. See "Implementation notes (mcp/agent)" in SPEC-v1.md. Neither module imports `cli_v1`. The `gud agent` stub in `cli_v1` already calls `gud.agent.runtime.main(argv)`.
+
+```python
+# gud/mcp_v1.py
+TOOL_NAMES: tuple[str, ...]          # status clone sync diff push verify inflight tasks task task_new claim claim_update
+                                     # release subtask no_change comment approve object hold inbox wait
+                                     # read ls blame log thread search forecast
+INSTRUCTIONS: str
+class ToolError(Exception)
+class GudTools:
+    def __init__(self, client: RepoClient, wc_root: Path | str | None, *, json: bool = False,
+                 events: MemberEvents | None = None, log_wait_s: float | None = None,   # default $GUD_WAIT or 10
+                 poll_s: float = 1.0, sleep=time.sleep) -> None
+    me: Handle; wc_root: Path | None      # every tool returns a str: text, or JSON when json=True ({"error": ...} on failure)
+class MemberEvents:                       # GUD_HOME/members/<handle>/events.jsonl
+    def __init__(self, home: Path, handle: Handle) -> None
+    def record(self, events) -> list[tuple[int, Event]]   # only events concerning the member; dedupe by id
+    def head(self) -> int; def since(self, n: int) -> list[tuple[int, Event]]; def all(self)
+def journal_deltas(client: RepoClient, journal: MemberEvents) -> None   # wrap client.sync_log so every delta is journaled
+def open_member(home=None, handle=None, wc=None, *, clock=time.time) -> tuple[RepoClient, Path | None]
+def describe_event(event: Event, chain: Chain | None = None, me: Handle | None = None) -> str
+def explain_proposal(prop: ProposalState, now: Ms) -> str
+def is_echo(event: Event, me: Handle) -> bool                      # own claim.won / linked
+ARTIFACT_PATTERNS: tuple[str, ...]; def artifacts(paths) -> list[str]
+def build_server(tools: GudTools) -> "mcp.server.mcpserver.MCPServer"   # FastMCP on mcp < 2
+def main(argv: list[str] | None = None) -> None   # python -m gud.mcp_v1 [--home H] [--handle @x] [--wc DIR] [--json]
+```
+
+Changes to the `gud/mcp_v1.py` tool table above:
+
+- **Changed:** `push(intent, task=None, revises=None, carry=True, edits=None, base=None, allow_artifacts=False)` sends the working copy's diff, or `edits` for members without a filesystem. It replaces both `push_working_copy` and the edits-only `push`. Each edit is `{path, content | content_b64, mode?}`, `{path, delete: true}` or `{path, rename_to}`.
+- Added tools: `task(id)`, `verify()`.
+- Added arguments: `inflight(paths=[], include_mine=False)`, `log(limit=20, path=None)`, `search(query, regex=False, at=None, ignore_case=False, glob=None, limit=500)`, `wait(timeout=60, types=[], push=None)`, `claim(task, files, after=[], note="")`, `release(claim, note="")`, `comment(target, text, task=None, escalate=None)`, `subtask(..., accept_paths=[], accept_cmds=[])`, `object(target, reason, evidence_path=None, evidence_content=None, evidence_file=None)`.
+- `read`, `ls` and `search` also take `at` = an in-flight push (its proposed tree). There is no `veto` tool.
+
+```python
+# gud/agent/budget.py
+@dataclass class Budget: usd, tokens, spent_usd=0.0, spent_tokens=0; charge(usd, tokens); exhausted; remaining_usd;
+                         describe(); to_json(); from_json(d)
+def turn_tokens(usage: Mapping | None) -> int          # input + output + cache creation + cache reads / 10
+@dataclass class Ledger: member: Budget, task_usd=None, task_tokens=None, path=None, tasks, escalated, member_escalated
+    @classmethod load(member, *, task_usd=None, task_tokens=None, path=None) -> Ledger
+    task(id) -> Budget; charge(usd, tokens, task=None); blocked(task=None) -> str | None; save()
+
+# gud/agent/prompt.py
+SYSTEM_PROMPT: str                     # format fields {handle}, {wc}, {budget}
+SUMMARY_PROMPT: str; IDLE_PROMPT: str
+def system_prompt(handle, wc, *, budget="...", extra="") -> str
+def render_event(event, chain) -> str
+def render_batch(events, chain, *, key="", notes=(), status="", idle=False) -> str   # changed: keyword options
+
+# gud/agent/sessions.py
+@dataclass class SessionTurn: text, usd=0.0, tokens=0, session_id=None, is_error=False, tool_calls={}, error=""
+class Session(Protocol): send(text) -> SessionTurn; close(summary=True) -> str
+class SessionManager:
+    def __init__(self, factory, *, debounce_s=1.0, max_open=8, max_delay_s=5.0, key=None, render=None,
+                 before_turn=None, after_turn=None, finished=None, on_close=None, clock=time.monotonic) -> None
+    aliases: dict[str, str]; sessions: OrderedDict[str, Session]; summaries; turns; skipped; errors
+    def route(events); def wake(key, events=()); def pump(now=None) -> int; def flush() -> int
+    def key_of(event) -> str; def alias(thread, session_key); def threads_of(key) -> list[str]
+    def close(key, summary=True) -> str; def close_finished(chain) -> list[str]; def close_all(summary=False)
+    pending: int; def next_due() -> float | None
+def thread_finished(key: str, chain: Chain, me: Handle | None = None) -> bool
+class AsyncLoop: run(coro, timeout=None); stop()
+class ClaudeSession(key, options: Callable[[str | None], ClaudeAgentOptions], loop: AsyncLoop, *, resume=None,
+                    turn_timeout_s=1800.0, on_message=None, on_extra_turn=None, summary_prompt="")   # implements Session
+def summarise_usage(turns) -> dict
+
+# gud/agent/runtime.py
+DEFAULT_MODEL = "claude-sonnet-5-5"; NATIVE_TOOLS = ("Read", "Edit", "Write", "Bash", "Grep", "Glob")
+class AgentRuntime:
+    def __init__(self, client, wc, *, model=DEFAULT_MODEL, budget: Budget, listen=None, task_budget: Budget | None = None,
+                 session_factory=None, state_dir=None, debounce_s=1.0, max_open=8, poll_s=2.0, idle_s=300.0,
+                 advertise=None, max_turns=80, turn_timeout_s=1800.0, extra_prompt="", deny_paths=(),
+                 mcp_env=None, clock=time.time, monotonic=time.monotonic, log=None) -> None
+    def run(self, stop: threading.Event) -> None
+    def on_events(self, events) -> None                # journal, then route new journal entries
+    def claude_session(self, thread_key: str) -> Session
+    def step(self, *, poll=True) -> int                # one loop pass; turns run
+    def accept_webhook(self, headers, body) -> int     # HTTP status
+    def idle_check(self, *, force=False, startup=False) -> bool
+    def quiet(self, event) -> bool; def options(self, resume=None) -> ClaudeAgentOptions; def mcp_server_config(self) -> dict
+    ledger: Ledger; journal: MemberEvents; events: EventClient; manager: SessionManager; stopped_reason: str | None
+def main(argv: list[str] | None = None) -> int   # gud agent --handle @x [--home H] [--wc DIR] [--listen [HOST]:PORT]
+    # [--advertise URL] [--model M] [--budget-usd N] [--budget-tokens N] [--task-budget-usd N] [--task-budget-tokens N]
+    # [--debounce S] [--max-open N] [--poll S] [--idle S] [--max-turns N] [--deny-path P]...
+```
+
+Runtime state lives in `GUD_HOME/members/<handle>/agent/`: `runtime.json` (routed journal cursor, aliases, SDK session ids per thread, notes, idle signature), `budget.json`, `events.json` (the `EventClient` cursor and seen ids), `turns.jsonl` (one record per turn) and `transcripts/<thread>.jsonl`. `pyproject.toml` has the optional extra `agent = ["claude-agent-sdk>=0.2.168"]`.
