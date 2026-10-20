@@ -355,6 +355,8 @@ class Replayer:
         r._log = HostLog(entries, trusted_keys=r._trusted)
         r._mail_keys = dict(doc["local"]["mail"])
         r._load_engine(doc["engine"])
+        head = doc["local"].get("checkpoint_head")
+        r._checkpoint_head = E.parse_seen(head) if head else None
         for gid in doc["local"]["held"]:
             key = r._mail_keys.get(gid)
             if key:
@@ -393,6 +395,7 @@ class Replayer:
                 "mail": sorted(self._mail_keys.items()),
                 "held": sorted(self._mail),
                 "trusted": list(self._trusted),
+                "checkpoint_head": self._checkpoint_head.render() if self._checkpoint_head else None,
             },
         }
         data = json.dumps(doc, separators=(",", ":"), ensure_ascii=False)
@@ -450,6 +453,12 @@ class Replayer:
         n = self._s["next"]
         if n == 0:
             return Seen(-1, ZERO)
+        if n - 1 >= len(self._log):
+            # resumed from a checkpoint and not yet fed the log up to its head: the snapshot's
+            # head is the processed head (the entries before it are checked when they arrive)
+            if self._checkpoint_head is not None:
+                return self._checkpoint_head
+            raise ReplayError(f"replay state is at log entry {n - 1} but the log has {len(self._log)} entries")
         entry = self._log.at(n - 1)
         return Seen(entry.seq, entry.hash)
 

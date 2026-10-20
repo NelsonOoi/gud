@@ -745,11 +745,7 @@ class RepoClient:
             self.mirror.pull()
             r = self._replayer
             entries = self._fetch_log(len(r.log()))
-            if len(r.log()) == 0 and self._meta().get("checkpoint_seq") is not None:
-                # a cache just loaded from a checkpoint has no log yet (Replayer.chain() needs it)
-                processed = int(self._meta()["checkpoint_seq"])
-            else:
-                processed = r.chain().log_head.seq
+            processed = r.chain().log_head.seq
             wanted: dict[Hex, int] = {}
             for e in entries:
                 if e.type == "mail" and e.seq > processed:
@@ -780,8 +776,8 @@ class RepoClient:
                     self.store = FetchingStore(self.objects, self._fetch_object_raw)
                     self._replayer = Replayer.from_checkpoint(found, self.store, state_dir=self.cache_dir,
                                                               trusted_host_keys=self.trusted_host_keys)
-                    self._save_meta({**self._meta(), "checkpoint": True,
-                                     "checkpoint_seq": Snapshot.from_bytes(found).log_head.seq})
+                    self._replayer.save()
+                    self._save_meta({**self._meta(), "checkpoint": True})
                 return "checkpoint"
         return "genesis"
 
