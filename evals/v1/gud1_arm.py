@@ -1,15 +1,28 @@
-"""The gud v1 arms: a v1 repo in local host mode over a shared FakeMailbox root, a v1 tester process,
-and either Claude Code sessions on the gud v1 MCP server (`gud1-cc`) or reference agents (`gud1-ref`).
+"""The gud v1 arms: a real v1 host (`gud host serve`), a real tester (`gud tester`), and either Claude Code
+sessions on the gud v1 MCP server (`gud1-cc`, `gud mcp`) or reference agents (`gud1-ref`, `gud agent`).
+
+Everything goes through the gud v1 command line (`python -m gud.cli_v1 --home H --handle @x ...`, with this
+checkout on PYTHONPATH), the same way `tests/v1/e2e/scenario.py` drives it:
+
+    gud1 host init --repo repo@gud.local --transport fake --set root=<mail> --dir <host>   (as @hoster)
+    gud1 host serve --dir <host> --bind 127.0.0.1:<port>                                   (long-lived)
+    gud1 keys new --address <x>@gud.local --transport fake --set root=<mail>               (every member)
+    gud1 init <seed dir> --repo ... --member-file <roster with every key> --host-url <url> (as @nelson)
+    gud1 task new "<title>" -m "<spec text>" --accept-cmd "python -m pytest -q"            (as @nelson)
+    gud1 clone <url> <agents/aK>                                                           (every agent)
+    gud1 tester --interval 2                                                               (as @tester)
+    gud1 mcp --wc <agents/aK>          gud1-cc: the --mcp-config server of agent K
+    gud1 agent --wc <agents/aK> ...    gud1-ref: the reference agent K
 
 Layout under the run's work root:
 
-    mail/                    the FakeMailbox root (every address: repo@gud.local, a1@gud.local, ...)
-    host/                    the LocalHost directory (host key, signed host log, raw mail); `local:<dir>`
-    host-objects/            the host's object store
-    homes/<a1>/              GUD_HOME of each member (key, transport.toml, remote.json, replay cache, objects)
-    agents/<a1>/             the agent's v1 working copy (`WorkingCopy.clone`): its cwd
-    mcp/<a1>.json            gud1-cc: the agent's --mcp-config (python -m gud.mcp_v1 --home --handle --wc)
-    tester/                  the tester's state
+    mail/              the FakeMailbox root (repo@gud.local and every member's address)
+    host/              the host directory (host key, signed host log, raw mail, journals)
+    homes/<x>/         GUD_HOME of each member (key, transport.toml, remote.json, replay cache, objects)
+    seed/              @nelson's working copy (the genesis tree)
+    agents/<aK>/       agent K's working copy: its cwd
+    mcp/<aK>.json      gud1-cc: agent K's --mcp-config
+    logs/              host.log
 
 Members: @a1..@aN (agent), @tester (tester), @nelson (human requester and sponsor; signs genesis and the
 task, never acts afterwards), and the host line. There is no lead: the task (T1, the spec text, with the
@@ -30,6 +43,7 @@ import json
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -40,12 +54,7 @@ REPO = HERE.parents[1]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from gud.core import envelope as E  # noqa: E402
-from gud.core.types import LIVE_STATUSES, Record  # noqa: E402
-from gud.gitbridge import DEFAULT_OWNERS, parse_roster  # noqa: E402
-from gud.transport.fake import FakeMailbox  # noqa: E402
-from gud.wc.copy import WorkingCopy, create_genesis  # noqa: E402
-from gud.wc.remote import LocalHost, RepoClient, save_key, write_transport_toml  # noqa: E402
+from gud.core.types import LIVE_STATUSES  # noqa: E402
 
 DOMAIN = "gud.local"
 REPO_ADDR = f"repo@{DOMAIN}"
@@ -54,11 +63,16 @@ POLICIES = {
     "tip": "command python -m pytest -q -x\non-tip links=1 time=2m\ntimeout 3m\n",
     "gate": "command python -m pytest -q -x\non-paths **\non-tip off\ntimeout 3m\n",
 }
-IGNORE = ["__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", ".DS_Store"]
 
 
-def _clean_env() -> dict[str, str]:
-    return {k: v for k, v in os.environ.items() if not k.startswith(("GUD_", "PYTEST_")) and k != "PYTHONPATH"}
+class Gud1Error(RuntimeError):
+    """A gud1 command failed during setup (a harness error, not an agent result)."""
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
 class Gud1Arm:
@@ -78,35 +92,72 @@ class Gud1Arm:
         self.policy = policy
         self.mail = self.root / "mail"
         self.host_dir = self.root / "host"
-        self.host_url = f"local:{self.host_dir}"
-        self.keys: dict[str, bytes] = {}
+        self.host_url = ""
         self.homes: dict[str, Path] = {}
-        self.tester: subprocess.Popen | None = None
+        self.procs: dict[str, subprocess.Popen] = {}
+        self._logs: list = []
         self.tester_log: Path | None = None
         self.task_id: str | None = None
         self.genesis: str | None = None
         self._t0 = 0.0
-        self._nelson: RepoClient | None = None
+        self._nelson = None
 
-    # -- setup -----------------------------------------------------------------------------
+    # -- the gud1 command line -------------------------------------------------------------
 
-    def _home(self, handle: str) -> Path:
-        home = self.root / "homes" / handle.lstrip("@")
-        save_key(home, handle, self.keys[handle], overwrite=True)
-        write_transport_toml(home / "members" / handle / "transport.toml", "fake",
-                             {"root": str(self.mail), "address": f"{handle.lstrip('@')}@{DOMAIN}"})
-        (home / "remote.json").write_text(json.dumps({"host_url": self.host_url, "repo": REPO_ADDR, "handle": handle}))
-        return home
+    def env(self) -> dict[str, str]:
+        """Environment of every gud process: this checkout on PYTHONPATH, the venv's python first on PATH."""
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith(("GUD_", "PYTEST_")) and k not in ("PYTHONPATH", "TODO_FILE", "NOTES_DIR")}
+        env["PYTHONPATH"] = str(REPO)
+        env["PATH"] = os.pathsep.join([str(Path(self.python).parent), env.get("PATH", "/usr/bin:/bin")])
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        return env
 
-    def client(self, handle: str) -> RepoClient:
-        return RepoClient(self.host_url, handle, self.keys[handle],
-                          send_via=FakeMailbox(self.mail, f"{handle.lstrip('@')}@{DOMAIN}"),
-                          repo_address=REPO_ADDR, home=self.homes[handle])
+    def argv(self, handle: str, *args: str) -> list[str]:
+        return [self.python, "-m", "gud.cli_v1", "--home", str(self.home(handle)), "--handle", handle, *args]
+
+    def gud1(self, handle: str, *args: str, cwd: Path | None = None, timeout: float = 180) -> dict:
+        """Run one `gud1 --json` command as `handle`; its JSON, or Gud1Error."""
+        argv = self.argv(handle, "--json", *args)
+        proc = subprocess.run(argv, cwd=cwd or self.root, env=self.env(), capture_output=True, text=True,
+                              timeout=timeout)
+        lines = proc.stdout.strip().splitlines()
+        try:
+            out = json.loads(lines[-1]) if lines else {}
+        except ValueError:
+            out = {}
+        if proc.returncode != 0 or "error" in out:
+            raise Gud1Error(f"gud1 {' '.join(args)} ({handle}) -> {proc.returncode}: {proc.stdout[-800:]}"
+                            f"{proc.stderr[-800:]}")
+        return out
+
+    def home(self, handle: str) -> Path:
+        if handle not in self.homes:
+            self.homes[handle] = self.root / "homes" / handle.lstrip("@")
+            self.homes[handle].mkdir(parents=True, exist_ok=True)
+        return self.homes[handle]
+
+    def address(self, handle: str) -> str:
+        return f"{handle.lstrip('@')}@{DOMAIN}"
+
+    def transport(self) -> list[str]:
+        return ["--transport", "fake", "--set", f"root={self.mail}"]
+
+    def _spawn(self, name: str, argv: list[str], log: Path, cwd: Path | None = None) -> subprocess.Popen:
+        log.parent.mkdir(parents=True, exist_ok=True)
+        fh = log.open("w")
+        self._logs.append(fh)
+        proc = subprocess.Popen(argv, cwd=cwd or self.root, env=self.env(), stdin=subprocess.DEVNULL, stdout=fh,
+                                stderr=subprocess.STDOUT, start_new_session=True)
+        self.procs[name] = proc
+        return proc
 
     @property
-    def nelson(self) -> RepoClient:
+    def nelson(self):
+        """@nelson's RepoClient over the host's HTTP mirror (read-only use: the harness's own view)."""
         if self._nelson is None:
-            self._nelson = self.client("@nelson")
+            from gud.mcp_v1 import open_member
+            self._nelson, _ = open_member(self.home("@nelson"), "@nelson", self.root / "seed")
         return self._nelson
 
     def config_bytes(self) -> bytes:
@@ -114,76 +165,90 @@ class Gud1Arm:
         g = int(self.grace) if self.grace.is_integer() else self.grace
         return f"window {w}s\ngrace {g}s\nlease 10m\nescalate 3m\nfix-offer 2m\n".encode()
 
+    # -- setup -----------------------------------------------------------------------------
+
     def setup(self) -> None:
-        from specs import read_tree
+        from gud.wc.ignore import DEFAULT_GUDIGNORE
+        from specs import read_tree, write_tree
 
         self.root.mkdir(parents=True, exist_ok=True)
-        everyone = self.handles + ["@tester", "@nelson"]
-        self.keys = {h: E.generate_key()[0] for h in everyone}
-        host = LocalHost.create(self.host_dir, repo=REPO_ADDR, transport="fake", cfg={"root": str(self.mail)},
-                                host_private=E.generate_key()[0], objects=self.root / "host-objects")
-        roster = "\n".join(
-            [f"{h} agent {h.lstrip('@')}@{DOMAIN} {E.public_of(self.keys[h])} @nelson" for h in self.handles]
-            + [f"@tester tester tester@{DOMAIN} {E.public_of(self.keys['@tester'])} @nelson",
-               f"@nelson human nelson@{DOMAIN} {E.public_of(self.keys['@nelson'])} -",
-               f"@host host {REPO_ADDR}"]) + "\n"
-        members = parse_roster(roster.encode(), host.host_key)
+        self.mail.mkdir(parents=True, exist_ok=True)
+        made = self.gud1("@hoster", "host", "init", "--repo", REPO_ADDR, *self.transport(), "--dir", str(self.host_dir))
+        port = _free_port()
+        self._spawn("host", self.argv("@hoster", "host", "serve", "--dir", str(self.host_dir), "--bind",
+                                      f"127.0.0.1:{port}"), self.root / "logs" / "host.log")
+        self.host_url = f"http://127.0.0.1:{port}"
+        self._wait_host(made.get("host_key"))
+        keys = {}
+        for handle in self.handles + ["@tester", "@nelson"]:
+            keys[handle] = self.gud1(handle, "keys", "new", "--address", self.address(handle),
+                                     *self.transport())["public_key"]
+        roster = self.root / "roster"
+        roster.write_text("\n".join(
+            [f"{h} agent {self.address(h)} {keys[h]} @nelson" for h in self.handles]
+            + [f"@tester tester {self.address('@tester')} {keys['@tester']} @nelson",
+               f"@nelson human {self.address('@nelson')} {keys['@nelson']} -",
+               f"@host host {REPO_ADDR}"]) + "\n")
+        seed_dir = self.root / "seed"
         seed = read_tree(self.spec.seed)
-        files = {p: ("100644", t.encode()) for p, t in seed.items()}
-        ignore = list(IGNORE)
+        write_tree(seed_dir, seed)
+        ignore = DEFAULT_GUDIGNORE.rstrip("\n").splitlines()
         for line in seed.get(".gitignore", "").splitlines():
             if line.strip() and line.strip() not in ignore:
                 ignore.append(line.strip())
-        files.update({
-            ".gud/members": ("100644", members), ".gud/config": ("100644", self.config_bytes()),
-            ".gud/test": ("100644", POLICIES[self.policy].encode()), ".gud/owners": ("100644", DEFAULT_OWNERS),
-            ".gudignore": ("100644", ("\n".join(ignore) + "\n").encode()),
-        })
-        self.homes = {h: self._home(h) for h in everyone}
-        nelson = self.nelson
-        nelson.sync_log()
-        self.genesis = create_genesis(nelson, files, f"genesis: {self.spec.name} seed")
-        deadline = time.time() + 30
-        while time.time() < deadline:
-            nelson.sync_log()
-            if nelson.chain().tip is not None:
-                break
-            time.sleep(0.2)
-        else:
-            raise RuntimeError("genesis did not link")
+        (seed_dir / ".gudignore").write_text("\n".join(ignore) + "\n")
+        (seed_dir / ".gud").mkdir(exist_ok=True)
+        (seed_dir / ".gud" / "config").write_bytes(self.config_bytes())
+        (seed_dir / ".gud" / "test").write_text(POLICIES[self.policy])
+        out = self.gud1("@nelson", "init", str(seed_dir), "--repo", REPO_ADDR, "--member-file", str(roster),
+                        "--host-url", self.host_url, "-m", f"genesis: {self.spec.name} seed", cwd=seed_dir)
+        self.genesis = out["genesis"]
         for handle in self.handles:
-            WorkingCopy.clone(self.client(handle), self.workdir(handle, create=False))
+            self.gud1(handle, "clone", self.host_url, str(self.workdir(handle, create=False)))
+        self.gud1("@tester", "clone", self.host_url, str(self.root / "tester-wc"))   # saves its remote
+
+    def _wait_host(self, host_key: str | None, timeout: float = 60) -> None:
+        import httpx
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.procs["host"].poll() is not None:
+                raise Gud1Error(f"gud host serve exited: {(self.root / 'logs' / 'host.log').read_text()[-2000:]}")
+            try:
+                info = httpx.get(self.host_url + "/api/v1/info", timeout=2).json()
+                if host_key is None or info.get("host_key") == host_key:
+                    return
+            except (httpx.HTTPError, ValueError):
+                pass
+            time.sleep(0.2)
+        raise Gud1Error("gud host serve did not answer")
 
     def start_services(self, log_dir: Path) -> None:
         log_dir.mkdir(parents=True, exist_ok=True)
         self.tester_log = log_dir / "tester.log"
-        env = {**_clean_env(), "PYTHONPATH": str(REPO), "PYTHONDONTWRITEBYTECODE": "1"}
-        argv = [self.python, str(HERE / "gud1_tester.py"), "--home", str(self.homes["@tester"]), "--handle", "@tester",
-                "--host", self.host_url, "--repo", REPO_ADDR, "--mail", str(self.mail),
-                "--state", str(self.root / "tester"), "--extra-path", str(Path(self.python).parent), "--poll", "2"]
-        self.tester = subprocess.Popen(argv, cwd=self.root, env=env, stdout=self.tester_log.open("w"),
-                                       stderr=subprocess.STDOUT, start_new_session=True)
+        self._spawn("tester", self.argv("@tester", "tester", "--interval", "2"), self.tester_log,
+                    cwd=self.home("@tester"))
 
     def mark_start(self, t0: float) -> None:
         self._t0 = t0
-
-    def seed_task(self) -> None:
-        nelson = self.nelson
-        nelson.sync_log()
-        records = (Record("text", (), self.task_text().encode()), Record("accept", (), ACCEPT_CMD.encode()))
-        self.task_id = nelson.sign_and_send("task", {"Gud-Title": self.spec.title}, records, summary=self.spec.title)
-        deadline = time.time() + 30
-        while time.time() < deadline:
-            nelson.sync_log()
-            if self.task_id in nelson.chain().tasks:
-                return
-            time.sleep(0.2)
-        raise RuntimeError("the task was not logged")
 
     def task_text(self) -> str:
         """The task on the board: the spec text plus the one ground rule every arm's prompt also states."""
         return (self.spec.text + "\n\nHidden acceptance tests will check the finished repository against this "
                 "text, so follow it exactly.")
+
+    def seed_task(self) -> None:
+        out = self.gud1("@nelson", "task", "new", self.spec.title, "-m", self.task_text(), "--accept-cmd", ACCEPT_CMD,
+                        cwd=self.root / "seed")
+        self.task_id = out.get("id") or out.get("task") or out.get("gud_id")
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            self.nelson.sync_log()
+            tasks = self.nelson.chain().tasks
+            if self.task_id in tasks or (self.task_id is None and tasks):
+                self.task_id = self.task_id or next(iter(tasks))
+                return
+            time.sleep(0.3)
+        raise Gud1Error(f"the task was not logged ({out})")
 
     def live_proposals(self) -> list:
         nelson = self.nelson
@@ -201,12 +266,28 @@ class Gud1Arm:
         return round(time.time() - t, 1)
 
     def stop_services(self) -> None:
-        if self.tester is not None and self.tester.poll() is None:
-            os.killpg(self.tester.pid, signal.SIGTERM)
+        """Stop the tester (the agents have stopped). The host keeps serving for the harness's analysis."""
+        self._stop("tester")
+
+    def close(self) -> None:
+        """Stop the tester and the host (idempotent)."""
+        self._stop("tester", "host")
+        for fh in self._logs:
+            fh.close()
+        self._logs = []
+
+    def _stop(self, *names: str) -> None:
+        for name in names:
+            proc = self.procs.get(name)
+            if proc is None or proc.poll() is not None:
+                continue
             try:
-                self.tester.wait(timeout=20)
+                os.killpg(proc.pid, signal.SIGTERM)
+                proc.wait(timeout=20)
             except subprocess.TimeoutExpired:
-                os.killpg(self.tester.pid, signal.SIGKILL)
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
     # -- agents ----------------------------------------------------------------------------
 
@@ -247,20 +328,22 @@ class Gud1Arm:
         mail = self.host_dir / "mail"
         if mail.exists():
             shutil.copytree(mail, run_dir / "mail", dirs_exist_ok=True)
+        host_log = self.root / "logs" / "host.log"
+        if host_log.exists():
+            shutil.copy(host_log, run_dir / "host.log")
 
 
 class Gud1CCArm(Gud1Arm):
-    """Claude Code headless (same invocation as the git arm) with the gud v1 MCP server."""
+    """Claude Code headless (same invocation as the git arm) with the gud v1 MCP server (`gud1 mcp`)."""
     name = "gud1-cc"
 
     def mcp_config(self, handle: str) -> Path:
         path = self.root / "mcp" / f"{handle.lstrip('@')}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        home = self.homes[handle]
-        env = {"PYTHONPATH": str(REPO), "GUD_HOME": str(home), "GUD_HANDLE": handle, "PYTHONDONTWRITEBYTECODE": "1"}
+        env = {"PYTHONPATH": str(REPO), "PYTHONDONTWRITEBYTECODE": "1"}
         path.write_text(json.dumps({"mcpServers": {"gud": {
             "command": self.python,
-            "args": ["-m", "gud.mcp_v1", "--home", str(home), "--handle", handle, "--wc", str(self.workdir(handle))],
+            "args": self.argv(handle, "mcp", "--wc", str(self.workdir(handle)))[1:],     # gud1 ... mcp --wc WC
             "env": env,
         }}}, indent=2))
         return path
@@ -284,7 +367,7 @@ class Gud1CCArm(Gud1Arm):
 
 
 class Gud1RefArm(Gud1Arm):
-    """The reference agent (`python -m gud.agent.runtime`), one process per member."""
+    """The reference agent (`gud1 agent`, gud.agent.runtime), one process per member."""
     name = "gud1-ref"
 
     def mcp_config(self, handle: str) -> None:
@@ -300,17 +383,18 @@ class Gud1RefArm(Gud1Arm):
         seconds once something linked, or `done_settle` after T1 is done), the run budget is spent, or at the
         timeout. Returns (agent rows, outcome dict, transcripts as tool-call rows)."""
         import analyze
-        cmd = list(ref_cmd or [self.python, "-m", "gud.agent.runtime"])
-        env = {**_clean_env(), "PYTHONPATH": str(REPO), "PYTHONDONTWRITEBYTECODE": "1"}
-        env["PATH"] = os.pathsep.join([str(Path(self.python).parent), env.get("PATH", "/usr/bin:/bin")])
+        env = self.env()
         procs: dict[str, subprocess.Popen] = {}
         started: dict[str, float] = {}
         logs = {}
         for handle in self.handles:
             log_dir = run_dir / "agents" / handle.lstrip("@")
             log_dir.mkdir(parents=True, exist_ok=True)
-            argv = cmd + ["--handle", handle, "--home", str(self.homes[handle]), "--wc", str(self.workdir(handle)),
-                          "--model", model or "", "--budget-usd", f"{agent_budget:.4f}", "--poll", "2",
+            # `gud1 --home H --handle @aK agent --wc WC <runtime options>`; a test passes its own command,
+            # which gets the same --home/--handle and options
+            prefix = (list(ref_cmd) + ["--home", str(self.home(handle)), "--handle", handle] if ref_cmd
+                      else self.argv(handle, "agent"))
+            argv = prefix + ["--wc", str(self.workdir(handle)), "--model", model or "", "--budget-usd", f"{agent_budget:.4f}", "--poll", "2",
                           "--idle", str(idle)]
             for path in deny:
                 argv += ["--deny-path", str(path)]
@@ -390,7 +474,7 @@ class Gud1RefArm(Gud1Arm):
         return rows, outcome, transcripts
 
     def agent_dir(self, handle: str) -> Path:
-        return self.homes[handle] / "members" / handle / "agent"
+        return self.home(handle) / "members" / handle / "agent"
 
     def spent(self, handle: str) -> float:
         try:

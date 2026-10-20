@@ -290,7 +290,7 @@ def main() -> int:
     if mode == "sleep":
         time.sleep(600)
         return 0
-    if "--mcp-config" in opts and "gud.mcp_v1" in Path(opts["--mcp-config"]).read_text():
+    if "--mcp-config" in opts and "gud.cli_v1" in Path(opts["--mcp-config"]).read_text():
         text = gud1_work(out, handle, opts["--mcp-config"])
     elif "--mcp-config" in opts:
         text = gud_work(out, handle, opts["-p"], opts["--mcp-config"])

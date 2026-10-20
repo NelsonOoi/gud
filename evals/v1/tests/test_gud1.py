@@ -78,7 +78,7 @@ def test_gud1_arm_end_to_end_with_fake_agents(arm, tmp_path, fake_env):
         assert agent["exit_code"] is not None and agent["turns"] > 0
     run_dir = out / f"{arm}-acme-site-n2-t1"
     assert (run_dir / "host-log.jsonl").stat().st_size > 0
-    assert (run_dir / "tester.log").read_text().startswith("tester @tester up")
+    assert "tester @tester running" in (run_dir / "tester.log").read_text()
     saved = json.loads((run_dir / "summary.json").read_text())
     assert "_pushes_full" not in saved["gud1"]
     text = report.report([out])
@@ -102,7 +102,7 @@ def test_gud1_cc_prompt_shares_the_preamble(tmp_path):
     assert "subtask" in gud1 and "inflight" in gud1 and "@a2" in gud1
     assert "todolib.py" not in cc.instructions("@a1"), "nothing pre-splits the work"
     mcp = json.loads(cc.mcp_config("@a1").read_text())["mcpServers"]["gud"]
-    assert mcp["args"][:2] == ["-m", "gud.mcp_v1"] and mcp["env"]["PYTHONPATH"] == str(run.REPO)
+    assert mcp["args"][:2] == ["-m", "gud.cli_v1"] and "mcp" in mcp["args"] and mcp["env"]["PYTHONPATH"] == str(run.REPO)
     assert (cc.workdir("@a1") / ".gud" / "BASE").is_file() and (cc.workdir("@a1") / "README.md").is_file()
 
 

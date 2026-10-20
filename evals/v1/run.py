@@ -207,160 +207,167 @@ def _run_one(*, arm_name: str, spec, n: int, trial: int, budget: float, timeout:
     handles = [f"@a{i + 1}" for i in range(n)]
     agent_budget = budget / n
     arm = make_arm(arm_name, root, spec, handles, window, policy)
-    v1 = arm_name.startswith("gud1")
-    ref = arm_name == "gud1-ref"
-    print(f"[{run_dir.name}] work root {root}", flush=True)
-    tools = list(DEFAULT_TOOLS) + (["mcp__gud__*"] if arm_name != "git" else [])
-    summary: dict = {
-        "arm": arm_name, "spec": spec_name, "agents_n": n, "trial": trial,
-        "requested_model": model, "budget_usd": budget, "agent_budget_usd": round(agent_budget, 4),
-        "timeout_s": timeout, "window_s": window if arm_name != "git" else None,
-        "test_policy": policy if v1 else None,
-        "agent_cmd": "gud.agent.runtime" if ref else shlex.split(agent_cmd)[-1], "work_root": str(root),
-        "fairness": {
-            "agent": "reference agent (Claude Agent SDK)" if ref else "Claude Code headless",
-            "tools": tools,
-            "test_command": "python -m pytest -q -x",
-            "same_prompt_preamble": not ref,
-        },
-    }
-    auth = check_auth(agent_cmd if not ref or ref_cmd is None else "x")
-    if auth:
-        summary.update(outcome="harness_error", harness_errors=[auth], cost_usd=0.0)
-        (run_dir / "summary.json").write_text(json.dumps(summary, indent=2))
-        print(f"[{run_dir.name}] {auth}", flush=True)
-        return summary
-    arm.setup()
-    arm.start_services(run_dir)
-    t0 = time.time()
-    arm.mark_start(t0)
-    arm.seed_task()
-    deny = [HERE, out.resolve()]
-    drained = None
     try:
-        if ref:
-            agents_out, ref_outcome, transcripts = arm.run_agents(
-                run_dir, model=model, agent_budget=agent_budget, run_budget=budget, timeout=timeout, deny=deny,
-                ref_cmd=ref_cmd, settle=ref_settle)
-            outcome_reason = ref_outcome["reason"]
-            harness_errors = ref_outcome["harness_errors"]
-            killed = ref_outcome["killed"]
-            summary["ref_stop"] = ref_outcome["stop"]
-            for row in agents_out:
-                row["local_test_runs"] = local_test_runs(transcripts[row["handle"]])
-                (run_dir / "agents" / row["handle"].lstrip("@") / "tools.json").write_text(
-                    json.dumps(transcripts[row["handle"]], indent=1, default=str))
-        else:
-            from agents import AgentSpec
-            agent_specs = []
-            for handle in handles:
-                prompt = prompt_for(arm, spec, handle, handles, agent_budget)
-                mcp = arm.mcp_config(handle)
-                log_dir = run_dir / "agents" / handle.lstrip("@")
-                log_dir.mkdir(parents=True, exist_ok=True)
-                (log_dir / "prompt.txt").write_text(prompt)
-                agent_specs.append(AgentSpec(
-                    handle=handle, cwd=arm.workdir(handle), env=agent_env(arm, handle), log_dir=log_dir,
-                    argv=build_argv(agent_cmd, prompt, model=model, agent_budget=agent_budget, mcp_config=mcp,
-                                    deny=deny),
-                    require_mcp="gud" if mcp else None,
-                ))
-            (run_dir / "argv.json").write_text(json.dumps(
-                [[a if i != 2 else "<prompt.txt>" for i, a in enumerate(spec_.argv)] for spec_ in agent_specs],
-                indent=1))
-            runs, outcome = supervise(agent_specs, run_budget=budget, agent_budget=agent_budget, timeout=timeout,
-                                      mcp_grace=mcp_grace)
-            outcome_reason = "completed" if outcome.reason == "all_exited" else outcome.reason
-            harness_errors, killed = outcome.harness_errors, outcome.killed
-            transcripts = {run.spec.handle: run.stats.tool_calls for run in runs}
-            agents_out = []
-            for run in runs:
-                (run.spec.log_dir / "tools.json").write_text(json.dumps(run.stats.tool_calls, indent=1, default=str))
-                row = run.summary()
-                row["local_test_runs"] = local_test_runs(run.stats.tool_calls)
-                agents_out.append(row)
-        agents_wall = time.time() - t0
-        if v1 and outcome_reason != "harness_error":
-            drained = arm.drain(drain_s if drain_s is not None else window + 60)
-    finally:
-        arm.stop_services()
-    wall = agents_wall
-    final_dir = run_dir / "final_tree"
-    if final_dir.exists():
-        shutil.rmtree(final_dir)
-    tree = arm.final_tree()
-    specs.write_tree(final_dir, tree)
-    hidden = specs.run_hidden(spec, final_dir)
-    visible = specs.run_visible_tests(final_dir)
-    coordination = arm.metrics(wall, transcripts)
-    mkey = getattr(arm, "metrics_key", arm_name)
-    models = sorted({row["model"] for row in agents_out if row["model"]})
-    tokens = {k: sum(row["tokens"].get(k, 0) for row in agents_out) for k in ("input", "output", "cache_read",
-                                                                               "cache_creation")}
-    escalations = sum(1 for row in agents_out if row["escalated"])
-    if v1:
-        escalations = sum(1 for row in agents_out if row["escalated"]) + (
-            0 if ref else len(coordination["gud1"]["escalations"]["task"]))
-    summary.update({
-        "outcome": outcome_reason,
-        "harness_errors": harness_errors,
-        "killed": killed,
-        "model": models[0] if len(models) == 1 else models,
-        "wall_s": round(wall, 1),
-        "drain_s": drained,
-        "cost_usd": round(sum(row["cost_usd"] for row in agents_out), 4),
-        "tokens": tokens,
-        "tokens_total": sum(tokens.values()),
-        "turns": sum(row["turns"] or 0 for row in agents_out),
-        "hidden": {k: hidden[k] for k in ("passed", "failed", "total", "pass_rate")},
-        "spec_checks": hidden["tests"],
-        "final_tests_pass": visible["passed"],
-        "final_files": sorted(tree),
-        "escalations": escalations,
-        "local_test_runs": sum(row["local_test_runs"] for row in agents_out),
-        "hidden_access": hidden_access(transcripts, [str(specs.HIDDEN), "evals/v1/hidden", "test_hidden.py"]),
-        **{k: coordination[k] for k in ("integrations", "integrations_per_min", "test_runs",
-                                        "test_runs_per_integration", "conflicts_total", "conflicts_resolved")},
-        mkey: coordination[mkey],
-        "agents": agents_out,
-    })
-    if ref:
-        summary["tokens_ledger"] = sum((row["tokens"] or {}).get("ledger", 0) for row in agents_out)
-    # transcript analysis (every arm)
-    meta = specs.meta(spec)
-    seed_paths = set(specs.read_tree(spec.seed))
-    if v1:
-        pushes = coordination[mkey].pop("_pushes_full")
-        changes: dict[str, set] = {}
-        for p in pushes:
-            changes.setdefault(p["author"], set()).update(p["files"])
-        tracked = seed_paths | set(tree) | {f for p in pushes for f in p["files"]}
-        claims = {h: a["claim_scopes_all"] for h, a in coordination[mkey]["per_agent"].items()}
-        summary["analysis"] = analyze.transcript_analysis(
-            transcripts, roots={h: arm.workdir(h) for h in handles}, tracked=tracked, changes=changes,
-            claims=claims, pushes=pushes, guard_files=meta.get("guard_files", ()))
-    else:
-        changes = analyze.git_changes(root / "origin.git") if arm_name == "git" else {}
-        summary["analysis"] = analyze.transcript_analysis(
-            transcripts, roots={h: arm.workdir(h) for h in handles}, tracked=seed_paths | set(tree),
-            changes=changes, guard_files=meta.get("guard_files", ()))
-    if meta.get("guard_files"):
-        seed_tree = specs.read_tree(spec.seed)
-        summary["context_check"] = {
-            "guard_files": meta["guard_files"],
-            "guard_changed_in_final_tree": {g: tree.get(g) != seed_tree.get(g) for g in meta["guard_files"]},
-            "guard_tests_passed": {t: hidden["tests"].get(t) for t in meta.get("guard_tests", ())},
-            "read_by": summary["analysis"]["summary"].get("guard_read_by"),
+        v1 = arm_name.startswith("gud1")
+        ref = arm_name == "gud1-ref"
+        print(f"[{run_dir.name}] work root {root}", flush=True)
+        tools = list(DEFAULT_TOOLS) + (["mcp__gud__*"] if arm_name != "git" else [])
+        summary: dict = {
+            "arm": arm_name, "spec": spec_name, "agents_n": n, "trial": trial,
+            "requested_model": model, "budget_usd": budget, "agent_budget_usd": round(agent_budget, 4),
+            "timeout_s": timeout, "window_s": window if arm_name != "git" else None,
+            "test_policy": policy if v1 else None,
+            "agent_cmd": "gud.agent.runtime" if ref else shlex.split(agent_cmd)[-1], "work_root": str(root),
+            "fairness": {
+                "agent": "reference agent (Claude Agent SDK)" if ref else "Claude Code headless",
+                "tools": tools,
+                "test_command": "python -m pytest -q -x",
+                "same_prompt_preamble": not ref,
+            },
         }
-    (run_dir / "hidden_tests.log").write_text(hidden["tail"])
-    (run_dir / "final_tests.log").write_text(visible["tail"])
-    (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str))
-    _keep_artifacts(arm, arm_name, root, run_dir)
-    if not keep_work:
-        shutil.rmtree(root, ignore_errors=True)
-    print(f"[{run_dir.name}] {summary['outcome']}: hidden {hidden['passed']}/{hidden['total']}, "
-          f"${summary['cost_usd']:.2f}, {summary['wall_s']:.0f}s, integrations {summary['integrations']}", flush=True)
-    return summary
+        auth = check_auth(agent_cmd if not ref or ref_cmd is None else "x")
+        if auth:
+            summary.update(outcome="harness_error", harness_errors=[auth], cost_usd=0.0)
+            (run_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+            print(f"[{run_dir.name}] {auth}", flush=True)
+            return summary
+        arm.setup()
+        arm.start_services(run_dir)
+        t0 = time.time()
+        arm.mark_start(t0)
+        arm.seed_task()
+        deny = [HERE, out.resolve()]
+        drained = None
+        try:
+            if ref:
+                agents_out, ref_outcome, transcripts = arm.run_agents(
+                    run_dir, model=model, agent_budget=agent_budget, run_budget=budget, timeout=timeout, deny=deny,
+                    ref_cmd=ref_cmd, settle=ref_settle)
+                outcome_reason = ref_outcome["reason"]
+                harness_errors = ref_outcome["harness_errors"]
+                killed = ref_outcome["killed"]
+                summary["ref_stop"] = ref_outcome["stop"]
+                for row in agents_out:
+                    row["local_test_runs"] = local_test_runs(transcripts[row["handle"]])
+                    (run_dir / "agents" / row["handle"].lstrip("@") / "tools.json").write_text(
+                        json.dumps(transcripts[row["handle"]], indent=1, default=str))
+            else:
+                from agents import AgentSpec
+                agent_specs = []
+                for handle in handles:
+                    prompt = prompt_for(arm, spec, handle, handles, agent_budget)
+                    mcp = arm.mcp_config(handle)
+                    log_dir = run_dir / "agents" / handle.lstrip("@")
+                    log_dir.mkdir(parents=True, exist_ok=True)
+                    (log_dir / "prompt.txt").write_text(prompt)
+                    agent_specs.append(AgentSpec(
+                        handle=handle, cwd=arm.workdir(handle), env=agent_env(arm, handle), log_dir=log_dir,
+                        argv=build_argv(agent_cmd, prompt, model=model, agent_budget=agent_budget, mcp_config=mcp,
+                                        deny=deny),
+                        require_mcp="gud" if mcp else None,
+                    ))
+                (run_dir / "argv.json").write_text(json.dumps(
+                    [[a if i != 2 else "<prompt.txt>" for i, a in enumerate(spec_.argv)] for spec_ in agent_specs],
+                    indent=1))
+                runs, outcome = supervise(agent_specs, run_budget=budget, agent_budget=agent_budget, timeout=timeout,
+                                          mcp_grace=mcp_grace)
+                outcome_reason = "completed" if outcome.reason == "all_exited" else outcome.reason
+                harness_errors, killed = outcome.harness_errors, outcome.killed
+                transcripts = {run.spec.handle: run.stats.tool_calls for run in runs}
+                agents_out = []
+                for run in runs:
+                    (run.spec.log_dir / "tools.json").write_text(json.dumps(run.stats.tool_calls, indent=1, default=str))
+                    row = run.summary()
+                    row["local_test_runs"] = local_test_runs(run.stats.tool_calls)
+                    agents_out.append(row)
+            agents_wall = time.time() - t0
+            if v1 and outcome_reason != "harness_error":
+                drained = arm.drain(drain_s if drain_s is not None else window + 60)
+        finally:
+            arm.stop_services()
+        wall = agents_wall
+        final_dir = run_dir / "final_tree"
+        if final_dir.exists():
+            shutil.rmtree(final_dir)
+        tree = arm.final_tree()
+        specs.write_tree(final_dir, tree)
+        hidden = specs.run_hidden(spec, final_dir)
+        visible = specs.run_visible_tests(final_dir)
+        coordination = arm.metrics(wall, transcripts)
+        mkey = getattr(arm, "metrics_key", arm_name)
+        models = sorted({row["model"] for row in agents_out if row["model"]})
+        tokens = {k: sum(row["tokens"].get(k, 0) for row in agents_out) for k in ("input", "output", "cache_read",
+                                                                                   "cache_creation")}
+        escalations = sum(1 for row in agents_out if row["escalated"])
+        if v1:
+            escalations = sum(1 for row in agents_out if row["escalated"]) + (
+                0 if ref else len(coordination["gud1"]["escalations"]["task"]))
+        summary.update({
+            "outcome": outcome_reason,
+            "harness_errors": harness_errors,
+            "killed": killed,
+            "model": models[0] if len(models) == 1 else models,
+            "wall_s": round(wall, 1),
+            "drain_s": drained,
+            "cost_usd": round(sum(row["cost_usd"] for row in agents_out), 4),
+            "tokens": tokens,
+            "tokens_total": sum(tokens.values()),
+            "turns": sum(row["turns"] or 0 for row in agents_out),
+            "hidden": {k: hidden[k] for k in ("passed", "failed", "total", "pass_rate")},
+            "spec_checks": hidden["tests"],
+            "final_tests_pass": visible["passed"],
+            "final_files": sorted(tree),
+            "escalations": escalations,
+            "local_test_runs": sum(row["local_test_runs"] for row in agents_out),
+            "hidden_access": hidden_access(transcripts, [str(specs.HIDDEN), "evals/v1/hidden", "test_hidden.py"]),
+            **{k: coordination[k] for k in ("integrations", "integrations_per_min", "test_runs",
+                                            "test_runs_per_integration", "conflicts_total", "conflicts_resolved")},
+            mkey: coordination[mkey],
+            "agents": agents_out,
+        })
+        if ref:
+            summary["tokens_ledger"] = sum((row["tokens"] or {}).get("ledger", 0) for row in agents_out)
+        # transcript analysis (every arm)
+        meta = specs.meta(spec)
+        seed_paths = set(specs.read_tree(spec.seed))
+        if v1:
+            pushes = coordination[mkey].pop("_pushes_full")
+            changes: dict[str, set] = {}
+            for p in pushes:
+                changes.setdefault(p["author"], set()).update(p["files"])
+            tracked = seed_paths | set(tree) | {f for p in pushes for f in p["files"]}
+            claims = {h: a["claim_scopes_all"] for h, a in coordination[mkey]["per_agent"].items()}
+            summary["analysis"] = analyze.transcript_analysis(
+                transcripts, roots={h: arm.workdir(h) for h in handles}, tracked=tracked, changes=changes,
+                claims=claims, pushes=pushes, guard_files=meta.get("guard_files", ()))
+        else:
+            changes = analyze.git_changes(root / "origin.git") if arm_name == "git" else {}
+            summary["analysis"] = analyze.transcript_analysis(
+                transcripts, roots={h: arm.workdir(h) for h in handles}, tracked=seed_paths | set(tree),
+                changes=changes, guard_files=meta.get("guard_files", ()))
+        if meta.get("guard_files"):
+            seed_tree = specs.read_tree(spec.seed)
+            summary["context_check"] = {
+                "guard_files": meta["guard_files"],
+                "guard_changed_in_final_tree": {g: tree.get(g) != seed_tree.get(g) for g in meta["guard_files"]},
+                "guard_tests_passed": {t: hidden["tests"].get(t) for t in meta.get("guard_tests", ())},
+                "read_by": summary["analysis"]["summary"].get("guard_read_by"),
+            }
+        (run_dir / "hidden_tests.log").write_text(hidden["tail"])
+        (run_dir / "final_tests.log").write_text(visible["tail"])
+        (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str))
+        _keep_artifacts(arm, arm_name, root, run_dir)
+        if getattr(arm, "close", None) is not None:
+            arm.close()
+        if not keep_work:
+            shutil.rmtree(root, ignore_errors=True)
+        print(f"[{run_dir.name}] {summary['outcome']}: hidden {hidden['passed']}/{hidden['total']}, "
+              f"${summary['cost_usd']:.2f}, {summary['wall_s']:.0f}s, integrations {summary['integrations']}", flush=True)
+        return summary
+    finally:
+        close = getattr(arm, "close", None)      # gud1: the host serves the replay until here
+        if close is not None:
+            close()
 
 
 def _keep_artifacts(arm, arm_name: str, root: Path, run_dir: Path) -> None:
