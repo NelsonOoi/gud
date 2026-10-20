@@ -64,6 +64,7 @@ class Transport:
     host_user: str = "repo"
     count_sent: Callable[[], int] | None = None     # emails sent so far (where measurable)
     env: dict[str, str] = field(default_factory=dict)   # extra environment for every process
+    on_tip: str = "links=1 time=10m"                    # the seed's .gud/test on-tip cadence
 
     def args(self, user: str) -> list[str]:
         out = ["--transport", self.name]
@@ -135,7 +136,7 @@ class Scenario:
                                                      "    assert add(2, 3) == 5\n")
         (root / ".gud").mkdir()
         (root / ".gud" / "test").write_text(f"command {PY} -m pytest -q -p no:cacheprovider\ntimeout 2m\n"
-                                            f"on-tip links=1 time=10m\n")
+                                            f"on-tip {self.t.on_tip}\n")
         (root / ".gud" / "config").write_text(f"window {self.t.window}\ngrace {self.t.grace}\nskew 120s\n"
                                               f"fix-offer 5m\n")
 
@@ -463,4 +464,33 @@ class Scenario:
 
 def wait_link(sc: Scenario, who: str, push: str, timeout: float = 60) -> None:
     sc.wait(lambda: sc.status(who, push) == "linked", f"{push[:12]} links", timeout)
+
+
+def smoke_flow(sc: Scenario) -> None:
+    """The reduced flow for live providers (few emails): setup; a new file; an approved edit of
+    another member's line; another new file; the objection with a failing test and its revision;
+    verify everywhere."""
+    sc.setup()
+    sc.step_new_file()
+    sc.sync("bob")
+    sc.write("bob", "util.py", "def double(x):\n    return 2 * x\n\n\ndef triple(x):\n    return x * 3\n")
+    start = time.monotonic()
+    p = sc.push("bob", "bob edits util")
+    assert p["forecast"]["askers"] == ["@human"], p
+    sc.run("human", "approve", p["push"][:16])
+    sc.wait(lambda: sc.status("human", p["push"]) == "linked", "the approved push links", 90)
+    sc.timings["approved_push_link_s"] = time.monotonic() - start
+    sc.sync("alice")
+    sc.write("alice", "notes.txt", "alice's notes\n")
+    start = time.monotonic()
+    a = sc.push("alice", "notes")
+    sc.wait(lambda: sc.status("alice", a["push"]) == "linked", "a new file links", 60)
+    sc.timings["consent_only_link_s"] = time.monotonic() - start
+    sc.step_objection()
+    tips = set()
+    for who in ("human", "alice", "bob", "box1"):
+        v = sc.run(who, "verify", "--from-genesis", cwd=sc.members[who].home)
+        assert v["ok"], (who, v)
+        tips.add(sc.run(who, "log", "-n", "1", cwd=sc.members[who].home)["links"][0]["state"])
+    assert len(tips) == 1, tips
 

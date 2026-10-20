@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tests.v1.e2e.scenario import Scenario, Transport
+from tests.v1.e2e.scenario import Scenario, Transport, smoke_flow
 from tests.v1.procs import gud, serve
 
 DOMAIN = "example.org"
@@ -98,6 +98,21 @@ def test_e2e_migration_to_a_new_address(tmp_path: Path):
         for who in ("alice", "human"):
             v = sc.run(who, "verify", "--from-genesis")
             assert v["ok"], v
+    except BaseException:
+        import sys
+        sys.stderr.write(sc.logs())
+        raise
+    finally:
+        sc.close()
+
+
+def test_smoke_flow_fake(tmp_path: Path):
+    """The live-provider smoke flow (test_primitive_live.py), kept honest on the fake transport."""
+    t = fake_transport(tmp_path)
+    t.on_tip = "links=3 time=10m"
+    sc = Scenario(tmp_path, t)
+    try:
+        smoke_flow(sc)
     except BaseException:
         import sys
         sys.stderr.write(sc.logs())
