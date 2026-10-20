@@ -139,6 +139,7 @@ ROWS_V1 = [
     ("carried links (gud1)", lambda rows: span(_g1(rows, lambda g: g["carried_links"]), _count)),
     ("superseded pushes (gud1)", lambda rows: span(_g1(rows, lambda g: g["superseded"]), _count)),
     ("colliding pushes (gud1)", lambda rows: span(_g1(rows, lambda g: g["colliding_pushes"]), _count)),
+    ("pushes refused before sending: stale base (gud1)", lambda rows: span(_ana(rows, "stale_base_refusals"), _count)),
     ("claims won (gud1)", lambda rows: span(_g1(rows, lambda g: g["claims"]["won"]), _count)),
     ("claim updates / releases (gud1)", lambda rows: span(_g1(rows, lambda g: g["claims"]["updates"]), _count)
      + " / " + span(_g1(rows, lambda g: g["claims"]["releases"]), _count)),

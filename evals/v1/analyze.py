@@ -21,6 +21,7 @@ Two halves:
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import re
 import shlex
@@ -498,6 +499,8 @@ def _bash_reads(command: str, tracked: set[str], roots: Sequence[Path]) -> set[s
             rel = _rel_path(w, roots)
             if rel in tracked:
                 out.add(rel)
+            elif rel and any(c in rel for c in "*?["):        # `cat tests/*`: the shell expands it
+                out |= {p for p in tracked if fnmatch.fnmatchcase(p, rel)}
     return out
 
 

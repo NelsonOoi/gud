@@ -386,6 +386,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--spec", required=True, choices=specs.names())
     ap.add_argument("--agents", type=int, default=2)
     ap.add_argument("--trials", type=int, default=1)
+    ap.add_argument("--trial-start", type=int, default=1, help="number of the first trial (for parallel launches)")
     ap.add_argument("--budget-usd", type=float, required=True, help="per run; each agent gets budget/N")
     ap.add_argument("--timeout", type=float, default=1200, help="wall-clock seconds per run")
     ap.add_argument("--out", type=Path, default=None)
@@ -408,7 +409,7 @@ def main(argv: list[str] | None = None) -> int:
         from cap import CapLedger
         ledger = CapLedger(args.ledger, args.cap_usd)
     results = []
-    for trial in range(1, args.trials + 1):
+    for trial in range(args.trial_start, args.trial_start + args.trials):
         for arm in arms:
             window = args.window if args.window is not None else (30.0 if arm == "gud" else 20.0)
             results.append(run_one(

@@ -15,7 +15,9 @@ which no agent ever sees, score the final tree. Everything else is held fixed.
 .venv/bin/pytest -q evals/v1/tests
 ```
 
-`run.py` options: `--arm git|gud|both`, `--spec acme-site|todo-cli|kv-api`, `--agents N`, `--trials K`,
+The gud v1 arms and the coordination-forcing specs are described in [gud v1 arms](#gud-v1-arms) below.
+
+`run.py` options: `--arm git|gud|gud1-cc|gud1-ref|both|v1`, `--spec <name>`, `--agents N`, `--trials K`,
 `--budget-usd X` (per run; each agent gets X/N), `--timeout S` (wall clock per run), `--out DIR`
 (default `evals/v1/runs/<stamp>/`), `--model` (default `claude-sonnet-5-5`; `''` lets the CLI choose and the
 model is recorded from the session's init event), `--window` (gud consent window, default 30 s),
@@ -187,3 +189,67 @@ returned `unknown push`. In these runs gud agents rarely ran tests themselves an
 - `gud.mail_fake.FileMailbox` does not take the lock while reading and releases it before the file is closed.
   A multi-process stress test (4 writers × 25 sends, bodies from 3 KB to 26 KB, 2 readers) found no torn
   lines, so gud core was not changed.
+
+## gud v1 arms
+
+Two more arms run the same specs against gud v1 (PLAN milestones 1a, 1b, 2b and 4). The git arm is
+unchanged, so it is the common baseline.
+
+```bash
+# one cell
+.venv/bin/python evals/v1/run.py --arm gud1-cc --spec todo-stack --agents 4 --budget-usd 1.2 --cap-usd 30
+# a grid, three cells at a time, under one hard cap
+.venv/bin/python evals/v1/grid.py --specs acme-site-shared todo-stack refactor-guard \
+    --arms git gud1-cc gud1-ref --agents 4 --trials 2 --budget-usd 1.2 --cap-usd 30 \
+    --out evals/v1/runs/<stamp>-v1 --parallel 3
+```
+
+| | `gud1-cc` | `gud1-ref` |
+| --- | --- | --- |
+| Agent | Claude Code headless, the exact git-arm invocation (model, `--tools`, budget, isolation) plus `--mcp-config` | `python -m gud.agent.runtime` (Claude Agent SDK), one process per member, its own system prompt (`gud/agent/prompt.py`) |
+| Prompt | The git arm's preamble word for word; only "How this repo works" differs | The task on the board (spec text plus the "hidden tests check this text" rule); no preamble |
+| Working copy | `WorkingCopy.clone` per agent, the agent's cwd | the same |
+| gud tools | `python -m gud.mcp_v1 --home H --handle @aK --wc WC` | the runtime starts the same server per session |
+| Stop | the session ends itself (or budget/timeout) | no live push and no agent activity for 90 s once something linked, 30 s after T1 is done, or budget/timeout |
+
+Both arms share the repo setup (`gud1_arm.py`): a v1 repo in **local host mode** (`LocalHost`, `local:<dir>`)
+over one FakeMailbox root; members `@a1..@aN` (agents), `@tester`, and `@nelson` (human requester and
+sponsor, who signs genesis and the task and never acts again). The task `T1` is opened with the spec text and
+the acceptance check `python -m pytest -q` (`accept` record). Nothing splits the work: there is no lead, and
+the prompt says only that other agents work on the same repo. `.gud/config`: `window 20s`, `grace 5s`,
+`lease 10m`, `escalate 3m`, `fix-offer 2m`. `.gud/test` (`--gud-test-policy`): `tip` (default; the PLAN's
+shape: pushes never wait for tests, the tester tests the tip after every link, a red tip is bisected and opens
+a fix task) or `gate` (every push needs a pass, like the git merge gate). A separate tester process
+(`gud1_tester.py`, `gud.tester_v1.Tester` in a loop that survives errors) runs the policy. After the agents
+stop, the harness waits for open consent windows to close (`drain_s`).
+
+**Spend cap.** `--cap-usd` with `--ledger` (default `runs/spend.json`): `cap.py` keeps one ledger across runs
+and processes; every run reserves its budget before it starts and commits what it spent, so concurrent cells
+can never exceed the cap together (a cell gets a smaller budget, or `outcome: skipped_cap`). Inside a run the
+supervisor kills every agent at the run budget, as before; the reference agents are capped per member by the
+SDK's `max_budget_usd` and the harness stops them at the run budget.
+
+### Coordination-forcing specs
+
+| spec | what collides | hidden tests |
+| --- | --- | --- |
+| `acme-site-shared` | Five pages through one template (`build.py`), one nav file (`components/nav.html`) and one stylesheet: every page needs a nav link, CSS and `aria-current` support in `build.py` | 28: build runs, five pages, titles, one stylesheet, nav order/texts/`aria-current`, one nav source, per-page content, CSS selectors, media query, links, `site/` not committed |
+| `todo-stack` | `todolib.py` (API left to the agents) used by `cli.py` and `api.py`, plus docs that must name every public library function: every part depends on the library's API | 27: CLI and HTTP behaviour, shared store, the same library error message in both front ends, front ends do no file I/O (AST), docs cover the public API, commands and endpoints |
+| `refactor-guard` | A seeded notes app; the obvious unicode-slug change in `notes/slug.py` makes the `NOTE_FILE` guard in `notes/cleanup.py` (never named by the task) treat non-ASCII notes as debris, so `gc` deletes them | 23, three of which are the guard (`meta.json`); `hidden/refactor-guard/naive/` is the obvious fix and fails exactly those three while passing the visible tests |
+
+### v1 metrics (`summary.json` → `gud1`, `analysis`, `context_check`)
+
+From a fresh replay of the run's host log and mail (`analyze.gud1_metrics`): links and links/min; pushes by
+end (`linked`, `linked_carried`, `superseded`, rejected statuses); carried links; colliding pushes; test runs by
+scope (`tip`, `accept`, `push`, `evidence`) and per link; claims (won, lost, updates, releases, lapsed, final
+scopes); claim overlaps and how each was settled (split by claim update, released, settled in comments,
+commented then collided, ignored); comments by target; objections (reason vs evidence, answered by revision or
+comment); consent escalations and who resolved them (a decider or `default` at the deadline) and task
+escalations; red-tip episodes, time to green and fix tasks; T1's status.
+
+From the transcripts (`analyze.transcript_analysis`, every arm, git included): files each agent read (Read,
+gud `read`, Grep on a file, `cat`/`head`/`sed`/... in Bash), files it changed, reads outside its changes,
+reads outside its claimed scope (gud1), its gud tool counts, for each colliding push whether it called
+`inflight` or `comment` before it, pushes the working copy refused because the base was stale, and for
+refactor-guard who read the guard file. Pushes collide when they share a file, neither is in the other's base,
+and they were open together or the later one was built on a base older than the earlier one's link.
