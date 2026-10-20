@@ -1,0 +1,141 @@
+{
+ "agents": 2,
+ "agents_detail": {
+  "@a1": {
+   "claims": [],
+   "exit": 0,
+   "last_texts": [
+    "Task T1 is already claimed by @a2, so I'm not claiming it.",
+    "- T1 (build `todo.py`, a todo CLI, plus tests under `tests/`) was already claimed by @a2 when I woke, so I didn't claim it or push anything.\n- I only read the task with the `task` tool. I didn't run inflight, inbox or tasks, and I made no changes to my working copy.\n- @a2's claim covers `todo.py` an"
+   ],
+   "local_test_runs": 0,
+   "reads": [],
+   "reads_outside_claims": [],
+   "spent_usd": 0.0629,
+   "tool_counts": {
+    "mcp__gud__task": 1
+   },
+   "turn_keys": [
+    "task:5c1532e68c4c5f7"
+   ],
+   "turns": 1
+  },
+  "@a2": {
+   "claims": [
+    [
+     "todo.py",
+     "tests/**"
+    ]
+   ],
+   "exit": 0,
+   "last_texts": [
+    "Pushed todo.py and tests for T1; waiting for the tester to run the test policy on it.",
+    "I built `todo.py` and `tests/test_todo.py` for T1. The push passed the tester and linked as seq 1.\n\nThe tests cover add, list, done, remove, the unknown-id and bad-argument errors, the `--file` option and the `TODO_FILE` environment variable. `python -m pytest -q` gave 4 passed locally.\n\nThe push al"
+   ],
+   "local_test_runs": 1,
+   "reads": [],
+   "reads_outside_claims": [],
+   "spent_usd": 0.1023,
+   "tool_counts": {
+    "Bash": 1,
+    "Write": 2,
+    "mcp__gud__claim": 1,
+    "mcp__gud__push": 1,
+    "mcp__gud__tasks": 1,
+    "mcp__gud__wait": 2
+   },
+   "turn_keys": [
+    "task:5c1532e68c4c5f7"
+   ],
+   "turns": 1
+  }
+ },
+ "budget_usd": 3.0,
+ "claims": [
+  {
+   "files": [
+    "todo.py",
+    "tests/**"
+   ],
+   "holder": "@a2",
+   "status": "active",
+   "task": "T1"
+  }
+ ],
+ "cost_usd": 0.1652,
+ "emails_by_kind": {
+  "claim": 1,
+  "push": 2,
+  "task": 1,
+  "test": 1
+ },
+ "final_tests_pass": true,
+ "hidden": {
+  "pass_rate": 1.0,
+  "passed": 15,
+  "total": 15
+ },
+ "links": [
+  {
+   "author": "@nelson",
+   "files": [
+    ".gud/config",
+    ".gud/members",
+    ".gud/owners",
+    ".gud/test",
+    "README.md",
+    "tests/test_smoke.py"
+   ],
+   "intent": "genesis: todo-cli seed",
+   "seq": 0,
+   "task": null
+  },
+  {
+   "author": "@a2",
+   "files": [
+    ".pytest_cache/.gitignore",
+    ".pytest_cache/CACHEDIR.TAG",
+    ".pytest_cache/README.md",
+    ".pytest_cache/v/cache/nodeids",
+    "tests/__pycache__/test_smoke.cpython-313-pytest-9.1.1.pyc",
+    "tests/__pycache__/test_todo.cpython-313-pytest-9.1.1.pyc",
+    "tests/test_todo.py",
+    "todo.py"
+   ],
+   "intent": "Add todo.py CLI and tests",
+   "seq": 1,
+   "task": "5c1532e68c4c"
+  }
+ ],
+ "model": "claude-sonnet-5-5",
+ "open_proposal_statuses": {},
+ "spec": "todo-cli",
+ "spec_checks": {
+  "test_add_prints_and_stores": true,
+  "test_default_file_in_cwd": true,
+  "test_done": true,
+  "test_help_lists_subcommands": true,
+  "test_ids_increase": true,
+  "test_list_empty": true,
+  "test_list_shows_status": true,
+  "test_next_id_after_remove_is_max_plus_one": true,
+  "test_no_command_is_usage_error": true,
+  "test_non_integer_id_is_usage_error": true,
+  "test_remove": true,
+  "test_todo_file_env": true,
+  "test_unknown_id[done]": true,
+  "test_unknown_id[remove]": true,
+  "test_uses_argparse": true
+ },
+ "stop": "settled",
+ "tasks": [
+  {
+   "alias": "T1",
+   "status": "work_done",
+   "title": "Build a todo command-line app"
+  }
+ ],
+ "tester_errors": [],
+ "wall_s": 188.3,
+ "work_dir": "/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gud-refagent-fpg2av65"
+}
