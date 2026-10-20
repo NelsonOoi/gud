@@ -59,6 +59,16 @@ class WcError(RuntimeError):
     """A working-copy operation cannot proceed; the message says why and what to do."""
 
 
+class ArtifactsFound(WcError):
+    """A push would add build output (`gud.wc.ignore.artifacts`). `paths` lists it."""
+
+    def __init__(self, paths: Sequence[str]) -> None:
+        from .ignore import ignore_lines
+        super().__init__(f"these look like build output, not source: {', '.join(paths)}; add "
+                         f"{', '.join(ignore_lines(paths))} to .gudignore, or pass --allow-artifacts")
+        self.paths = tuple(paths)
+
+
 class SecretsFound(WcError):
     """The secret scan refused a push. `hits` lists every match."""
 
@@ -607,7 +617,7 @@ class WorkingCopy:
         return out
 
     def push(self, intent: str, *, task: Hex | None = None, revises: Hex | None = None,
-             carry: bool = True, allow_secret: Sequence[str] = ()) -> PushResult:
+             carry: bool = True, allow_secret: Sequence[str] = (), allow_artifacts: bool = False) -> PushResult:
         client = self.client
         client.sync_log()
         self.fast_forward()
@@ -624,6 +634,11 @@ class WorkingCopy:
         except ConfigError as exc:
             raise WcError(f"a .gud config file does not parse, so the push could not link: {exc}") from exc
         touched = list(base_tree.changed_paths(wt))
+        if not allow_artifacts:
+            from .ignore import artifacts
+            found = artifacts(p for p in touched if p in wt and p not in base_tree)
+            if found:
+                raise ArtifactsFound(found)
         hits = scan({p: wt.read(p) for p in touched if p in wt}, allow_secret)
         if hits:
             raise SecretsFound(hits)

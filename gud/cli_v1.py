@@ -655,6 +655,10 @@ def _init(ctx: Ctx, args: argparse.Namespace, *, git_dir: str | None, ref: str, 
                 root.mkdir(parents=True, exist_ok=True)
                 if (root / wc_copy.BASE_FILE).exists():
                     raise CliError(f"{root} is already a working copy")
+                ignore_file = root / ".gudignore"
+                if not ignore_file.exists() and not ignore_file.is_symlink():
+                    from gud.wc.ignore import DEFAULT_GUDIGNORE
+                    ignore_file.write_text(DEFAULT_GUDIGNORE, "utf-8")      # build output is never pushed
                 tmp = WorkingCopy(root, client)
                 files = tmp._scan(Tree.empty(client.store)).to_files()
                 warnings = tmp.warnings
@@ -817,7 +821,7 @@ def cmd_push(args: argparse.Namespace) -> int:
     revises = ctx.resolve(args.revises)
     try:
         result = wc.push(args.message, task=task, revises=revises, carry=not args.no_carry,
-                         allow_secret=args.allow_secret or ())
+                         allow_secret=args.allow_secret or (), allow_artifacts=args.allow_artifacts)
     except wc_copy.SecretsFound as exc:
         raise CliError(str(exc), 1, {"secrets": [dataclasses.asdict(h) for h in exc.hits]}) from exc
     logged = ctx.wait_logged(result.push)
@@ -941,44 +945,8 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 
 def _review(client: RepoClient) -> list[dict]:
-    chain = client.chain()
-    me = client.handle
-    members = client.reader().members() if chain.tip else None
-    member = members.get(me) if members else None
-    items: list[dict] = []
-    for cid in sorted(chain.proposals):
-        prop = chain.proposals[cid]
-        if prop.status not in LIVE_STATUSES:
-            continue
-        approved = {h for h, _ in prop.approvals}
-        if prop.author == me:
-            for obj in prop.objections:
-                if obj.status in ("blocking", "pending_verdict", "confirmed"):
-                    items.append({"type": "objection", "candidate": cid, "push": prop.push, "objection": obj.id,
-                                  "by": obj.by, "reason": obj.reason, "status": obj.status})
-            continue
-        if me in approved:
-            continue
-        why = []
-        if me in prop.askers:
-            why.append("asker")
-        why += [f"explicit {path}" for path, rule, owners in prop.declared if rule == "explicit" and me in owners]
-        if prop.quorum_needed and member is not None and member.votes:
-            why.append("quorum")
-        if prop.members_rule and member is not None and member.role == "human":
-            why.append("members")
-        if why:
-            items.append({"type": "review", "candidate": cid, "push": prop.push, "author": prop.author,
-                          "status": prop.status, "why": why, "files": list(prop.files),
-                          "closes_at": prop.window_closes_at})
-    for esc in chain.escalations.values():
-        if esc.status == "open" and me in esc.deciders:
-            items.append({"type": "escalation", "escalation": esc.id, "reason": esc.reason,
-                          "pushes": list(esc.pushes), "deadline": esc.deadline})
-    for task in chain.tasks.values():
-        if task.status == "work_done" and task.requester == me and not (task.accept_paths or task.accept_cmds):
-            items.append({"type": "accept", "task": task.id, "alias": task.alias, "title": task.title})
-    return items
+    from gud.wc.review import needs_of
+    return needs_of(client)
 
 
 def cmd_review(args: argparse.Namespace) -> int:
@@ -998,8 +966,12 @@ def cmd_review(args: argparse.Namespace) -> int:
                 lines.append(f"objection {_short(it['objection'])} by {it['by']} on your push {_short(it['push'])}: {it['reason']}")
             elif it["type"] == "escalation":
                 lines.append(f"escalation {_short(it['escalation'])} ({it['reason']}) needs your decision")
-            else:
+            elif it["type"] == "accept":
                 lines.append(f"accept {it['alias']} {it['title']}")
+            elif it["type"] == "lease":
+                lines.append(f"your claim {_short(it['claim'])} lapses at {_when(it['lapses_at'])}")
+            else:
+                lines.append(f"your claim {_short(it['claim'])} overlaps {it['holder']}'s {_short(it['other'])}")
         return "\n".join(lines)
 
     return ctx.out({"items": items}, text)
@@ -1279,7 +1251,9 @@ def _not_available(ctx: Ctx, command: str, module: str) -> int:
     return 2
 
 
-def _stub(command: str, module: str) -> Callable[[argparse.Namespace], int]:
+def _delegate(command: str, module: str) -> Callable[[argparse.Namespace], int]:
+    """A command that runs `module.main(argv)` with the global `--home`/`--handle` (and the working
+    copy, `--wc`, when run inside one) followed by the command's own arguments."""
     def run(args: argparse.Namespace) -> int:
         ctx = Ctx(args)
         try:
@@ -1289,9 +1263,23 @@ def _stub(command: str, module: str) -> Callable[[argparse.Namespace], int]:
         main = getattr(mod, "main", None)
         if main is None:
             return _not_available(ctx, command, module + ".main")
-        return int(main(list(getattr(args, "rest", []) or [])) or 0)
+        rest = list(getattr(args, "rest", []) or [])
+        argv = ["--home", str(ctx.home)]
+        try:
+            argv += ["--handle", ctx.handle]
+        except CliError:
+            pass                                  # the module finds the member itself, or says so
+        if ctx.wc_root is not None and "--wc" not in rest:
+            argv += ["--wc", str(ctx.wc_root)]
+        if command == "mcp" and ctx.json and "--json" not in rest:
+            argv.append("--json")
+        return int(main(argv + rest) or 0)
     run.__name__ = "cmd_" + command.replace(" ", "_").replace("-", "_")
     return run
+
+
+cmd_agent = _delegate("agent", "gud.agent.runtime")
+cmd_mcp = _delegate("mcp", "gud.mcp_v1")
 
 
 def cmd_tester(args: argparse.Namespace) -> int:
@@ -1494,6 +1482,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--revises")
     p.add_argument("--no-carry", action="store_true")
     p.add_argument("--allow-secret", action="append", metavar="PATH")
+    p.add_argument("--allow-artifacts", action="store_true", help="push build output (__pycache__, ...) anyway")
     add("sync", cmd_sync, "merge the tip into the working copy (stops on conflict)")
     p = add("log", cmd_log, "links, newest first")
     p.add_argument("-n", type=int, default=20)
@@ -1569,8 +1558,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--branch", default="gud")
     p.add_argument("--workdir")
 
-    p = add("agent", _stub("agent", "gud.agent.runtime"), "run gud.agent.runtime (the reference agent)")
-    p.add_argument("rest", nargs=argparse.REMAINDER)
+    p = add("agent", cmd_agent, "run the reference agent as this member (gud.agent.runtime; its options follow)")
+    p.set_defaults(passthrough=True)
+    p = add("mcp", cmd_mcp, "run the MCP server (stdio) as this member (gud.mcp_v1; its options follow)")
+    p.set_defaults(passthrough=True)
     p = add("tester", cmd_tester, "run the tester (gud.tester_v1) as this member")
     p.add_argument("--runner", default="local", choices=["local", "docker", "instabox"])
     p.add_argument("--parallel", type=int, default=1)
@@ -1595,7 +1586,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args, unknown = parser.parse_known_args(argv)
+    if unknown:
+        if not getattr(args, "passthrough", False):
+            parser.error(f"unrecognized arguments: {' '.join(unknown)}")
+        args.rest = unknown                       # gud agent / gud mcp: the module's own options
     try:
         return int(args.func(args) or 0)
     except CliError as exc:

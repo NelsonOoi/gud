@@ -102,3 +102,51 @@ def test_members_send_to_the_current_repo_address(tmp_path: Path):
                     (Record("text", (), b"hi"),), summary="hi")
     moved = net.host.mailbox_for("moved@example.org").list()[0]
     assert len(moved) == 1
+
+
+def test_build_output_is_never_pushed(tmp_path: Path):
+    """Regression (live run): __pycache__ and friends were linked. Without a .gudignore the default
+    rules apply; with one that lacks them, the push refuses build output unless allowed."""
+    import pytest
+    from gud.wc.copy import ArtifactsFound
+    net = Net(tmp_path)
+    net.genesis({"app.py": "x = 1\n"})
+    alice = net.clone("@alice")
+    (alice.root / "__pycache__").mkdir()
+    (alice.root / "__pycache__" / "app.cpython-312.pyc").write_bytes(b"\0pyc")
+    (alice.root / ".pytest_cache").mkdir()
+    (alice.root / ".pytest_cache" / "README").write_text("cache\n")
+    (alice.root / "new.py").write_text("y = 2\n")
+    assert alice.status().added == ("new.py",)                # default rules: no .gudignore anywhere
+    (alice.root / ".gudignore").write_text("*.log\n")         # a .gudignore that forgets them
+    with pytest.raises(ArtifactsFound) as exc:
+        alice.push("oops")
+    assert "__pycache__/app.cpython-312.pyc" in exc.value.paths and "__pycache__/" in str(exc.value)
+    result = alice.push("on purpose", allow_artifacts=True)
+    assert "__pycache__/app.cpython-312.pyc" in result.files
+
+
+def test_on_delta_hook_sees_working_copy_syncs(tmp_path: Path):
+    net = Net(tmp_path)
+    net.genesis({"a.txt": "a\n"})
+    alice = net.clone("@alice")
+    deltas: list = []
+    alice.client.on_delta.append(deltas.append)
+    (alice.root / "b.txt").write_text("b\n")
+    p = alice.push("b").push                                 # push syncs inside WorkingCopy
+    net.settle()
+    alice.sync()
+    events = [e for d in deltas for e in d.events]
+    assert deltas and any(e.type == "linked" and e.data["push"] == p for e in events)
+
+
+def test_resolve_accepts_mail_forms(tmp_path: Path):
+    net = Net(tmp_path)
+    g = net.genesis({"a.txt": "a\n"})
+    c = net.client("@alice")
+    c.sync_log()
+    email = c.reader().email(g)
+    assert c.resolve(f"[gud:{g[:12]}]") == g
+    assert c.resolve(f"Re: [gud] push genesis [gud:{g[:12]}]") == g
+    assert c.resolve(f"<{g}>") == g and c.resolve(f"gud:{g[:8]}") == g
+    assert email.message_id and c.resolve(email.message_id) == g

@@ -37,6 +37,7 @@ import fcntl
 import json
 import math
 import os
+import re
 import time
 import tomllib
 from contextlib import contextmanager
@@ -671,6 +672,9 @@ class RepoClient:
         self._replayer = self._load_replayer()
         self._info: dict | None = None
         self.last_problems: list[str] = []
+        # called with every delta `sync_log` produces (including the syncs WorkingCopy runs), so
+        # tools that journal events (gud.mcp_v1, gud.agent) see all of them
+        self.on_delta: list[Callable[[ChainDelta], None]] = []
 
     # ------------------------------------------------------------ cache
 
@@ -883,9 +887,16 @@ class RepoClient:
                 delta = r.feed(emails, entries, self.now_ms())
             except ReplayError as exc:
                 r.save()
+                if exc.delta is not None:
+                    self._deliver_delta(exc.delta)
                 raise RemoteError(f"host log verification failed: {exc}") from exc
             r.save()
-            return delta
+        self._deliver_delta(delta)
+        return delta
+
+    def _deliver_delta(self, delta: ChainDelta) -> None:
+        for hook in list(self.on_delta):
+            hook(delta)
 
     def bootstrap(self, *, checkpoint: bool = True) -> str:
         """Prepare an empty cache: from the newest valid checkpoint when `checkpoint` and one
@@ -1081,8 +1092,23 @@ class RepoClient:
     # ------------------------------------------------------------ ids
 
     def resolve(self, ref: str) -> Hex:
-        """A full id, a hex prefix (>= 4) of any known id, a task alias (`T3`, `T3.1`), or `tip`."""
+        """A full id, a hex prefix (>= 4) of any known id, a task alias (`T3`, `T3.1`), or `tip`; also
+        the forms people paste from mail: a subject tag `[gud:<hex>]`, `gud:<hex>`, `<id>`, and a
+        `<Message-ID>` of a logged message."""
         ref = ref.strip()
+        tag = re.search(r"\[gud:([0-9a-fA-F]{4,64})\]", ref)
+        if tag:
+            ref = tag.group(1).lower()
+        elif ref.startswith("<") and ref.endswith(">"):
+            inner = ref[1:-1].strip()
+            if "@" in inner:
+                found = self._replayer.by_message_id(ref) or self._replayer.by_message_id(inner)
+                if found:
+                    return found
+                inner = inner.split("@", 1)[0]
+            ref = inner
+        if ref.lower().startswith("gud:"):
+            ref = ref[4:]
         chain = self.chain()
         if ref == "tip":
             if chain.tip is None:

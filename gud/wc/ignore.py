@@ -17,7 +17,9 @@ The last matching pattern decides. As in git, a path under an excluded directory
 re-included by a negation: once a directory is ignored, nothing below it is looked at.
 
 `.git` (any path segment equal to `.git` in any case), `.gud/BASE` and `.gud/local/` are
-always ignored, whatever the file says.
+always ignored, whatever the file says. With no `.gudignore` anywhere (working copy or base
+tree), `DEFAULT_GUDIGNORE` applies; `gud init` writes it into a new repo when the directory
+has none. Pushes refuse paths that look like build output (`artifacts`) unless allowed.
 """
 
 from __future__ import annotations
@@ -139,6 +141,54 @@ def _parse_line(raw: str) -> _Rule | None:
     return _Rule(raw.rstrip("\r\n"), re.compile(prefix + rx + r"\Z", re.DOTALL), negate, dir_only)
 
 
+# Local build output that is never source (every member receives every diff, so it must not be
+# pushed by accident). Written as the default `.gudignore`; `artifacts()` finds such paths.
+DEFAULT_GUDIGNORE = """\
+# gud ignore rules (gitignore syntax, SPEC-v1 section 22): never pushed
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.venv/
+*.egg-info/
+.coverage
+node_modules/
+.DS_Store
+"""
+
+ARTIFACT_PATTERNS = (
+    "**/__pycache__/**", "**/*.pyc", "**/*.pyo", "**/.pytest_cache/**", "**/.mypy_cache/**", "**/.ruff_cache/**",
+    "**/node_modules/**", "**/.DS_Store", "**/*.egg-info/**", "**/.venv/**", "**/.tox/**", "**/.coverage",
+)
+_IGNORE_LINES = {"__pycache__": "__pycache__/", ".pyc": "*.pyc", ".pyo": "*.pyo", ".pytest_cache": ".pytest_cache/",
+                 ".mypy_cache": ".mypy_cache/", ".ruff_cache": ".ruff_cache/", "node_modules": "node_modules/",
+                 ".DS_Store": ".DS_Store", ".egg-info": "*.egg-info/", ".venv": ".venv/", ".tox": ".tox/",
+                 ".coverage": ".coverage"}
+
+
+def artifacts(paths) -> list[str]:
+    """The paths that look like build output (ARTIFACT_PATTERNS), sorted."""
+    from gud.core.config import glob_match
+    out = []
+    for p in paths:
+        if any(glob_match(g, p) or glob_match(g.removeprefix("**/"), p) for g in ARTIFACT_PATTERNS):
+            out.append(p)
+    return sorted(out)
+
+
+def ignore_lines(paths) -> list[str]:
+    """`.gudignore` lines that would ignore these build-output paths."""
+    lines: list[str] = []
+    for p in paths:
+        for marker, line in _IGNORE_LINES.items():
+            if marker in p and line not in lines:
+                lines.append(line)
+    return lines
+
+
 def builtin_ignored(path: str) -> bool:
     """`.git` segments, `.gud/BASE` and `.gud/local/` (§22): always ignored."""
     if any(seg.lower() == ".git" for seg in path.split("/")):
@@ -163,7 +213,8 @@ class IgnoreRules:
 
     @classmethod
     def load(cls, root: Path, tree: Tree | None = None) -> IgnoreRules:
-        """Rules from `root/.gudignore` when it is a regular file, else from `tree`'s copy."""
+        """Rules from `root/.gudignore` when it is a regular file, else from `tree`'s copy, else
+        `DEFAULT_GUDIGNORE`."""
         path = Path(root) / GUDIGNORE
         data: bytes | None = None
         if path.is_file() and not path.is_symlink():
@@ -172,6 +223,8 @@ class IgnoreRules:
             entry = tree.get(GUDIGNORE)
             if entry is not None and entry.mode != "120000":
                 data = tree.read(GUDIGNORE)
+        if data is None and not (path.exists() or path.is_symlink()) and (tree is None or tree.get(GUDIGNORE) is None):
+            return cls.parse(DEFAULT_GUDIGNORE)
         return cls.parse(data.decode("utf-8", "replace")) if data else cls()
 
     @property

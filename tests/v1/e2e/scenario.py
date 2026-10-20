@@ -158,7 +158,7 @@ class Scenario:
         out = self.run("human", "init", "--repo", t.repo, "--member-file", str(roster), "--host-url", self.url,
                        "-m", "seed")
         self.timings["genesis_s"] = time.monotonic() - start
-        assert out["dir"] == str(human.wc.resolve()) and out["files"] == 7, out
+        assert out["dir"] == str(human.wc.resolve()) and out["files"] == 8, out      # incl. .gudignore
 
         for user in ("alice", "bob", "box1"):
             m = self.members[user]

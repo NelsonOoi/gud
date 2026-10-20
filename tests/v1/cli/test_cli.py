@@ -78,7 +78,7 @@ def repo(request, tmp_path_factory) -> Repo:
     (wn / "README").write_text("hello\nworld\n")
     (wn / "app.py").write_text("x = 1\ny = 2\n")
     out = gud(homes["nelson"], "init", "--repo", REPO, "--member-file", str(roster), *init_args, cwd=wn)
-    assert out["files"] == 6 and out["dir"] == str(wn.resolve())
+    assert out["files"] == 7 and out["dir"] == str(wn.resolve())      # incl. the default .gudignore
     assert out["host_url"].startswith("local:" if request.param == "local" else "http://")
     host_url = out["host_url"]
     dirs = {"nelson": wn}
@@ -124,7 +124,7 @@ def test_review_and_votes(repo: Repo):
     assert p["status"] == "window" and p["forecast"]["askers"] == ["@nelson"]
     review = repo.run("nelson", "review")
     item = next(i for i in review["items"] if i["push"] == p["push"])
-    assert item["type"] == "review" and item["why"] == ["asker"] and item["files"] == ["app.py"]
+    assert item["type"] == "review" and item["why"] == ["line"] and item["files"] == ["app.py"]
     held = repo.run("nelson", "hold", p["push"][:12], "-m", "looking")
     assert held["kind"] == "hold" and held["logged"]
     c = repo.run("nelson", "comment", p["push"][:12], "-m", "nice")
@@ -293,17 +293,25 @@ def test_import_from_git_and_mirror(repo: Repo, tmp_path: Path):
     assert imp["dir"] is None and imp["files"] == 5
 
 
-@pytest.mark.parametrize("command,module", [("agent", "gud.agent.runtime")])
-def test_commands_of_other_layers(repo: Repo, command: str, module: str):
-    try:
-        present = importlib.util.find_spec(module) is not None
-    except ModuleNotFoundError:
-        present = False
-    if present:
-        pytest.skip(f"{module} exists in this build")
-    args = [command] + (["out.tar"] if command == "export-archive" else [])
-    out = repo.run("alice", *args, code=2)
-    assert out["available"] is False and module in out["error"]
+@pytest.mark.parametrize("command,module", [("agent", "gud.agent.runtime"), ("mcp", "gud.mcp_v1")])
+def test_agent_and_mcp_get_the_globals(tmp_path: Path, monkeypatch, command: str, module: str):
+    """`gud agent` / `gud mcp` run the module's main with the global --home/--handle (and --wc
+    inside a working copy, --json for mcp) followed by the command's own options."""
+    from gud import cli_v1
+    seen: list = []
+    mod = importlib.import_module(module)
+    monkeypatch.setattr(mod, "main", lambda argv: seen.append(argv) or 0)
+    wc = tmp_path / "wc"
+    (wc / ".gud").mkdir(parents=True)
+    (wc / ".gud" / "BASE").write_text("0" * 64 + "\n")
+    code = cli_v1.main(["--home", str(tmp_path / "h"), "--handle", "alice", "--json", "-C", str(wc), command,
+                        "--model", "m", "--listen", ":9"])
+    assert code == 0
+    expected = ["--home", str((tmp_path / "h").resolve()), "--handle", "@alice", "--wc", str(wc.resolve())]
+    expected += (["--json"] if command == "mcp" else []) + ["--model", "m", "--listen", ":9"]
+    assert seen == [expected]
+    with pytest.raises(SystemExit):
+        cli_v1.main(["status", "--bogus"])                 # other commands still refuse unknown options
 
 
 def test_errors_are_json(repo: Repo):

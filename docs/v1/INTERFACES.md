@@ -1682,6 +1682,10 @@ Public additions from joining the layers (see "Implementation notes (integration
 - `gud.tester_v1`: `run_tester(client, handle, private_key, *, runner="local", parallel=1, interval=5.0, once=False, state_dir=None, stop=None, events=None) -> Tester`; `main(argv) -> int`; `run_forever` survives `RuntimeError`/`OSError`/`ValueError` from a step.
 - `gud.cli_v1`: `tester` takes `--runner --parallel --interval --once --host-url --repo`; `host serve [--dir D] [--repo R] [--bind] [--webhook-bind]`; `host key --dir D`; `host handover KEY [--new-repo ADDR] [--dir D]`; `host follow URL`; `export-archive OUT [--host [--dir D]]`; `import-archive ARCHIVE [--repo] [--dir] --transport N [--set k=v] [--trust-unplanned]`; `audit [--evidence FILE]` exits with the report's status. `agent` is still a stub.
 - Tests: `tests/v1/procs.py` (subprocess helpers: `gud`, `Proc`, `serve`, `wait_for`); the CLI suite runs in local host mode and against `gud host serve`.
+- `gud.wc.review` (new; imports core only): `needs(chain, me, *, members, now, tip_paths=None, lease_warn_ms=300000) -> list[dict]`, `needs_of(client)`, `why_codes`, `why_text`, `my_claims`. Used by `gud review` and the MCP `inbox`.
+- `gud.wc.ignore`: `DEFAULT_GUDIGNORE`, `ARTIFACT_PATTERNS`, `artifacts(paths)`, `ignore_lines(paths)`; `IgnoreRules.load` falls back to the defaults. `gud.wc.copy.ArtifactsFound(WcError)` (`.paths`); `WorkingCopy.push(..., allow_artifacts=False)`.
+- `RepoClient.on_delta: list[Callable[[ChainDelta], None]]`; `Replayer.by_message_id(mid) -> Hex | None`.
+- `gud.cli_v1`: `delivery`, `agent`, `mcp` (pass-through options), `push --allow-artifacts`.
 
 - The §21 host test double used by the wc tests is `tests/v1/wc/host_double.py` (`HostDouble`, `InProcess`, `Clock`); it is not product code.
 

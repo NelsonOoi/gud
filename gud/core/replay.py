@@ -462,6 +462,10 @@ class Replayer:
         entry = self._log.at(n - 1)
         return Seen(entry.seq, entry.hash)
 
+    def by_message_id(self, message_id: str) -> Hex | None:
+        """The gud id of the first processed message with this Message-ID (for human references)."""
+        return self._s["msgid"].get(_norm_mid(message_id))
+
     def wanted_mail(self) -> tuple[Hex, ...]:
         out = []
         for seq, gid, _ in self._log.mail_ids(self._s["next"]):
