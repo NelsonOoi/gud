@@ -217,7 +217,7 @@ def test_wait_for_a_push_and_task_aliases(repo: LocalRepo):
 
     claim, push, waited, task, sub, board, released = _session(repo, "@alice", script)
     assert push["status"] == "linked" and "linked" in waited["outcome"]
-    assert task["task"]["status"] in ("work_done", "done") and task["links"]
+    assert task["task"]["status"] == "claimed" and task["links"]      # a root task waits for its holder (§16.6)
     assert sub["alias"] == "T1.1" and sub["valid"]
     assert [t["alias"] for t in board["tasks"]] == ["T1", "T1.1"]
     assert released["status"] == "released"

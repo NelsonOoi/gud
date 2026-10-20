@@ -69,6 +69,7 @@ class AgentRuntime:
                  debounce_s: float = 1.0, max_open: int = 8, poll_s: float = 2.0, idle_s: float = 300.0,
                  advertise: str | None = None, max_turns: int = 80, turn_timeout_s: float = 1800.0,
                  extra_prompt: str = "", deny_paths: Sequence[str] = (), mcp_env: Mapping[str, str] | None = None,
+                 board_debounce_s: float = 3.0, board_max_delay_s: float = 15.0,
                  clock: Callable[[], float] = time.time, monotonic: Callable[[], float] = time.monotonic,
                  log: Callable[[str], None] | None = None) -> None:
         self.client = client
@@ -101,6 +102,12 @@ class AgentRuntime:
         self._chain: Chain | None = None
         self._loop: AsyncLoop | None = None
         self._last_turn = monotonic()
+        # other members' links, tip changes and done tasks that do not touch this member's work are not
+        # turns of their own: they are coalesced into one board check (idle_check) per quiet period
+        self.board_debounce_s = board_debounce_s
+        self.board_max_delay_s = board_max_delay_s
+        self._board: tuple[float, float] | None = None          # (first, last) ambient event times
+        self.board_checks = 0
         self._server: ThreadingHTTPServer | None = None
         self.manager = SessionManager(session_factory or self.claude_session, debounce_s=debounce_s, max_open=max_open,
                                       key=self._session_key, render=self._render, before_turn=self._before_turn,
@@ -169,8 +176,69 @@ class AgentRuntime:
         self._state["routed"] = new[-1][0]
         self._save_state()
         wake = [e for _, e in new if not self.quiet(e)]
+        if any(self.ambient(e) for _, e in new):
+            now = self.monotonic()
+            self._board = (self._board[0] if self._board else now, now)
         self.manager.route(wake)
         return len(wake)
+
+    def ambient(self, event: Event) -> bool:
+        """Board news that concerns this member only because every agent follows the tip (§19.2): another
+        member's link that touches none of its claimed scopes or live pushes, tip colour changes, and task.done
+        for items none of its claims waits on. They are quiet; they schedule one debounced board check."""
+        d = event.data
+        if event.type == "linked":
+            return d.get("author") != self.me and not self._touches_mine(d.get("files") or [])
+        if event.type in ("tip.green",):
+            return True
+        if event.type == "task.done":
+            return self._dependent(d.get("task")) is None
+        return False
+
+    def _touches_mine(self, files: Sequence[str]) -> bool:
+        from gud.core.tasks import scope_matches
+        chain = self.chain()
+        files = [f for f in files if isinstance(f, str)]
+        for c in chain.claims.values():
+            if c.holder == self.me and c.status == "active" and any(scope_matches(list(c.files), f) for f in files):
+                return True
+        for p in chain.proposals.values():
+            if p.author == self.me and p.status in LIVE_STATUSES and set(p.files) & set(files):
+                return True
+        return False
+
+    def _dependent(self, done_task: Any) -> Hex | None:
+        """A task this member holds that lists `done_task` in its after (Gud-After), if any."""
+        if not isinstance(done_task, str):
+            return None
+        chain = self.chain()
+        for c in sorted(chain.claims.values(), key=lambda c: c.id):
+            if c.holder != self.me or c.status != "active":
+                continue
+            t = chain.tasks.get(c.task)
+            if t is not None and (done_task in t.after or done_task in c.after):
+                return t.id
+        return None
+
+    def _board_check(self) -> bool:
+        """Run the debounced board check when due: one idle_check per burst of ambient events."""
+        if self._board is None:
+            return False
+        first, last = self._board
+        now = self.monotonic()
+        if now < last + self.board_debounce_s and now < first + self.board_max_delay_s:
+            return False
+        if self.manager.pending:
+            return False                     # a turn is queued; check once it has run
+        self._board = None
+        self.board_checks += 1
+        return self.idle_check(force=True)
+
+    def _board_due(self) -> float | None:
+        if self._board is None:
+            return None
+        first, last = self._board
+        return min(last + self.board_debounce_s, first + self.board_max_delay_s)
 
     def quiet(self, event: Event) -> bool:
         """Events that only confirm this member's own action, or are pure information, are kept in
@@ -181,7 +249,11 @@ class AgentRuntime:
         if event.type == "window.closing":
             prop = self.chain().proposals.get(d.get("candidate")) if isinstance(d.get("candidate"), str) else None
             return prop is None or prop.author == self.me
-        return event.type in ("approved", "held", "test.passed", "carried", "task.ready", "task.done", "push.received")
+        if event.type == "task.done":
+            return self._dependent(d.get("task")) is None      # a dependency of my claimed work landed: wake
+        if self.ambient(event):
+            return True
+        return event.type in ("approved", "held", "test.passed", "carried", "task.ready", "push.received")
 
     def accept_webhook(self, headers: Mapping[str, str], body: bytes) -> int:
         """HTTP status for one webhook POST (§19.3): 200 for new and duplicate events, 401 when the
@@ -247,6 +319,11 @@ class AgentRuntime:
 
     def _session_key(self, event: Event) -> str:
         chain = self.chain()
+        if event.type == "task.done":
+            dep = self._dependent(event.data.get("task"))
+            if dep is not None:                          # wake the session working on the dependent task
+                tk = f"task:{dep}"
+                return self.manager.aliases.get(tk, tk)
         base = thread_key(event, self._roots(chain))
         if base in self.manager.aliases:
             return self.manager.aliases[base]
@@ -297,7 +374,12 @@ class AgentRuntime:
         chain = self.chain()
         notes = list(self._state.get("notes", []))[-6:] if new else []
         status = f"Budget: {self.ledger.member.describe()}."
-        return render_batch(events, chain, key=key, notes=notes, status=status, idle=key.startswith("idle"))
+        try:
+            team, team_text = self.tools._team_line(chain)
+        except Exception:
+            team, team_text = {}, ""
+        return render_batch(events, chain, key=key, notes=notes, status=status, idle=key.startswith("idle"),
+                            team=team_text, idle_agents=team.get("idle_agents") or ())
 
     def _mine(self, chain: Chain) -> tuple[set[Hex], set[Hex]]:
         claims = {c.task for c in chain.claims.values() if c.holder == self.me and c.status == "active"}
@@ -446,6 +528,7 @@ class AgentRuntime:
             self.journal.record(drained)
         chain = self._sync() if (poll or drained) else self.chain()      # pushed events: sync before the turn
         self._route_journal()
+        self._board_check()
         n = self.manager.pump()
         if n:
             chain = self._sync()
@@ -485,7 +568,7 @@ class AgentRuntime:
                     self._log(f"stopping: {self.stopped_reason}")
                     break
                 self.idle_check()
-                due = self.manager.next_due()
+                due = min([d for d in (self.manager.next_due(), self._board_due()) if d is not None], default=None)
                 wait = min(next_poll - self.monotonic(), (due - self.monotonic()) if due else poll_every, 0.5)
                 stop.wait(max(0.05, wait))
         finally:

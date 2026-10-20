@@ -339,6 +339,7 @@ class Scenario:
         self.write("bob", "tests/test_mul.py", "from mul import mul\n\n\ndef test_mul():\n    assert mul(2, 3) == 6\n")
         work = self.push("bob", "mul", "--task", tid[:16])
         self.wait(lambda: self.status("bob", work["push"]) == "linked", "the task work links", 30)
+        self.run("bob", "claim", "update", tid[:16], "--done")              # the holder declares it (§16.6)
         self.wait(lambda: self.task("bob", tid)["status"] == "work_done", "the task's work is done", 30)
         time.sleep(3 * self.t.slow)                                     # the tester has had time to act
         assert self.task("bob", tid)["status"] == "work_done", "a task must not be done while red"
@@ -387,6 +388,7 @@ class Scenario:
                             break
                         (m.wc / "DOCS.md").write_text("# docs\n")             # type: ignore[operator]
                         out = json.loads(tools.push("write DOCS.md", task=t.alias))
+                        tools.claim_update(t.alias, done=True)                   # waits for the push to link
                         return SessionTurn(text=f"pushed {out.get('push', '')[:12]}", usd=0.0, tokens=0,
                                            session_id=self.key)
                 return SessionTurn(text="nothing to do", usd=0.0, tokens=0, session_id=self.key)
