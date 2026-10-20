@@ -203,8 +203,10 @@ def test_task_done_via_subtasks_and_requester_acceptance():
 def test_acceptance_from_non_requester_does_not_count():
     k, g = base()
     t = k.task("@nelson", "x")
-    k.claim("@alice", t)
+    c = k.claim("@alice", t)
     p = k.push("@alice", g, {"src/c.py": "c\n"}, task=t.id)
+    chain, _ = k.run()
+    k.claim("@alice", t, revises=c, done=True)
     k.approve("@dana", t)
     chain, _ = k.run()
     assert chain.tasks[t.id].status == "work_done"
@@ -213,8 +215,10 @@ def test_acceptance_from_non_requester_does_not_count():
 def test_task_with_criteria_done_on_accept_pass():
     k, g = base(test="command pytest\n")
     t = k.task("@nelson", "x", accept=["tests/test_x.py"])
-    k.claim("@alice", t)
+    c = k.claim("@alice", t)
     p = k.push("@alice", g, {"src/c.py": "c\n"}, task=t.id)
+    chain, _ = k.run()
+    k.claim("@alice", t, revises=c, done=True)
     chain, events = k.run()
     assert chain.tasks[t.id].status == "work_done"
     assert events_of(events, "task.ready")[0].data["needs"] == "criteria"
@@ -226,6 +230,78 @@ def test_task_with_criteria_done_on_accept_pass():
     k.test("accept", t, link.tree_hash, "pass", link=link.state)
     chain, _ = k.run()
     assert chain.tasks[t.id].status == "done"
+
+
+def test_root_task_is_not_done_on_its_first_link():
+    """The eval repro (todo-stack gud1-cc t2): an `accept` command that already passes on the seed, and a
+    README-only link with Gud-Task = T1. T1 stays claimed until its holder declares it done; an accept
+    pass on a link before the declaration does not count."""
+    k, g = base(test="command pytest\n")
+    t = k.task("@nelson", "todo stack", cmds=["python -m pytest -q"])
+    c = k.claim("@alice", t, ["**"])
+    readme = k.push("@alice", g, {"README.md": "# todo\n"}, task=t.id)
+    chain, events = k.run()
+    assert status(chain, readme) == "linked"
+    assert chain.tasks[t.id].status == "claimed" and not events_of(events, "task.ready")
+    l1 = link_of(chain, readme)
+    k.test("accept", t, l1.tree_hash, "pass", link=l1.state)
+    chain, _ = k.run()
+    assert chain.tasks[t.id].status == "claimed"
+    lib = k.push("@bob", l1.state, {"src/todolib.py": "def add(): ...\n"}, task=t.id)   # others' links: no effect
+    chain, _ = k.run()
+    assert status(chain, lib) == "linked" and chain.tasks[t.id].status == "claimed"
+    decl = k.claim("@alice", t, ["**"], revises=c, done=True)
+    chain, events = k.run()
+    task = chain.tasks[t.id]
+    assert task.status == "work_done" and task.declared == decl.id and task.declared_by == "@alice"
+    assert task.work_done_link == link_of(chain, lib).state
+    ready = events_of(events, "task.ready")
+    assert ready and ready[-1].data["needs"] == "criteria" and ready[-1].data["link"] == task.work_done_link
+    k.test("accept", t, l1.tree_hash, "pass", link=l1.state)       # an older link still does not count
+    chain, _ = k.run()
+    assert chain.tasks[t.id].status == "work_done"
+    l2 = link_of(chain, lib)
+    k.test("accept", t, l2.tree_hash, "pass", link=l2.state)
+    chain, events = k.run()
+    assert chain.tasks[t.id].status == "done"
+    done = events_of(events, "task.done")
+    assert done and {"@alice", "@bob", "@carol"} <= set(done[-1].concerns)     # every agent hears of it
+    assert chain.claims[c.id].status == "done"
+
+
+def test_done_declaration_rules():
+    k, g = base()
+    t1, t2, t3, t4 = (k.task("@nelson", n) for n in ("one", "two", "three", "four"))
+    c1 = k.claim("@alice", t1, ["src/a.py"])
+    k.claim("@bob", t1, ["src/a.py"], revises=c1, done=True)       # not the holder: ignored
+    c2 = k.claim("@bob", t2, ["src/b.py"])
+    k.push("@bob", g, {"src/b.py": "b = 2\n"}, task=t2.id)        # rewrites @alice's line: a consent window
+    k.claim("@bob", t2, ["src/b.py"], revises=c2, done=True)       # sent while that push is still live
+    c3 = k.claim("@carol", t3, ["web/**"])
+    k.claim("@carol", t3, ["web/**"], revises=c3, release=True, done=True)   # release --done
+    c4 = k.claim("@alice", t4, ["**"])
+    k.subtask("@alice", t4, "part")
+    k.claim("@alice", t4, ["**"], revises=c4, done=True)            # has subtasks: their done decides
+    chain, _ = k.run()
+    assert chain.tasks[t1.id].status == "claimed" and chain.tasks[t1.id].declared is None
+    assert chain.tasks[t2.id].declared is None
+    assert chain.tasks[t3.id].declared is not None and chain.claims[c3.id].status == "released"
+    assert chain.tasks[t3.id].status == "work_done"                  # requester @nelson still accepts it
+    assert chain.tasks[t4.id].status == "claimed" and chain.tasks[t4.id].declared is None
+
+
+def test_subtask_still_done_on_a_link_and_parent_after_all_subtasks():
+    k, g = base()
+    t = k.task("@nelson", "big")
+    k.claim("@alice", t)
+    s1 = k.subtask("@alice", t, "a", files=["src/a.py"])
+    k.claim("@bob", s1, ["src/a.py"])
+    p = k.push("@bob", g, {"src/a.py": "a = 3\n"}, task=s1.id)
+    k.approve("@alice", p)
+    chain, events = k.run()
+    assert chain.tasks[s1.id].status == "done" and chain.tasks[t.id].status == "work_done"
+    assert not events_of(events, "claim.overlap")                     # parent ** vs its own subtask: the plan
+    assert not [e for e in events_of(events, "scope.exceeded") if "@alice" in e.concerns]
 
 
 def test_no_change_accepted_and_dropped_by_later_link():

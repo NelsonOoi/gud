@@ -268,6 +268,8 @@ class TaskState:
     cited_link: Hex | None = None
     offered_to: Handle | None = None
     offer_until: Ms | None = None
+    declared: Hex | None = None          # the holder's done declaration (claim with Gud-Done), §16.6
+    declared_by: Handle | None = None
 
 
 @dataclass(frozen=True)

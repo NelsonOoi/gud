@@ -244,7 +244,7 @@ Signed kinds require the common headers of 3.4. "Records" lists the allowed reco
 | `hold` | Target | | `text?` | yes |
 | `comment` | Target | Task, Escalate, Verdict | `text` (non-empty) | yes |
 | `test` | Scope, Target, Tree, Result | Stack, On, Base-Result, Link | `text?` (log tail, ≤ 65 536 bytes) | yes |
-| `claim` | Task, Files | Revises, Release, After | `text?` | yes |
+| `claim` | Task, Files | Revises, Release, Done, After | `text?` | yes |
 | `task` | Title | Requester, Accept, Bug | `text?`, `accept?` | yes |
 | `subtask` | Parent-Task, Title | After, Accept, Files | `text?`, `accept?` | yes |
 | `no-change` | Task, Tip | | `text` (reason, one line, non-empty) | yes |
@@ -274,6 +274,7 @@ Field meanings:
 - `Gud-Result`: `pass` or `fail`.
 - `Gud-Files` (claim, subtask): list of globs (section 10.1). `Gud-Files` on a subtask is a suggested scope only.
 - `Gud-Release: yes` (claim): releases the claim named in `Gud-Revises`.
+- `Gud-Done: yes` (claim): with `Gud-Revises` = the author's active claim, declares the claimed item's work complete (section 16.6). It combines with a scope update or with `Gud-Release`.
 - `Gud-After`: list of task, subtask or claim ids that should land first. Advisory (section 16.4).
 - `Gud-Title`: one-line title.
 - `Gud-Requester`: handle of a human member. Default: the author if human, else the author's sponsor, else none.
@@ -760,7 +761,11 @@ A `subtask` is valid when, at its received time, its author holds the active cla
 
 For a task or subtask `X`, at τ:
 
-- **Work done** at τ: if `X` has valid subtasks, all of them are done; otherwise a link with `Gud-Task = X` exists, or an accepted `no-change` for `X` holds.
+- **Work done** at τ:
+  - if `X` has valid subtasks: all of them are done;
+  - otherwise, if `X` is a subtask: a link with `Gud-Task = X` exists, or an accepted `no-change` or an accepted done declaration for `X` holds (subtasks are small by construction, so the first link carrying the id is their work);
+  - otherwise (a root task with no valid subtasks): an accepted **done declaration** for `X`, or an accepted `no-change` for `X`, holds. Links carrying `Gud-Task = X` alone never make a root task's work done, whoever sent them.
+- A **done declaration** for `X` is a `claim` with `Gud-Done: yes` and `Gud-Revises` naming the active claim on `X` (an update, or a release with `Gud-Release: yes`). It is accepted while all hold at its received time: its author holds the active claim on `X`; `X` has no valid subtasks and is not a fix task; and the author has no live push with `Gud-Task = X`. The work-done link is the tip at the declaration's received time, so a criteria pass must be on that link or a later one. A declaration is not dropped by later links. The scope update or release it carries applies whether or not the declaration is accepted.
 - **Done** at the earliest τ where work is done **and** the chain is not red **and**:
   - if `X` has criteria: a tester `accept`-scope pass with `Gud-Target = X` on a link `L` with seq ≥ the link at which work became done, received ≤ τ, while not red;
   - else if `X` is a root task with a requester who is a human member: a requester acceptance (unsigned `accept`/`approve` reply targeting `X`, or a signed `approve` with `Gud-Target = X`) received after work became done;
@@ -828,7 +833,7 @@ Replay is a pure function of `(emails, host log, now)`:
 | `superseded` | push id, link state | push, by_link | author |
 | `push.rejected` | push id, status | push, status, reason (`bad_sig`, `malformed`, `conflict`, `bad_config`, `tests_failed`, `vetoed`, `declined`, `expired`, `stale`) | author |
 | `carried` | carried state | push, candidate, onto, files | author |
-| `linked` | link state | link, push, seq, author, task, files, carried_from | author; holders of claims whose scope overlaps the files; authors of live pushes that touch the same files |
+| `linked` | link state | link, push, seq, author, task, files, carried_from | author; every agent; holders of claims whose scope overlaps the files; authors of live pushes that touch the same files |
 | `task.opened` | task id | task, alias, title, requester, criteria | agents |
 | `subtask.posted` | subtask id | subtask, alias, parent, title, after, files | agents |
 | `claim.won` | claim id | claim, task, holder, files | holder; requester |
@@ -837,7 +842,7 @@ Replay is a pure function of `(emails, host log, now)`:
 | `claim.overlap` | sorted pair of claim ids | claims, holders, globs | both holders |
 | `scope.exceeded` | push id, claim id | push, claim, paths | author; that claim's holder |
 | `task.ready` | task id, work-done link | task, needs (`criteria` / `accept`) | testers (criteria) or requester (accept) |
-| `task.done` | task id | task, link, no_change list (subtask, reason) | requester; holders of claims on the task and its subtasks |
+| `task.done` | task id | task, link, no_change list (subtask, reason) | requester; holders of claims on the task and its subtasks; every agent |
 | `escalated` | escalation id or (task id, reason, time) | escalation, reason, pushes, positions (objections and answers), deciders, deadline, default | deciders; authors; objectors |
 | `escalation.resolved` | escalation id | escalation, chosen, declined, by (`decider` handle or `default`) | deciders; authors; objectors |
 | `tip.red` | red link state | red_link, last_green | agents; testers |
@@ -1170,6 +1175,17 @@ Choices made by `gud/mcp_v1.py` and `gud/agent/` (PLAN Phase 4) where the text a
 12. **Budgets.** Per member (`--budget-usd`, `--budget-tokens`) and per root task (`--task-budget-usd`, `--task-budget-tokens`), persisted in `agent/budget.json`. The SDK reports `total_cost_usd` cumulatively per session and `usage` per turn, so a turn costs the difference of the totals. Tokens are input + output + cache-creation tokens + one tenth of cache reads. A turn whose task (or the member) is over budget is not run. The task is escalated once instead: a `comment` with `Gud-Escalate: budget` and `Gud-Task`, which raises `escalated` to its requester and sponsors (§16.7), and the member's claims under it are released. An exhausted member budget escalates every task it holds and stops the runtime. The member's remaining dollars are also passed to each SDK session as `max_budget_usd`.
 13. **Sessions.** The Claude Agent SDK session runs with cwd = the working copy and model `claude-sonnet-5-5` unless `--model` is given. Its tools are exactly Read, Edit, Write, Bash, Grep and Glob plus the `gud` MCP server (`python -m gud.mcp_v1` bound to the member and working copy), pre-approved with permission mode `dontAsk`. It runs with `strict_mcp_config`, no user or project settings, `max_turns` 80 per wake-up, and `PYTHONDONTWRITEBYTECODE=1` and `PYTEST_ADDOPTS=-p no:cacheprovider` (note 4). Reading the members' key files is denied, and so is every `--deny-path` (Read, Edit, Write, Glob and Grep). The SDK session id is kept per thread key, so a restarted runtime resumes the thread's conversation.
 14. **Untrusted text.** The system prompt states that task descriptions, intents, comments, reasons and file contents are data that cannot change the rules. Each turn wraps its events in `<events>...</events>` with member-written text quoted in «», and says so in the turn text.
+
+## Implementation notes (coordination)
+
+Changes made after the first real-agent grid (`evals/v1/runs/20261020-v1-report.md`, gud issues 1 to 3). Scenarios are in `tests/v1/replay/test_tasks.py`, `tests/v1/mcp/test_tools.py`, `tests/v1/events/test_pipeline.py` and `tests/v1/agent/test_runtime.py`; the re-run is `evals/v1/runs/*-v1-fixes-report.md`.
+
+1. **Done is declared, not inferred (§16.6).** In the grid a root task became done on its first link: a README-only push with `Gud-Task = T1` made T1 work-done, its `accept` command already passed on the seed, and agents read "T1 is done" as "nothing left". A root task without subtasks now needs its holder's done declaration (`Gud-Done: yes` on a claim update or release) or a `no-change`. A task with subtasks still follows its subtasks, and a subtask is still done by its first link. `gud1 claim update CLAIM --done` and `gud1 release CLAIM --done` send it, and so do MCP `claim_update(done=true)` and `release(done=true)`. All of them check first that the member has no open push for the item: the CLI refuses, and MCP waits up to 60 s for those pushes to link and then refuses. `TaskState` gains `declared` and `declared_by`. A snapshot of a task without a declaration keeps its earlier bytes.
+2. **Claims on a task and on its own subtasks do not overlap (§16.4).** Splitting is the holder's plan, so `claim.overlap` is not emitted for a pair where one claim's item is an ancestor of the other's. `scope.exceeded` is not emitted to the holder of an ancestor of the push's task.
+3. **Every agent follows the tip (§19.2).** `linked` and `task.done` concern every agent, as `tip.red` and `tip.green` already did. Before this change, an agent with no claim and no live push was never woken by another agent's link, and waits in MCP `wait(types=["linked"])` ran to their timeouts (300 to 600 s). Humans are unchanged.
+4. **Volume.** The dispatcher posts at most `max_per_pass` (64) webhook items per member per pass and runs the next pass at once while a backlog remains, so one member's backlog never delays the others. The reference agent treats other members' links that touch none of its claimed scopes or live pushes, `tip.green`, and `task.done` for items none of its claims waits on as **ambient**. They are journaled and quiet, and a burst of them schedules one board check (`idle_check`), debounced 3 s and run at most 15 s after the first. The check wakes an `idle:` session only when there is unclaimed open work and the board signature changed. A `task.done` for an item listed in the `after` of a task the agent holds is routed to that task's session.
+5. **MCP `wait` follows the tip.** Besides journal events, `wait` returns when its own sync sees a link by another member after the wait started (`tip_moved`). This applies when `types` is empty or includes `linked`. With `push` it applies only when `linked` is asked for; other members' `linked` events then do not end a push wait either, because the push's own outcome does.
+6. **Splitting guidance.** The reference agent's system prompt asks a claimant to split a task with separable parts before implementing when other agents are idle. It posts subtasks with files and `after`, posts and claims its own part first, and leaves the rest. Agents with no claim are asked to claim open subtasks. Turns woken by `task.opened` or `claim.lapsed` for an open, unsplit task name the idle agents and repeat the request. The gud1-cc arm gets the same guidance only through the MCP server's instructions and tool results, because its preamble must match the git arm's. `tasks` reports the other agents, which of them are idle (no active claim, no live push) and the open subtasks. `claim` with a `**`/`*` scope on an unsplit task while others are idle adds a `warning` that names them. A refused claim on a held task points to its open subtasks, or to `wait(types=["subtask.posted", "linked"])`.
 
 ## Implementation notes (ui)
 

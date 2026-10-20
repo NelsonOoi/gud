@@ -331,15 +331,22 @@ class Kit:
         return self.sign("subtask", who, h, **kw)
 
     def claim(self, who: str, task: "Msg | str", files: Sequence[str] = ("**",), *, revises: "Msg | str | None" = None,
-              release: bool = False, after: Sequence[str] = (), **kw) -> Msg:
+              release: bool = False, after: Sequence[str] = (), done: bool = False, **kw) -> Msg:
         h = {"Gud-Task": self._target(task), "Gud-Files": E.render_list(list(files))}
         if revises is not None:
             h["Gud-Revises"] = self._target(revises)
         if release:
             h["Gud-Release"] = "yes"
+        if done:
+            h["Gud-Done"] = "yes"
         if after:
             h["Gud-After"] = E.render_list(list(after))
         return self.sign("claim", who, h, **kw)
+
+    def declare(self, who: str, task: "Msg | str", files: Sequence[str] = ("**",)) -> Msg:
+        """Claim `task` and declare its work complete (§16.6: a claim update with Gud-Done)."""
+        c = self.claim(who, task, files)
+        return self.claim(who, task, files, revises=c, done=True)
 
     def no_change(self, who: str, task: "Msg | str", tip: "Msg | str", reason: str = "already done", **kw) -> Msg:
         h = {"Gud-Task": self._target(task), "Gud-Tip": self._target(tip)}

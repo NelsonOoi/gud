@@ -74,6 +74,8 @@ def build(tmp: Path) -> Story:
     w.advance(1_000)
     chain = w.chain()
     assert chain.tip.push == p_bob.id, [l.intent for l in chain.links]
+    w.claim("@bob", t_speed, ["app.py"], revises=c_bob, done=True)   # bob declares T1 done (§16.6)
+    w.advance(1_000)
     for link in chain.links:          # the kit builds pushes on trees it knows
         k.trees[link.state] = w.host.replayer.reader().tree(link.state)
     tip = chain.tip.state

@@ -15,6 +15,7 @@ def test_accept_paths_pass_makes_task_done():
     task = k.task("@alice", "add works", accept=["tests/test_*.py"])
     k.push("@alice", g, {"calc.py": "def add(a, b):\n    return a + b\n", "tests/test_add.py": FEATURE_TEST},
            task=task.id)
+    k.declare("@alice", task)
     chain, _ = k.run()
     assert chain.tasks[task.id].status == "work_done"
     t = make_tester(k)
@@ -31,6 +32,7 @@ def test_accept_fail_then_fix_on_a_later_link():
     k, g = repo(PYTEST, FILES)
     task = k.task("@alice", "add works", accept=["tests/test_add.py"])
     p = k.push("@alice", g, {"tests/test_add.py": FEATURE_TEST}, task=task.id)     # test only: fails
+    k.declare("@alice", task)
     chain, _ = k.run()
     t = make_tester(k)
     t.step()
@@ -50,6 +52,7 @@ def test_accept_commands():
     k, g = repo("command sh check.sh\n", FILES)
     task = k.task("@alice", "flag", cmds=["test -f done.flag", "grep -q yes done.flag"])
     k.push("@alice", g, {"done.flag": "no\n"}, task=task.id)
+    k.declare("@alice", task)
     k.run()
     t = make_tester(k)
     t.step()
@@ -68,6 +71,7 @@ def test_glob_matching_nothing_fails():
     k, g = repo(PYTEST, FILES)
     task = k.task("@alice", "x", accept=["tests/missing_*.py"])
     k.push("@alice", g, {"a.txt": "a2\n"}, task=task.id)
+    k.declare("@alice", task)
     k.run()
     make_tester(k).step()
     env = chain_tests(k, "accept")[0]
@@ -78,6 +82,7 @@ def test_no_test_command_cannot_pass():
     k, g = repo("on-tip off\n", FILES)
     task = k.task("@alice", "x", cmds=["true"])
     k.push("@alice", g, {"a.txt": "a2\n"}, task=task.id)
+    k.declare("@alice", task)
     k.run()
     t = make_tester(k)
     t.step()
@@ -92,6 +97,7 @@ def test_no_acceptance_runs_while_red():
     k, g = repo("command sh check.sh\non-tip links=2 time=1h\n", FILES)
     task = k.task("@alice", "flag", cmds=["true"])
     p = k.push("@alice", g, {"a.txt": "BAD\n"}, task=task.id)
+    k.declare("@alice", task)
     k.run()
     t = make_tester(k)
     t.step()                       # the tip run fails first; acceptance is skipped once red is seen
