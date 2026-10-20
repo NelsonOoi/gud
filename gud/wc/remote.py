@@ -50,6 +50,7 @@ from gud.core.envelope import sha256_hex
 from gud.core.hostlog import HostLog, LogError, decode_entry, encode_entry
 from gud.core.objects import DiskStore
 from gud.core.replay import ChainReader, ReplayError, Replayer, Snapshot
+from gud.core.replay import snapshot_at as _core_snapshot_at
 from gud.core.types import (
     Chain, ChainDelta, Email, Envelope, Handle, Hex, LogEntry, Member, Ms, ObjectStoreLike, Record, Seen,
 )
@@ -162,20 +163,11 @@ def write_transport_toml(path: Path, name: str, cfg: Mapping[str, str]) -> None:
 
 def snapshot_at(entries: Sequence[LogEntry], mail: Callable[[Hex], Email | None], seq: int,
                 store: ObjectStoreLike, trusted_host_keys: Sequence[str] = ()) -> bytes:
-    """§17 snapshot bytes for log position `seq`: replay entries <= seq with now = time(seq)."""
-    upto = [e for e in entries if e.seq <= seq]
-    if not upto or upto[-1].seq != seq:
-        raise RemoteError(f"no log entry {seq}")
-    emails = []
-    for e in upto:
-        if e.type == "mail":
-            email = mail(e.fields[0][1])
-            if email is None:
-                raise RemoteError(f"mail {e.fields[0][1][:12]} of entry {e.seq} is not available")
-            emails.append(email)
-    r = Replayer(store, trusted_host_keys=trusted_host_keys)
-    r.feed(emails, upto, upto[-1].time)
-    return r.snapshot().to_bytes()
+    """§17 snapshot bytes for log position `seq` (`gud.core.replay.snapshot_at`)."""
+    try:
+        return _core_snapshot_at(entries, mail, seq, store, trusted_host_keys)
+    except ReplayError as exc:
+        raise RemoteError(str(exc)) from exc
 
 
 # ---------------------------------------------------------------- mirror back ends

@@ -45,7 +45,7 @@ import os
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Iterable, Literal, Mapping, Sequence
+from typing import Any, Callable, Iterable, Literal, Mapping, Sequence
 
 from . import envelope as E
 from .config import MEMBERS, ConfigError, Members, RepoConfig, RepoRules, TestPolicy, bare_address, glob_match, rules_of
@@ -2458,3 +2458,22 @@ def replay(emails: Iterable[Email], log_entries: Sequence[LogEntry], now: Ms, *,
 def replay_events(emails: Iterable[Email], log_entries: Sequence[LogEntry], now: Ms, **kw) -> tuple[Event, ...]:
     r = _replayer(kw.get("store"), kw.get("checkpoint"), kw.get("trusted_host_keys", ()))
     return r.feed(emails, log_entries, now).events
+
+
+def snapshot_at(entries: Sequence[LogEntry], mail: Callable[[Hex], Email | None], seq: int,
+                store: ObjectStoreLike, trusted_host_keys: Sequence[str] = ()) -> bytes:
+    """§17 snapshot bytes for log position `seq`: replay entries <= seq with now = time(seq).
+    `mail(id)` returns each logged message. Raises ReplayError when an entry or its mail is missing."""
+    upto = [e for e in entries if e.seq <= seq]
+    if not upto or upto[-1].seq != seq:
+        raise ReplayError(f"no log entry {seq}")
+    emails = []
+    for e in upto:
+        if e.type == "mail":
+            email = mail(e.fields[0][1])
+            if email is None:
+                raise ReplayError(f"mail {e.fields[0][1][:12]} of entry {e.seq} is not available")
+            emails.append(email)
+    r = Replayer(store, trusted_host_keys=trusted_host_keys)
+    r.feed(emails, upto, upto[-1].time)
+    return r.snapshot().to_bytes()

@@ -1085,7 +1085,7 @@ Choices made by `gud/events/{model,intake,dispatch}.py` and `gud/host_v1.py` whe
     - `wait=<s>` (at most 60) makes either list long-poll until an entry exists.
     - `GET /api/v1/mail/<id>` serves logged mail only.
     - `GET /api/v1/object/<sha256>` serves from the host's replay store.
-    - `GET /api/v1/snapshot/<sha256>` serves only snapshots the host has stored (`Intake.snapshot`).
+    - `GET /api/v1/snapshot/<sha256>` serves snapshots the host has stored (`Intake.snapshot`) and, computed on request, the snapshot named by any logged `checkpoint` (integration note 2).
 13. **Mirror auth v1 (§21).**
     - The time token uses the `hostauth.format_time` form, and the body hash is over the exact request body.
     - Verification uses the members at the host's current tip. A member without a key cannot sign.
@@ -1098,7 +1098,7 @@ Choices made by `gud/events/{model,intake,dispatch}.py` and `gud/host_v1.py` whe
 
 ## Implementation notes (wc/cli)
 
-Choices made by `gud/wc/{remote,ignore,secrets,copy}.py` and `gud/cli_v1.py` where §21 and §22 left room. Scenarios are in `tests/v1/wc/` (against a §21 host test double) and `tests/v1/cli/` (the `gud1` command line as subprocesses).
+Choices made by `gud/wc/{remote,ignore,secrets,copy}.py` and `gud/cli_v1.py` where §21 and §22 left room. Scenarios are in `tests/v1/wc/` (against the real host, `gud.host_v1`) and `tests/v1/cli/` (the `gud1` command line as subprocesses).
 
 1. **Sync conflicts (§22).** "On any conflict nothing is written" is kept literally: the working files and `.gud/BASE` are untouched. The conflicts are recorded in `.gud/local/sync.json` (shown by `gud status` until a sync succeeds) and, for every path where base, mine and tip are all text, a diff3-style merge with `<<<<<<< mine` / `||||||| base` / `=======` / `>>>>>>> tip <id12>` markers is written to `.gud/local/conflicts/<path>` for the member to read. Nothing is pushed and nothing is resolved automatically; the member edits the working files and syncs again.
 2. **Push when behind.** A push names `.gud/BASE` as its parent even when the tip has moved, so carry-forward (§14) applies. When a link after the base touched a path the push touches, the push could not be carried (`carry file`, read at the tip) or would not merge (`carry line`, checked with `three_way` on those paths), so it would only be superseded: `gud push` refuses it, sends nothing, and says to run `gud sync`. `--no-carry` while behind is refused the same way. A push whose tree has an unparseable config file, or breaks §5.1, is refused before signing.
@@ -1116,3 +1116,12 @@ Choices made by `gud/wc/{remote,ignore,secrets,copy}.py` and `gud/cli_v1.py` whe
 14. **`gud init`.** The roster is the gitbridge roster format; the initialising member's line gets their key when it has none, the host line gets the host log's key. Without `--from-git`, genesis is the directory's files (minus ignored paths) plus `.gud/members` and the gitbridge defaults for any missing `.gud/config`, `.gud/test`, `.gud/owners`; the directory becomes a working copy at genesis. Without `--host-url`, a local host is created under `GUD_HOME/host/<repo>/` using the member's transport with the repo address.
 15. **Additions to the command list.** `gud keys new|show|rotate|promote` (`rotate` sends a members push with a new key kept in `key.pending`; `promote` installs it once the tip lists it), `gud admit JOIN` (the membership push answering a join request, with `Gud-Join`), `gud task list|show`, `gud object --test FILE [--test-path P]` (evidence from the working copy; `--evidence P:FILE` also works), `gud comment --verdict reject`, and the global `-C DIR` and `--offline`. `gud blame --full` reads the same mail as without it (archived epochs are not separate yet). `gud agent`, `gud tester`, `gud audit`, `gud export-archive`, `gud import-archive` and `gud host serve` delegate to their modules when present and otherwise exit 2 with `{"available": false}`.
 16. **Context and output.** A command finds its repo from the working copy's `.gud/local/config.json` (`handle`, `host_url`, `repo`), else `GUD_HOME/remote.json` (written by `init`, `clone`, `join`). The replay cache is `GUD_HOME/cache/<repo>/`, shared by members who share a GUD_HOME; use one GUD_HOME per member. With `--json` every command prints one JSON object (errors as `{"error": ...}`). Exit codes: 0 ok, 1 failed or found problems (refused push, sync conflict, verify differences, doctor failures), 2 usage errors and unavailable commands.
+
+## Implementation notes (integration)
+
+Choices made when the v1 layers were joined end to end (members, tester and mirror against the real host, over the fake transport, GreenMail IMAP+SMTP and Primitive). Scenarios are in `tests/v1/e2e/` and the regression tests named below.
+
+1. **The mirror is open before genesis (§21).** Mirror auth verifies against the members at the tip, and before genesis there is none, so the genesis author could not read the log head it must cite in `Gud-Seen`. Until genesis links, the host serves every read endpoint without a signature (there is nothing but the `open` entry and unsigned mail to read); `POST /api/v1/delivery` still needs a member. `tests/v1/host/test_integration.py::test_mirror_is_open_before_genesis`.
+2. **Snapshots for logged checkpoints (§17).** The host indexes every logged `checkpoint` by `Gud-Snapshot` and serves `GET /api/v1/snapshot/<sha256>` by replaying entries `≤ n` with `now = time(n)` (`gud.core.replay.snapshot_at`, shared with the local host and members) and keeping the result only when it hashes to the name. Without this a member could not clone from a checkpoint against the real host. `GET /api/v1/object` already served tree and blame nodes from the replay store.
+3. **Checkpoint replayers before the log (§17, replay note 17).** `Replayer.chain()` on a replayer just made by `from_checkpoint` reports the snapshot's head as the processed head until the log is fed past it; `save`/`load` keep it.
+

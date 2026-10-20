@@ -86,7 +86,12 @@ def create_app(intake: Intake, dispatcher: Dispatcher, registry: DeliveryRegistr
         if is_loopback(request):
             handle = request.headers.get(AUTH_HANDLE)
             return handle if handle and E.is_handle(handle) else None
-        handle = verify_request(intake.members(), request.method, _path_with_query(request), body,
+        members = intake.members()
+        if members is None:
+            # before genesis there is no member to sign as, and the genesis author needs the
+            # log head for its Gud-Seen: the mirror is open until genesis links
+            return None
+        handle = verify_request(members, request.method, _path_with_query(request), body,
                                 request.headers, now())
         if handle is None:
             raise HTTPException(401, "member signature required")
