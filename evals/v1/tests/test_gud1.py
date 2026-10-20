@@ -95,6 +95,13 @@ def test_gud1_cc_prompt_shares_the_preamble(tmp_path):
     git_arm, cc = GitArm(tmp_path / "g", spec, handles), Gud1CCArm(tmp_path / "u", spec, handles)
     git_arm.setup()
     cc.setup()
+    try:
+        _check_preamble(git_arm, cc, spec, handles)
+    finally:
+        cc.close()                                       # the host serve process
+
+
+def _check_preamble(git_arm, cc, spec, handles):
     head = lambda text: text.split("# How this repo works")[0]  # noqa: E731
     git = run.prompt_for(git_arm, spec, "@a1", handles, 1.5)
     gud1 = run.prompt_for(cc, spec, "@a1", handles, 1.5)
