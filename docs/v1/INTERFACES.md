@@ -1516,3 +1516,34 @@ All additions are backward compatible (new optional fields default, new keyword 
   - `resolve_unsigned_target(email, by_message_id, ids, notify_target)`: `ids` may also be a mapping from 12-hex prefixes to id lists.
   - The `ChainDelta` contract is documented in the module docstring of `gud/core/replay.py`; `ChainDelta.events` is complete for §19.2.
 - `gud.core.v0`: `V0Chain.now: float = 0.0` and `V0Chain.view() -> Chain` (the v1 `Chain` view: links and adapted proposals; no tasks, claims or log).
+
+## Addendum: tester
+
+The `gud/tester_v1.py` section above, as built. Changes are additive except the `Tester` constructor, which takes the signing identity and a state directory. See "Implementation notes (tester)" in SPEC-v1.md.
+
+- **New package `gud/runners/`**, which may import `core.types` and `core.objects`. `tester_v1` may import it. The `__init__.py` is empty.
+  - `gud.runners.base`: `RunResult(passed, log, seconds, runner, timed_out=False, exit_code=None)`. The two new fields have defaults. Also the `Runner` protocol (signature as above), `RunnerUnavailable(RuntimeError)`, `RunnerError(ValueError)`, `LOG_LIMIT = 65536`, and these helpers:
+    - `materialize(root, files)`: byte-exact; symlinks are made as symlinks and never written through.
+    - `tree_tarball(files) -> bytes`: stable gzipped tar with modes and symlinks.
+    - `shell_command(command, extra_args)`, `child_env(extra_path=())`, `run_process(argv, *, cwd, timeout_ms, env=None, on_timeout=None) -> (exit, output, timed_out, seconds)`: runs in a new session, kills the process group on timeout and after exit.
+    - `tail(data, limit)`, `result_log(...)`.
+  - `gud.runners.local.LocalRunner(*, shell="/bin/sh", extra_path=(), tmp_root=None)`, with a `.runs` counter.
+  - `gud.runners.docker.DockerRunner(*, docker="docker", network="none", user="auto", fallback=None, extra_args=(), tmp_root=None)`, with `.available()` and `.argv(workdir, command, image, name, extra_args)`. A policy without an image runs on `fallback` (local by default).
+  - `gud.runners.instabox.InstaBoxRunner(api_key=None, template="universal", snapshot=None, *, api_url, max_machines=5, workdir, after="pool"|"destroy", bootstrap=DEFAULT_BOOTSTRAP)`, with `.close()` and `.test_command(command, image, extra_args)`. It is ported from v0 `gud/build.py`. `InstaBoxError` is exported too.
+- `gud.tester_v1` re-exports `Runner`, `RunResult`, `RunnerUnavailable`, `RunnerError`, `LocalRunner` and `DockerRunner`. Its other names:
+  - `make_runner(kind="local"|"docker"|"instabox", **kw)`. `runner_from_legacy` is an alias; it copies v0 logic and imports nothing from v0.
+  - `TesterIdentity(handle, private_key)`, with `.public_key`.
+  - The `TesterClient` protocol: `sync_log()`, `replayer() -> Replayer`, `seen() -> Seen`, `send(env, *, summary, text="") -> Hex`. This is the subset of `gud.wc.remote.RepoClient` the tester uses, so a `RepoClient` satisfies it as is.
+  - `LocalClient(replayer, fetch, send, *, now=None)` implements `TesterClient`. `fetch() -> (emails, log entries)` and `send(env, summary, text)` are plain callables (a mirror follower, a mailbox, a test kit).
+  - `mailbox_sender(mailbox, *, from_addr, repo)` makes a send callable that mails the envelope to the repo address through any `gud.transport` mailbox, using the §2.1 layout via `gud.transport.mime`.
+- **`Tester(client, runner, *, identity, parallel=1, clock=time.time, state_dir=None)`.**
+  - `identity` is required: the tester signs its own messages.
+  - `state_dir/tester.json` keeps the sent results (persisted before sending), the run cache, the tip-cadence reference and the auto-revert ids. Without a state directory, the log scan alone gives idempotence for results that have reached the log.
+  - `parallel` caps concurrent runner calls.
+  - The duty methods are as listed above.
+    - `test_stack` returns the id of the whole-stack result. It bisects prefixes on failure and signs each probe.
+    - `bisect()` returns the ids it sent.
+    - `due_tip_run()` returns the link state due for a tip run, or None.
+  - `step()` also re-sends results that were persisted but not sent. It returns the ids sent, including an auto-revert push.
+  - `run_forever(events=None, *, interval=5.0, stop=None)`: with an event iterator it steps once per event; without one it steps every `interval` seconds until `stop` is set.
+- `main(argv)` is the `gud tester` entry point: `python -m gud.tester_v1 --handle @t --key <file> --host <url> --repo <addr> [--runner local|docker|instabox] [--parallel N] [--once]`. It needs `gud.wc.remote.RepoClient`. Until that module exists it exits with a message, and embedders use `LocalClient`.
