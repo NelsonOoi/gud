@@ -20,6 +20,7 @@ qa = ["browser-use==0.13.11"]
 
 [project.scripts]
 gud = "gud.cli:main"
+gud1 = "gud.cli_v1:main"
 
 [tool.setuptools.packages.find]
 include = ["gud*"]
