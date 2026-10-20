@@ -444,7 +444,7 @@ class AgentRuntime:
                 break
         if drained:
             self.journal.record(drained)
-        chain = self._sync() if poll else self.chain()
+        chain = self._sync() if (poll or drained) else self.chain()      # pushed events: sync before the turn
         self._route_journal()
         n = self.manager.pump()
         if n:

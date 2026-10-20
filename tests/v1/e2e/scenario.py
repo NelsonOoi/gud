@@ -24,12 +24,15 @@ admitted), @box1 (tester). The flow (each step asserts what SPEC-v1 says should 
     is opened naming it. @bob's task work links while red: work done, not done. @alice claims the
     fix task and fixes it: `tip.green`, the fix task is done, and only then the tester's
     acceptance run completes the task.
+ 5b. @alice runs the reference agent (scripted session backend): `task.opened` reaches it by
+    webhook, it claims the task and pushes through the MCP tools; @human accepts.
  6. `verify --from-genesis` on every member, the same tip and blame everywhere; `mirror git` to a
     bare repo and `git fsck`.
 """
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -350,6 +353,71 @@ class Scenario:
         done = self.task("human", tid)
         assert done["done_at"] >= self.task("alice", fix["id"])["done_at"], done         # type: ignore[index]
 
+    # ------------------------------------------------------------ 5b. the reference agent
+
+    def step_agent(self) -> None:
+        """@alice runs the reference agent (gud.agent.runtime) with a scripted session backend:
+        it registers a webhook with the host, gets `task.opened` for a task @human opens, claims it
+        through the MCP tools and pushes; @human accepts, the task is done."""
+        from gud.agent.budget import Budget
+        from gud.agent.runtime import AgentRuntime
+        from gud.agent.sessions import SessionTurn
+        from gud.wc.copy import WorkingCopy
+        from gud.wc.remote import client_from_home
+
+        m = self.members["alice"]
+        self.sync("alice")
+        client = client_from_home(m.home, m.handle)
+        texts: list[str] = []
+        agent_log: list[str] = []
+        holder: dict = {}
+
+        class Scripted:
+            def __init__(self, key: str) -> None:
+                self.key = key
+
+            def send(self, text: str) -> SessionTurn:
+                texts.append(text)
+                tools = holder["rt"].tools
+                for t in client.chain().tasks.values():
+                    if t.title == "docs" and t.status == "open":
+                        claim = json.loads(tools.claim(t.alias, ["DOCS.md"]))
+                        if claim.get("error"):
+                            break
+                        (m.wc / "DOCS.md").write_text("# docs\n")             # type: ignore[operator]
+                        out = json.loads(tools.push("write DOCS.md", task=t.alias))
+                        return SessionTurn(text=f"pushed {out.get('push', '')[:12]}", usd=0.0, tokens=0,
+                                           session_id=self.key)
+                return SessionTurn(text="nothing to do", usd=0.0, tokens=0, session_id=self.key)
+
+            def close(self, summary: bool = True) -> str:
+                return ""
+
+        rt = AgentRuntime(client, WorkingCopy(m.wc, client), budget=Budget(None, None),  # type: ignore[arg-type]
+                          session_factory=Scripted, debounce_s=0.2, poll_s=1.0, idle_s=3600,
+                          listen="127.0.0.1:0", log=agent_log.append)
+        holder["rt"] = rt
+        stop = threading.Event()
+        runner = threading.Thread(target=rt.run, args=(stop,), daemon=True)
+        runner.start()
+        try:
+            time.sleep(1.0)                                              # the webhook is registered
+            start = time.monotonic()
+            task = self.run("human", "task", "new", "docs", "-m", "write DOCS.md")
+            try:
+                self.wait(lambda: self.task("human", task["id"])["status"] == "work_done",
+                          "the agent claims the task and its push links", 60)
+            except AssertionError:
+                (self.tmp / "logs" / "agent.json").write_text(json.dumps({"log": agent_log, "turns": texts}, indent=1))
+                raise
+            self.timings["agent_task_to_link_s"] = time.monotonic() - start
+            assert any("task.opened" in t for t in texts), texts
+            self.run("human", "approve", task["id"][:16], "-m", "thanks")
+            self.wait(lambda: self.task("human", task["id"])["status"] == "done", "requester accepts", 30)
+        finally:
+            stop.set()
+            runner.join(timeout=20)
+
     # ------------------------------------------------------------ 6. verify, mirror
 
     def step_verify_and_mirror(self) -> dict:
@@ -383,6 +451,7 @@ class Scenario:
             self.step_race()
             self.step_objection()
             self.step_red_tip()
+            self.step_agent()
             result = self.step_verify_and_mirror()
         except BaseException:
             sys.stderr.write(self.logs())
