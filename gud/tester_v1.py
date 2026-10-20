@@ -456,6 +456,10 @@ class Tester:
                         self.step()
                     except ReplayError as exc:
                         log.error("tester: replay stopped: %s", exc)
+                    except (RuntimeError, OSError, ValueError) as exc:
+                        # an unreachable mirror or transport (RemoteError, TransportError) must not
+                        # end the tester: the next step retries; signed results are re-sent
+                        log.error("tester: step failed: %s: %s", type(exc).__name__, exc)
                     stop.wait(interval)
         finally:
             closer = getattr(self.runner, "close", None)
@@ -906,39 +910,63 @@ class Tester:
 
 # ---------------------------------------------------------------- `gud tester`
 
-def main(argv: Sequence[str] | None = None) -> None:
-    """`gud tester --handle @t1 --key <file>`: follow the repo through `gud.wc.remote.RepoClient`."""
-    parser = argparse.ArgumentParser(prog="gud tester")
-    parser.add_argument("--handle", required=True)
-    parser.add_argument("--key", required=True, help="file with the tester's raw 32-byte Ed25519 key (or its hex)")
-    parser.add_argument("--host", required=True, help="host mirror URL")
-    parser.add_argument("--repo", required=True, help="repo address")
-    parser.add_argument("--home", default=os.environ.get("GUD_HOME", str(Path.home() / ".gud")))
-    parser.add_argument("--runner", default="local", choices=["local", "docker", "instabox"])
-    parser.add_argument("--parallel", type=int, default=1)
-    parser.add_argument("--interval", type=float, default=5.0)
-    parser.add_argument("--once", action="store_true", help="one step, then exit")
-    args = parser.parse_args(argv)
-    handle = args.handle if args.handle.startswith("@") else "@" + args.handle
-    raw = Path(args.key).read_bytes()
-    key = raw if len(raw) == 32 else bytes.fromhex(raw.decode().strip())
-    try:
-        from gud.wc.remote import RepoClient  # type: ignore[import-not-found]
-    except ImportError:
-        sys.exit("gud tester needs gud.wc.remote.RepoClient (the mirror client), which is not built yet; "
-                 "embed Tester with a LocalClient instead")
-    from gud.transport import registry
-    home = Path(args.home)
-    name, cfg = registry.member_config(home, handle)
-    client = RepoClient(args.host, handle, key, send_via=registry.open_mailbox(name, cfg), repo_address=args.repo,
-                        home=home)
-    tester = Tester(client, make_runner(args.runner), identity=TesterIdentity(handle, key), parallel=args.parallel,
-                    state_dir=home / "tester" / handle)
-    if args.once:
+def run_tester(client: TesterClient, handle: Handle, private_key: bytes, *, runner: str | Runner = "local",
+               parallel: int = 1, interval: float = 5.0, once: bool = False, state_dir: Path | None = None,
+               stop: threading.Event | None = None, events: Iterator[Event] | None = None) -> Tester:
+    """Run a tester member over `client` (a `gud.wc.remote.RepoClient`, mirror or local host
+    mode, sending through the member's own transport). `once`: one step, then return."""
+    tester = Tester(client, make_runner(runner) if isinstance(runner, str) else runner,
+                    identity=TesterIdentity(handle, private_key), parallel=parallel, state_dir=state_dir)
+    if once:
         tester.step()
     else:
-        tester.run_forever(interval=args.interval)
+        tester.run_forever(events, interval=interval, stop=stop)
+    return tester
+
+
+def _read_key(path: Path) -> bytes:
+    raw = path.read_bytes()
+    if len(raw) == 32:
+        return raw
+    text = raw.decode("ascii").strip()
+    if text.startswith("ed25519:") or len(text) == 44:
+        from gud.wc.remote import decode_private_key
+        return decode_private_key(text)
+    return bytes.fromhex(text)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """`gud tester`: follow the repo through `gud.wc.remote.RepoClient` and run the test policy.
+
+    The member comes from GUD_HOME like every gud command: `remote.json` (host URL, repo,
+    handle), `members/<handle>/key` and `members/<handle>/transport.toml` (how it sends)."""
+    parser = argparse.ArgumentParser(prog="gud tester")
+    parser.add_argument("--handle", default=os.environ.get("GUD_HANDLE"))
+    parser.add_argument("--home", default=os.environ.get("GUD_HOME", str(Path.home() / ".gud")))
+    parser.add_argument("--key", help="key file (default GUD_HOME/members/<handle>/key; raw, hex or ed25519:<b64>)")
+    parser.add_argument("--host", help="host URL: http(s)://... or local:<dir> (default from GUD_HOME/remote.json)")
+    parser.add_argument("--repo", help="repo address (default from GUD_HOME/remote.json or the mirror)")
+    parser.add_argument("--runner", default="local", choices=["local", "docker", "instabox"])
+    parser.add_argument("--parallel", type=int, default=1)
+    parser.add_argument("--interval", type=float, default=5.0, help="seconds between steps")
+    parser.add_argument("--once", action="store_true", help="one step, then exit")
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    from gud.wc.remote import RemoteError, client_from_home
+    home = Path(args.home).expanduser()
+    try:
+        key = _read_key(Path(args.key)) if args.key else None
+        client = client_from_home(home, args.handle, host_url=args.host, repo=args.repo, key=key)
+    except (RemoteError, OSError, ValueError) as exc:
+        print(f"gud tester: {exc}", file=sys.stderr)
+        return 2
+    if client.send_via is None:
+        print(f"gud tester: no transport for {client.handle} (gud keys new --transport ...)", file=sys.stderr)
+        return 2
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    run_tester(client, client.handle, client.private_raw, runner=args.runner, parallel=args.parallel,
+               interval=args.interval, once=args.once, state_dir=home / "tester" / client.handle)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
