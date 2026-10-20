@@ -1,0 +1,179 @@
+{
+  "arm": "git",
+  "spec": "todo-cli",
+  "agents_n": 2,
+  "trial": 1,
+  "requested_model": "claude-sonnet-5-5",
+  "budget_usd": 3.0,
+  "agent_budget_usd": 1.5,
+  "timeout_s": 1200.0,
+  "window_s": null,
+  "agent_cmd": "/Users/nelson/.local/bin/claude",
+  "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-git-ooz5jy6u",
+  "fairness": {
+    "tools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep"
+    ],
+    "test_command": "python -m pytest -q -x",
+    "same_prompt_preamble": true
+  },
+  "outcome": "completed",
+  "harness_errors": [],
+  "killed": {},
+  "model": "claude-sonnet-5-5",
+  "wall_s": 29.7,
+  "cost_usd": 0.1468,
+  "tokens": {
+    "input": 3848,
+    "output": 5089,
+    "cache_read": 112607,
+    "cache_creation": 17402
+  },
+  "tokens_total": 138946,
+  "turns": 12,
+  "hidden": {
+    "passed": 15,
+    "failed": 0,
+    "total": 15,
+    "pass_rate": 1.0
+  },
+  "spec_checks": {
+    "test_add_prints_and_stores": true,
+    "test_ids_increase": true,
+    "test_list_empty": true,
+    "test_list_shows_status": true,
+    "test_done": true,
+    "test_remove": true,
+    "test_next_id_after_remove_is_max_plus_one": true,
+    "test_unknown_id[done]": true,
+    "test_unknown_id[remove]": true,
+    "test_non_integer_id_is_usage_error": true,
+    "test_no_command_is_usage_error": true,
+    "test_help_lists_subcommands": true,
+    "test_todo_file_env": true,
+    "test_default_file_in_cwd": true,
+    "test_uses_argparse": true
+  },
+  "final_tests_pass": true,
+  "final_files": [
+    "README.md",
+    "tests/test_smoke.py",
+    "tests/test_todo.py",
+    "todo.py"
+  ],
+  "escalations": 0,
+  "local_test_runs": 3,
+  "hidden_access": [],
+  "integrations": 1,
+  "integrations_per_min": 2.018,
+  "test_runs": 1,
+  "test_runs_per_integration": 1.0,
+  "conflicts_total": 0,
+  "conflicts_resolved": 0,
+  "git": {
+    "merges": 1,
+    "merges_per_min": 2.018,
+    "prs_opened": 2,
+    "prs_closed": 0,
+    "approvals": 1,
+    "comments": 1,
+    "merge_attempts": 1,
+    "merge_rejections": {},
+    "gate_test_runs": 1,
+    "gate_test_failures": 0,
+    "test_runs_per_merge": 1.0,
+    "rebased_merges": 1,
+    "local_conflicts": {},
+    "push_rejections": {},
+    "direct_main_push_rejected": 0,
+    "first_merge_s": 26.3,
+    "prs": [
+      {
+        "id": "PR1",
+        "author": "@a1",
+        "status": "open",
+        "title": "todo.py CLI + tests (a1: full implementation; a2 please review)",
+        "approvals": [],
+        "comments": 1,
+        "merge_attempts": 0
+      },
+      {
+        "id": "PR2",
+        "author": "@a2",
+        "status": "merged",
+        "title": "todo.py implementation + tests (a2 took everything)",
+        "approvals": [
+          "@a1"
+        ],
+        "comments": 0,
+        "merge_attempts": 1
+      }
+    ],
+    "conflicts": []
+  },
+  "agents": [
+    {
+      "handle": "@a1",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 29.7,
+      "turns": 6,
+      "tokens": {
+        "input": 1924,
+        "output": 2564,
+        "cache_read": 58340,
+        "cache_creation": 9303
+      },
+      "cost_usd": 0.076391,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 5,
+      "tool_counts": {
+        "Bash": 5
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "`todo.py` and its tests are now on main. The implementation that landed is a2's PR2. I'd written the same thing in PR1, so I reviewed PR2, approved it and merged it instead.\n\nI checked out PR2's branch and ran `python -m pytest -q` there: 8 tests passed. I did not re-run the suite on main after the merge. The tests cover every command, the unknown-id and bad-id errors, running with no command, and the `TODO_FILE` and default-file fallbacks.\n\nPR1 is still open. I commented that it duplicates PR2, so it can be closed.\n\nNothing is waiting on me for a review.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 2
+    },
+    {
+      "handle": "@a2",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 29.7,
+      "turns": 6,
+      "tokens": {
+        "input": 1924,
+        "output": 2525,
+        "cache_read": 54267,
+        "cache_creation": 8099
+      },
+      "cost_usd": 0.07037,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 5,
+      "tool_counts": {
+        "Bash": 5
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "`todo.py` and its tests are now on main (PR2). I wrote everything, and @a1 approved the PR. `python -m pytest -q` passed locally (8 tests) before I opened it. I didn't re-run it after the merge. The tests cover add, list, done, remove, the unknown-id error, a bad id, running with no command, and the `TODO_FILE` and default-file fallbacks.\n\nPR1 is @a1's duplicate implementation. @a1 says to close it or ignore it, and I can't close it myself, so it's still open. Nothing else is waiting on me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 1
+    }
+  ]
+}

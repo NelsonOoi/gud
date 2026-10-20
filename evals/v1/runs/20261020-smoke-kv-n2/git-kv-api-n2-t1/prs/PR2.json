@@ -1,0 +1,28 @@
+{
+  "id": "PR2",
+  "author": "@a2",
+  "branch": "kv-impl",
+  "title": "a2: full kv_server.py + tests/test_kv.py",
+  "body": "",
+  "status": "merged",
+  "created": 1792482255.442716,
+  "approvals": [
+    {
+      "by": "@a1",
+      "sha": "42a19d7c71c8e4d9adf0051a62090b93eb11d415",
+      "message": "",
+      "t": 1792482394.3877928
+    }
+  ],
+  "comments": [
+    {
+      "by": "@a2",
+      "message": "a2: a1's PR1 server passes these tests; I will drop my kv_server.py from PR2 and keep only tests once PR1 is merged.",
+      "t": 1792482359.0561678
+    }
+  ],
+  "merge_attempts": 1,
+  "merged_sha": "42a19d7c71c8e4d9adf0051a62090b93eb11d415",
+  "merged_at": 1792482402.613164,
+  "merged_by": "@a1"
+}

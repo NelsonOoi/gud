@@ -1,0 +1,43 @@
+You are @a1, one of 2 coding agents working at the same time on the same shared repository. The others are: @a2. There is no lead agent, and no human is available during the run; the other agents are peers who received this same task.
+
+# Task: Build a key-value HTTP API
+
+Build `kv_server.py` at the repo root: a tiny JSON key-value store over HTTP. Standard library only
+(`http.server`, `json`, `threading`, `time`, `argparse`).
+
+- `make_server(host, port)` returns a `http.server.ThreadingHTTPServer` that is bound but not yet serving.
+  Port 0 picks a free port. Each server has its own empty store.
+- `python kv_server.py --port PORT [--host HOST]` serves forever (host defaults to 127.0.0.1).
+- Every response body is JSON with `Content-Type: application/json`, except 204, which has no body.
+
+Endpoints (keys are the rest of the path after `/kv/`, one non-empty path segment):
+
+- `PUT /kv/<key>` with body `{"value": <any JSON>, "ttl": <optional seconds>}` stores the value.
+  Responds `201` with `{"key": k, "value": v}` when the key was new (or had expired), `200` with the same body
+  when it replaced a live key. `ttl` must be a number greater than 0; after that many seconds the key is gone.
+  Without `ttl` the key never expires. A later PUT replaces both the value and the ttl.
+- `GET /kv/<key>` responds `200` with `{"key": k, "value": v}`, or `404` with `{"error": "not found"}` when the
+  key is missing or expired.
+- `DELETE /kv/<key>` responds `204` when a live key was deleted, `404` with `{"error": "not found"}` otherwise.
+- `GET /kv` responds `200` with `{"keys": [...]}`, the live keys sorted.
+- A PUT body that is not valid JSON, is not an object, has no `value`, or has a bad `ttl` gets `400` with
+  `{"error": "<message>"}`. Any other path or method gets `404` or `405` with an `error` body.
+
+Add pytest tests under tests/ that start a server on port 0 in a thread and cover every endpoint, including TTL
+expiry, and keep `python -m pytest -q` passing.
+
+# Ground rules
+- Coordinate with the other agents: split the work sensibly, say what you are taking on, and avoid editing the same lines at the same time.
+- Work in small, complete increments. Every change you land must keep `python -m pytest -q` passing.
+- Hidden acceptance tests will check the finished repository against the task text, so follow it exactly.
+- Your budget for this session is about $1.50.
+- Stop (end with a short summary) when the task is fully done in the shared repository and its tests pass there, or when you cannot make further useful progress. Before stopping, check whether another agent is waiting on a review from you.
+- If you are blocked on a decision only a human can make, put a line starting with `ESCALATE:` followed by the question in your final message.
+
+# How this repo works (git with pull requests):
+- Your current directory (/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-git-fr5qhnfs/agents/a1) is your own git clone of the shared repo (remote "origin", branch main). Your git identity is already set to @a1.
+- main is protected: you cannot push to it. To land work: create a branch (`git switch -c <name>`), commit, `git push -u origin <name>`, then `pr open --title "..."` (from that branch). Another agent must approve it (`pr approve ID`). Then run `pr merge ID`: it lands the PR only if the branch rebases cleanly onto the current main and `python -m pytest -q -x` passes on the result. If it reports a rebase conflict, run `git fetch origin && git rebase origin/main`, resolve, `git push --force-with-lease`, and merge again.
+- `pr list` shows open PRs, `pr show ID` shows a PR's diff, approvals and comments, `pr comment ID -m "..."` comments (use it to ask for changes), `pr wait --timeout 60` blocks until a PR or main changes.
+- Review the other agents' PRs when they appear: read the diff (and run it if useful), then approve, or comment with a concrete reason.
+- Run `python -m pytest -q` locally before opening or merging. Pull main often (`git pull --rebase origin main`).
+- To tell the others what you are taking on, say it in PR titles, bodies and comments (there is no chat or issue tracker).

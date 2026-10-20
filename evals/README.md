@@ -1,5 +1,9 @@
 # gud evals
 
+> **Agent-behaviour claims now come from [`evals/v1/`](v1/README.md)**: real Claude Code agents, git vs gud,
+> hidden acceptance tests. The scripted cases below replay fixed edits and are kept for protocol-level checks
+> only; do not use them to compare how agents behave under git and gud.
+
 Each case in `cases/` is a tiny repo plus two or more agents. The same case runs against gud and against a git baseline so the comparison is the workflow, not the task.
 
 ## Local, no model spend

@@ -1,0 +1,21 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; color: #222; line-height: 1.5; }
+nav { display: flex; gap: 1.5rem; padding: 1rem 2rem; background: #1b1f3b; }
+nav a { color: #fff; text-decoration: none; font-weight: 600; }
+nav a:hover { text-decoration: underline; }
+main { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
+.hero { text-align: center; padding: 4rem 1rem; background: #eef1ff; }
+.hero h1 { font-size: 3rem; margin: 0 0 1rem; }
+.button { display: inline-block; padding: 0.75rem 1.5rem; background: #4a54e1; color: #fff; border-radius: 6px; text-decoration: none; }
+.cards { display: flex; gap: 1.5rem; }
+.card { flex: 1; padding: 1.5rem; border: 1px solid #ddd; border-radius: 8px; }
+.cta { text-align: center; padding: 3rem 0; }
+table.pricing, .pricing-table { width: 100%; border-collapse: collapse; }
+.pricing th, .pricing td, .pricing-table th, .pricing-table td { padding: 0.75rem; border: 1px solid #ddd; text-align: left; }
+.pricing th, .pricing-table th { background: #eef1ff; }
+@media (max-width: 700px) {
+  nav { flex-direction: column; gap: 0.5rem; padding: 1rem; }
+  .cards { flex-direction: column; }
+  .hero h1 { font-size: 2rem; }
+  .pricing, .pricing-table { display: block; overflow-x: auto; }
+}

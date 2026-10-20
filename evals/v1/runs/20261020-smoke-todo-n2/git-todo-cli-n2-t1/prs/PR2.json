@@ -1,0 +1,22 @@
+{
+  "id": "PR2",
+  "author": "@a2",
+  "branch": "todo-impl",
+  "title": "todo.py implementation + tests (a2 took everything)",
+  "body": "",
+  "status": "merged",
+  "created": 1792481982.2635,
+  "approvals": [
+    {
+      "by": "@a1",
+      "sha": "fe28fb5770067a1f923eb53cffb33f0b3682d584",
+      "message": "",
+      "t": 1792481988.349503
+    }
+  ],
+  "comments": [],
+  "merge_attempts": 1,
+  "merged_sha": "fe28fb5770067a1f923eb53cffb33f0b3682d584",
+  "merged_at": 1792481990.277507,
+  "merged_by": "@a1"
+}
