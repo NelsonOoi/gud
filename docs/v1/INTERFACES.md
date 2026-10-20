@@ -1516,3 +1516,56 @@ All additions are backward compatible (new optional fields default, new keyword 
   - `resolve_unsigned_target(email, by_message_id, ids, notify_target)`: `ids` may also be a mapping from 12-hex prefixes to id lists.
   - The `ChainDelta` contract is documented in the module docstring of `gud/core/replay.py`; `ChainDelta.events` is complete for §19.2.
 - `gud.core.v0`: `V0Chain.now: float = 0.0` and `V0Chain.view() -> Chain` (the v1 `Chain` view: links and adapted proposals; no tasks, claims or log).
+
+## Addendum: ops (gud/ops)
+
+See "Implementation notes (ops)" in SPEC-v1.md. `Intake` and `RepoClient` did not exist when ops was written, so ops relies on small structural surfaces instead of those classes. `Intake.log_entries`/`raw` as specified already satisfy them, and `RepoClient` needs `handle`, `reader()`, `sign_and_send(...)` and, for audit, `log_entries(since, limit)`/`raw(gud_id)` that fetch from the mirror (`GET /api/v1/log`, `GET /api/v1/mail/<id>`).
+
+```python
+# gud/ops/archive.py
+FORMAT = "gud-archive/1"; MANIFEST, LOG_FILE, MBOX_FILE, SNAPSHOT_FILE
+class ArchiveError(ValueError)
+class ArchiveSource(Protocol): log_entries(since, limit) -> list[LogEntry]; raw(gud_id) -> bytes | None
+def read_log(source) -> list[LogEntry]               # paged log_entries, or a client's local replayer().log()
+def read_mail(source, gud_id) -> bytes | None        # raw(), or reader().email(id).raw_mime
+def export_archive(source, out: Path, *, signer: bytes | None = None, trusted_keys=()) -> Path   # dir or .tar
+def verify_archive(path, *, host_key: str | None = None, trusted_keys=(), replay: bool = True) -> ArchiveReport  # never raises
+@dataclass(frozen=True) class ArchiveReport: problems, log_ok, log_error, entries, messages, missing, altered,
+                                             out_of_order, signer, snapshot, tip; ok (property)
+@dataclass(frozen=True) class Archive: manifest, entries, mail (id -> raw, log order), snapshot
+def load_archive(path, *, trusted_keys=(), host_key=None) -> Archive          # verifies; raises ArchiveError
+def plan_handover(log: HostLog, old_private: bytes, new_public: str, now: Ms) -> LogEntry
+def import_archive(archive, *, repo, host_private, mailbox=None, now=None, mail_store=None, log_path=None,
+                   trust_unplanned=False) -> HostLog
+    # changed: mailbox is optional and must offer deliver(raw) (byte-exact injection); added now/mail_store/log_path/trust_unplanned
+def encode_log(entries) -> bytes; decode_log(data) -> list[LogEntry]
+def mbox_encode(messages: Iterable[tuple[bytes, Ms]]) -> bytes; mbox_blocks(data) -> list[bytes]
+
+# gud/ops/keys.py
+class KeysError(ValueError); KEYS_DIR = "keys"; PUSH_ROLES
+class KeyStore(home): path(handle, *, staged=False), has, save(handle, private, *, overwrite=False, staged=False),
+                      generate(handle, *, overwrite=False) -> (private, public), load(handle, *, staged=False),
+                      public, stage(handle, private=None), promote(handle) -> public, discard_staged, remove
+def decode_private(text) -> bytes
+def edit_members(data: bytes, handle, *, key=None, remove=False) -> bytes     # line-preserving edit; result must parse
+def members_push(tree, parent, new_members, *, author, intent, private_raw, seen, sent, join=None) -> Envelope
+def members_push_parts(tree, parent, new_members, *, intent, join=None) -> (headers, records)
+class MemberClient(Protocol): handle; reader(); sign_and_send(kind, headers, records=(), *, summary, in_reply_to=None) -> Hex
+def current_key(reader, handle, at=None) -> str | None
+def rotate_member_key(client, *, new_private=None, keystore=None) -> tuple[Hex, bytes]   # added keystore (stages the new key)
+def recover_member_key(client, handle, new_public, *, reason="") -> Hex                  # added: lost-key push
+def sponsor_approve(client, push, handle) -> Hex                                         # added: checked sponsor approve
+def revoke_member(client, handle, reason) -> Hex
+def host_key_push(client, new_public, *, reason="") -> Hex                               # added: host line members push
+def rotate_host_key(log: HostLog, old_private, new_private, *, now: Ms, client=None) -> tuple[LogEntry, LogEntry, Hex | None]
+    # changed from rotate_host_key(intake, new_private) -> (LogEntry, Hex): the host role cannot push (§9), so the
+    # members push needs a member client. Returns (handover, open, push id or None); the intake then signs with new_private.
+
+# gud/ops/audit.py
+VOTE_KINDS
+@dataclass(frozen=True) class AuditReport: log_ok, log_error, seen_mismatches, fork_proofs, late_votes, missing_mail,
+    altered: tuple[(Hex, why)] = (), retimed: tuple[(Hex, own_ms, log_ms)] = (), withheld: tuple[Hex] = ()   # added
+    ok, exit_status (0 clean / 1 discrepancies / 2 fork proof or bad log), to_json()
+def audit(mirror, *, retained: Sequence[LogEntry] | None = None, inbox=(), trusted_keys=(), config: RepoConfig | None = None) -> AuditReport
+    # retained=None means the client's local verified log; inbox items: Received, raw bytes, or (raw, received_ms)
+```
