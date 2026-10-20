@@ -196,7 +196,7 @@ class Intake:
 
     def _store_raw(self, gud_id: Hex, raw: bytes) -> None:
         path = self._mail_path(gud_id)
-        if path.exists():
+        if path.exists() or (self.mail_store / f"{gud_id}.eml").exists():
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f".{path.name}.tmp")
@@ -270,10 +270,12 @@ class Intake:
     def raw(self, gud_id: Hex) -> bytes | None:
         if not E.is_hex64(gud_id):
             return None
-        try:
-            return self._mail_path(gud_id).read_bytes()
-        except FileNotFoundError:
-            return None
+        for path in (self._mail_path(gud_id), self.mail_store / f"{gud_id}.eml"):   # sharded, or flat (archive import)
+            try:
+                return path.read_bytes()
+            except FileNotFoundError:
+                continue
+        return None
 
     def object(self, sha256: Hex) -> bytes | None:
         """Blob content (or any object) from the replay store, §21 `GET /api/v1/object`."""
@@ -434,6 +436,9 @@ class Intake:
             if self._log.seq_of(gid) is not None:
                 self.stats["duplicates"] += 1
                 return None
+            if self._log.head is not None and self._log.head.type == "handover":
+                self.stats["ignored"] += 1          # handed over (§11.6): the new host logs it
+                return None
             now = self._now()
             head = self._log.head
             assert head is not None
@@ -513,7 +518,7 @@ class Intake:
     def _tick_due(self, now: Ms) -> bool:
         head = self._log.head
         assert head is not None
-        if now <= head.time:
+        if now <= head.time or head.type == "handover":
             return False
         if self.next_wakeup is not None and now >= self.next_wakeup:
             return True
@@ -527,13 +532,27 @@ class Intake:
         replay. Returns the delta, or None when no tick was due."""
         with self._lock:
             now = self._now()
-            if not (self._tick_due(now) or (force and now > self._log.head.time)):
+            if not (self._tick_due(now) or (force and now > self._log.head.time and self._log.head.type != "handover")):
                 return None
             entry = self._log.append_tick(self._key, now)
             self._persist_entry(entry)
             self.stats["ticks"] += 1
             self._log_cond.notify_all()
             return self._feed([entry], [])
+
+    def handover(self, new_public: str, *, repo: str | None = None) -> LogEntry:
+        """Planned handover (§11.6): append `handover` naming the new host key (and the repo's new
+        address, integration note 4). After it this host logs nothing; export the archive
+        (`gud.ops.archive.export_archive(intake, ...)`) for the new host."""
+        with self._lock:
+            head = self._log.head
+            if head is None or head.type == "handover":
+                raise IntakeError("the log already ends in a handover")
+            entry = self._log.handover(self._key, new_public, max(self._now(), head.time + 1), repo=repo)
+            self._persist_entry(entry)
+            self._log_cond.notify_all()
+            self._feed([entry], [])
+            return entry
 
     def next_tick_in(self) -> float:
         """Seconds until a tick can next be due (for the run loop)."""
@@ -626,7 +645,7 @@ class Intake:
                 return None
             entries = self._log.entries(0, seq + 1)
         try:
-            data = snapshot_at(entries, self._email_from_store, seq, self._store)
+            data = snapshot_at(entries, self._email_from_store, seq, self._store, self._log.trusted_keys)
         except ReplayError:
             return None
         if E.sha256_hex(data) != sha256:

@@ -483,19 +483,21 @@ def load_archive(path: Path, *, trusted_keys: Sequence[str] = (), host_key: str 
     return Archive(manifest, tuple(decode_log(files[LOG_FILE])), mail, files.get(SNAPSHOT_FILE))
 
 
-def plan_handover(log: HostLog, old_private: bytes, new_public: str, now: Ms) -> LogEntry:
-    """Old host, before exporting: append the `handover` entry naming the new host key (§11.6).
-    The old host must log nothing after it."""
+def plan_handover(log: HostLog, old_private: bytes, new_public: str, now: Ms, *,
+                  repo: str | None = None) -> LogEntry:
+    """Old host, before exporting: append the `handover` entry naming the new host key (§11.6)
+    and, when the repo moves, its new address (integration note 4). The old host must log
+    nothing after it."""
     if log.head is None:
         raise ArchiveError("the log is not open")
     if E.public_of(old_private) != log.key:
         raise ArchiveError("old_private is not the current log key")
     if log.head.type == "handover":
         raise ArchiveError("the log already ends in a handover")
-    return log.handover(old_private, new_public, max(now, log.head.time + 1))
+    return log.handover(old_private, new_public, max(now, log.head.time + 1), repo=repo)
 
 
-def import_archive(archive: Path, *, repo: str, host_private: bytes, mailbox=None, now: Ms | None = None,
+def import_archive(archive: Path, *, repo: str | None, host_private: bytes, mailbox=None, now: Ms | None = None,
                    mail_store: Path | None = None, log_path: Path | None = None,
                    trust_unplanned: bool = False) -> HostLog:
     """New host: verify the archive and continue its log under `host_private` (§11.6).
@@ -505,18 +507,26 @@ def import_archive(archive: Path, *, repo: str, host_private: bytes, mailbox=Non
     * Otherwise (unplanned) only with `trust_unplanned=True`: `open` citing the last entry, with
       this key trusted locally; members must `gud host trust` it too.
 
-    The repo address stays the log's (`repo` must equal it). Raw mail is re-delivered
+    `repo` must be the address the continued log will have: the archived log's, or the new
+    address a final planned `handover` names (integration note 4); None takes that address.
+    Raw mail is re-delivered
     byte-exactly to `mailbox` when it can inject raw bytes (`mailbox.deliver`), in log order, and
-    written to `mail_store/<gud id>.eml` when given; `log_path` receives the log text. Returns
-    the continued log."""
+    written to `mail_store/<gud id>.eml` when given (both hosts read that layout); `log_path`
+    receives the log: as `log.txt` text, or, for a `.jsonl` path, in the hosts' `log.jsonl`
+    form (one JSON string per entry), so `open_host`/`gud host serve` continue it. Returns the
+    continued log."""
     new_public = E.public_of(host_private)
     trusted = (new_public,) if trust_unplanned else ()
     loaded = load_archive(archive, trusted_keys=trusted)
     log = HostLog(loaded.entries, trusted_keys=trusted)
-    if log.repo != repo:
-        raise ArchiveError(f"the archived log is for {log.repo}, not {repo}; a continued log keeps its repo")
     head = log.head
     assert head is not None
+    want = log.next_repo() if head.type == "handover" and head.field("next") == new_public else log.repo
+    if repo is not None and repo != want:
+        if want != log.repo:
+            raise ArchiveError(f"the archived handover moves the repo to {want}, not {repo}")
+        raise ArchiveError(f"the archived log is for {log.repo}, not {repo}; only a planned handover naming "
+                           f"a new address moves the repo")
     clock = int(time.time() * 1000) if now is None else int(now)
     if head.type == "handover":
         if head.field("next") != new_public:
@@ -540,5 +550,9 @@ def import_archive(archive: Path, *, repo: str, host_private: bytes, mailbox=Non
             (mail_store / f"{gid}.eml").write_bytes(raw)
     if log_path is not None:
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(log_path).write_bytes(encode_log(log.entries()))
+        if Path(log_path).suffix == ".jsonl":         # the hosts' own format (gud.host_v1, local host)
+            data = "".join(json.dumps(encode_entry(e).decode("utf-8")) + "\n" for e in log.entries()).encode()
+        else:
+            data = encode_log(log.entries())
+        Path(log_path).write_bytes(data)
     return log
