@@ -1,0 +1,415 @@
+{
+  "arm": "git",
+  "spec": "todo-stack",
+  "agents_n": 4,
+  "trial": 1,
+  "requested_model": "claude-sonnet-5-5",
+  "budget_usd": 1.2,
+  "agent_budget_usd": 0.3,
+  "timeout_s": 1200.0,
+  "window_s": null,
+  "test_policy": null,
+  "agent_cmd": "/Users/nelson/.local/bin/claude",
+  "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-git-6yxws1z4",
+  "fairness": {
+    "agent": "Claude Code headless",
+    "tools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep"
+    ],
+    "test_command": "python -m pytest -q -x",
+    "same_prompt_preamble": true
+  },
+  "outcome": "completed",
+  "harness_errors": [],
+  "killed": {},
+  "model": "claude-sonnet-5-5",
+  "wall_s": 97.7,
+  "drain_s": null,
+  "cost_usd": 0.6504,
+  "tokens": {
+    "input": 11164,
+    "output": 21108,
+    "cache_read": 858289,
+    "cache_creation": 64183
+  },
+  "tokens_total": 954744,
+  "turns": 61,
+  "hidden": {
+    "passed": 27,
+    "failed": 0,
+    "total": 27,
+    "pass_rate": 1.0
+  },
+  "spec_checks": {
+    "test_cli_add_and_list": true,
+    "test_cli_store_format": true,
+    "test_cli_empty_list": true,
+    "test_cli_ids_follow_highest": true,
+    "test_cli_done_tag_remove": true,
+    "test_cli_filters": true,
+    "test_cli_unknown_id": true,
+    "test_cli_invalid_input_exit_2": true,
+    "test_cli_usage_errors": true,
+    "test_cli_file_resolution": true,
+    "test_cli_uses_argparse_subcommands": true,
+    "test_api_create_get_list": true,
+    "test_api_patch_and_delete": true,
+    "test_api_filters": true,
+    "test_api_errors": true,
+    "test_app_and_api_share_the_store": true,
+    "test_same_message_in_app_and_api[cli_args0-body0]": true,
+    "test_same_message_in_app_and_api[cli_args1-body1]": true,
+    "test_same_message_in_app_and_api[cli_args2-body2]": true,
+    "test_unknown_id_same_message": true,
+    "test_front_ends_use_the_library[cli.py]": true,
+    "test_front_ends_use_the_library[api.py]": true,
+    "test_library_has_a_public_api": true,
+    "test_docs_library_covers_public_api": true,
+    "test_docs_cli_covers_commands_and_options": true,
+    "test_docs_http_covers_endpoints": true,
+    "test_readme_links_docs": true
+  },
+  "final_tests_pass": true,
+  "final_files": [
+    ".gitignore",
+    "README.md",
+    "api.py",
+    "cli.py",
+    "docs/cli.md",
+    "docs/http.md",
+    "docs/library.md",
+    "tests/test_api.py",
+    "tests/test_cli.py",
+    "tests/test_lib.py",
+    "tests/test_smoke.py",
+    "todolib.py"
+  ],
+  "escalations": 0,
+  "local_test_runs": 13,
+  "hidden_access": [],
+  "integrations": 4,
+  "integrations_per_min": 2.456,
+  "test_runs": 4,
+  "test_runs_per_integration": 1.0,
+  "conflicts_total": 2,
+  "conflicts_resolved": 2,
+  "git": {
+    "merges": 4,
+    "merges_per_min": 2.456,
+    "prs_opened": 6,
+    "prs_closed": 2,
+    "approvals": 7,
+    "comments": 7,
+    "merge_attempts": 6,
+    "merge_rejections": {
+      "rebase_conflict": 2
+    },
+    "gate_test_runs": 4,
+    "gate_test_failures": 0,
+    "test_runs_per_merge": 1.0,
+    "rebased_merges": 4,
+    "local_conflicts": {},
+    "push_rejections": {},
+    "direct_main_push_rejected": 0,
+    "first_merge_s": 22.4,
+    "prs": [
+      {
+        "id": "PR1",
+        "author": "@a2",
+        "status": "merged",
+        "title": "todolib.py (a2). API: add_todo/get_todo/list_todos(tag,status)/update_todo/mark_done/add_tags/remove",
+        "approvals": [
+          "@a4"
+        ],
+        "comments": 0,
+        "merge_attempts": 1
+      },
+      {
+        "id": "PR2",
+        "author": "@a1",
+        "status": "closed",
+        "title": "a1: todolib.py (TodoStore, TodoError/ValidationError/NotFoundError, add_todo etc.). a1 next: docs/li",
+        "approvals": [],
+        "comments": 3,
+        "merge_attempts": 0
+      },
+      {
+        "id": "PR3",
+        "author": "@a4",
+        "status": "merged",
+        "title": "docs (a4): docs/*.md + README links. a4 is NOT doing lib/cli/api; will review those",
+        "approvals": [
+          "@a1"
+        ],
+        "comments": 1,
+        "merge_attempts": 1
+      },
+      {
+        "id": "PR4",
+        "author": "@a1",
+        "status": "closed",
+        "title": "a1: docs/library.md (README links left to whoever does cli/http docs)",
+        "approvals": [],
+        "comments": 2,
+        "merge_attempts": 0
+      },
+      {
+        "id": "PR5",
+        "author": "@a2",
+        "status": "merged",
+        "title": "a2: cli.py + tests/test_cli.py + tests/test_lib.py",
+        "approvals": [
+          "@a1",
+          "@a4"
+        ],
+        "comments": 0,
+        "merge_attempts": 1
+      },
+      {
+        "id": "PR6",
+        "author": "@a3",
+        "status": "merged",
+        "title": "api.py + docs/http.md + tests/test_api.py (a3). README links left to docs owner",
+        "approvals": [
+          "@a1",
+          "@a2",
+          "@a4"
+        ],
+        "comments": 1,
+        "merge_attempts": 3
+      }
+    ],
+    "conflicts": [
+      {
+        "kind": "merge_rebase_conflict",
+        "pr": "PR6",
+        "by": "@a2",
+        "files": [
+          "docs/http.md"
+        ],
+        "resolution": "PR merged later",
+        "resolved": true
+      },
+      {
+        "kind": "merge_rebase_conflict",
+        "pr": "PR6",
+        "by": "@a3",
+        "files": [
+          "docs/http.md"
+        ],
+        "resolution": "PR merged later",
+        "resolved": true
+      }
+    ]
+  },
+  "agents": [
+    {
+      "handle": "@a1",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 91.1,
+      "turns": 13,
+      "tokens": {
+        "input": 2788,
+        "output": 6046,
+        "cache_read": 205375,
+        "cache_creation": 17859
+      },
+      "cost_usd": 0.17571,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 12,
+      "tool_counts": {
+        "Bash": 12
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The remaining work (PR6 merge) belongs to a3, and it has all approvals; nothing is waiting on me.\n\nSummary: My own `todolib.py` and `docs/library.md` PRs were superseded by a2's library and a4's docs, so I closed them. I approved PR3 (docs), PR5 (CLI) and PR6 (API). I ran the CLI manually, and the unknown-id and bad-date cases gave exit codes 1 and 2 with the expected messages. PR6's tests passed on its branch. On main the suite passes (5 tests). PR6 is still open, so `api.py` isn't on main yet and I haven't run the final main with it.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 4
+    },
+    {
+      "handle": "@a2",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 97.7,
+      "turns": 15,
+      "tokens": {
+        "input": 2790,
+        "output": 6427,
+        "cache_read": 193709,
+        "cache_creation": 13474
+      },
+      "cost_usd": 0.159651,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 14,
+      "tool_counts": {
+        "Bash": 14
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The todo system is finished and on main, and `python -m pytest -q` passes there (7 tests).\n\n- **Library:** I wrote `todolib.py` (PR1), which has storage, validation and the error types.\n- **Command-line app:** I wrote `cli.py` plus `tests/test_cli.py` and `tests/test_lib.py` (PR5).\n- **API:** a3 wrote `api.py` and its tests, which I reviewed and approved (PR6, now merged).\n- **Docs:** `docs/library.md`, `docs/cli.md`, `docs/http.md` and the README links are on main. I checked that `docs/library.md` and `docs/cli.md` name every public library function and error class and every subcommand and option. I did not check `docs/http.md` against the endpoints.\n- **Not checked:** I didn't run the API against a live server myself, and the spec's error and exit-code cases are only partly covered by my tests.\n\na1's earlier library PR2 duplicated mine; I commented asking them to drop it. It is no longer in `pr list`. No other PRs are open, and nobody is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 4
+    },
+    {
+      "handle": "@a3",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 92.2,
+      "turns": 15,
+      "tokens": {
+        "input": 2792,
+        "output": 4481,
+        "cache_read": 215370,
+        "cache_creation": 16126
+      },
+      "cost_usd": 0.155135,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 14,
+      "tool_counts": {
+        "Bash": 14
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "`api.py`, `tests/test_api.py` and the HTTP docs are merged to main (PR6). `python -m pytest -q` showed 7 passed on my branch rebased onto main before I merged. I didn't re-run it on main afterwards, though the merge step runs the tests too.\n\n- **Docs:** @a4's `docs/http.md` was already on main, so I kept theirs and dropped mine when the rebase conflicted. I haven't read their file against the API as built. I also didn't check that README.md links to all three docs.\n- **Reviews:** I read PR5 (`cli.py`) and found nothing to change, but it had already merged when I tried to approve it. No other agent is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 3
+    },
+    {
+      "handle": "@a4",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 94.2,
+      "turns": 18,
+      "tokens": {
+        "input": 2794,
+        "output": 4154,
+        "cache_read": 243835,
+        "cache_creation": 16724
+      },
+      "cost_usd": 0.159954,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 17,
+      "tool_counts": {
+        "Bash": 17
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The library, command-line app, HTTP API and docs are all on main, and `python -m pytest -q` passes there (7 tests).\n\nI haven't run the acceptance checks beyond those tests, and I haven't hand-compared `docs/http.md` against the final `api.py`, which a3 changed when rebasing PR6.\n\n- **My part:** I wrote `docs/library.md`, `docs/cli.md`, `docs/http.md` and the README links (PR3).\n- **Other agents' PRs:** I approved a2's CLI (PR5) and a3's API (PR6).\n- **Open PRs:** a1's PR2 and PR4 duplicated the library and its docs. I commented asking a1 to close them, and `pr list` didn't show them as still open when I last checked.\n\nNothing is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 2
+    }
+  ],
+  "analysis": {
+    "summary": {
+      "files_read_per_agent": 4.5,
+      "reads_outside_own_changes_per_agent": 1.5
+    },
+    "agents": {
+      "@a1": {
+        "files_read": [
+          "README.md",
+          "api.py",
+          "cli.py",
+          "docs/library.md",
+          "todolib.py"
+        ],
+        "files_changed": [
+          "docs/library.md",
+          "tests/test_todolib.py",
+          "todolib.py"
+        ],
+        "reads_outside_own_changes": [
+          "README.md",
+          "api.py",
+          "cli.py"
+        ],
+        "gud_tools": {}
+      },
+      "@a2": {
+        "files_read": [
+          "README.md",
+          "cli.py",
+          "tests/test_cli.py",
+          "tests/test_lib.py",
+          "todolib.py"
+        ],
+        "files_changed": [
+          "cli.py",
+          "tests/test_cli.py",
+          "tests/test_lib.py",
+          "todolib.py"
+        ],
+        "reads_outside_own_changes": [
+          "README.md"
+        ],
+        "gud_tools": {}
+      },
+      "@a3": {
+        "files_read": [
+          "README.md",
+          "api.py",
+          "docs/http.md",
+          "tests/test_api.py"
+        ],
+        "files_changed": [
+          "api.py",
+          "tests/test_api.py"
+        ],
+        "reads_outside_own_changes": [
+          "README.md",
+          "docs/http.md"
+        ],
+        "gud_tools": {}
+      },
+      "@a4": {
+        "files_read": [
+          "README.md",
+          "docs/cli.md",
+          "docs/http.md",
+          "docs/library.md"
+        ],
+        "files_changed": [
+          "README.md",
+          "docs/cli.md",
+          "docs/http.md",
+          "docs/library.md"
+        ],
+        "reads_outside_own_changes": [],
+        "gud_tools": {}
+      }
+    }
+  },
+  "requested_budget_usd": 1.2,
+  "cap": {
+    "cap_usd": 30.0,
+    "spent_usd": 1.0626,
+    "reserved_usd": 3.6,
+    "remaining_usd": 25.3374
+  }
+}

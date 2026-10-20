@@ -1,0 +1,742 @@
+{
+  "arm": "gud1-cc",
+  "spec": "todo-stack",
+  "agents_n": 4,
+  "trial": 2,
+  "requested_model": "claude-sonnet-5-5",
+  "budget_usd": 1.2,
+  "agent_budget_usd": 0.3,
+  "timeout_s": 1200.0,
+  "window_s": 20.0,
+  "test_policy": "tip",
+  "agent_cmd": "/Users/nelson/.local/bin/claude",
+  "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-gud1-cc-ccf2h1vd",
+  "fairness": {
+    "agent": "Claude Code headless",
+    "tools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "mcp__gud__*"
+    ],
+    "test_command": "python -m pytest -q -x",
+    "same_prompt_preamble": true
+  },
+  "outcome": "completed",
+  "harness_errors": [],
+  "killed": {},
+  "model": "claude-sonnet-5-5",
+  "wall_s": 369.1,
+  "drain_s": 0.1,
+  "cost_usd": 0.5751,
+  "tokens": {
+    "input": 11988,
+    "output": 15337,
+    "cache_read": 855929,
+    "cache_creation": 59681
+  },
+  "tokens_total": 942935,
+  "turns": 58,
+  "hidden": {
+    "passed": 27,
+    "failed": 0,
+    "total": 27,
+    "pass_rate": 1.0
+  },
+  "spec_checks": {
+    "test_cli_add_and_list": true,
+    "test_cli_store_format": true,
+    "test_cli_empty_list": true,
+    "test_cli_ids_follow_highest": true,
+    "test_cli_done_tag_remove": true,
+    "test_cli_filters": true,
+    "test_cli_unknown_id": true,
+    "test_cli_invalid_input_exit_2": true,
+    "test_cli_usage_errors": true,
+    "test_cli_file_resolution": true,
+    "test_cli_uses_argparse_subcommands": true,
+    "test_api_create_get_list": true,
+    "test_api_patch_and_delete": true,
+    "test_api_filters": true,
+    "test_api_errors": true,
+    "test_app_and_api_share_the_store": true,
+    "test_same_message_in_app_and_api[cli_args0-body0]": true,
+    "test_same_message_in_app_and_api[cli_args1-body1]": true,
+    "test_same_message_in_app_and_api[cli_args2-body2]": true,
+    "test_unknown_id_same_message": true,
+    "test_front_ends_use_the_library[cli.py]": true,
+    "test_front_ends_use_the_library[api.py]": true,
+    "test_library_has_a_public_api": true,
+    "test_docs_library_covers_public_api": true,
+    "test_docs_cli_covers_commands_and_options": true,
+    "test_docs_http_covers_endpoints": true,
+    "test_readme_links_docs": true
+  },
+  "final_tests_pass": true,
+  "final_files": [
+    ".gitignore",
+    ".gudignore",
+    "README.md",
+    "api.py",
+    "cli.py",
+    "docs/cli.md",
+    "docs/http.md",
+    "docs/library.md",
+    "tests/test_api.py",
+    "tests/test_cli.py",
+    "tests/test_lib.py",
+    "tests/test_smoke.py",
+    "todolib.py"
+  ],
+  "escalations": 0,
+  "local_test_runs": 4,
+  "hidden_access": [],
+  "integrations": 4,
+  "integrations_per_min": 0.65,
+  "test_runs": 5,
+  "test_runs_per_integration": 1.25,
+  "conflicts_total": 0,
+  "conflicts_resolved": 0,
+  "gud1": {
+    "links": 4,
+    "links_per_min": 0.65,
+    "first_link_s": 25.4,
+    "pushes": 4,
+    "pushes_by_end": {
+      "linked": 3,
+      "linked_carried": 1
+    },
+    "carried_links": 1,
+    "carried_events": 1,
+    "superseded": 0,
+    "colliding_pushes": 0,
+    "emails": 16,
+    "emails_by_kind": {
+      "claim": 1,
+      "comment": 4,
+      "notify": 1,
+      "push": 4,
+      "task": 1,
+      "test": 5
+    },
+    "emails_per_link": 4.0,
+    "test_runs": 5,
+    "test_runs_by_scope": {
+      "accept": 1,
+      "tip": 4
+    },
+    "test_failures": 0,
+    "test_runs_per_link": 1.25,
+    "claims": {
+      "won": 1,
+      "lost": 0,
+      "updates": 0,
+      "releases": 0,
+      "lapsed": 0,
+      "scopes": [
+        {
+          "holder": "@a1",
+          "task": "T1",
+          "files": [
+            "todolib.py",
+            "tests/test_lib.py",
+            "docs/library.md"
+          ],
+          "status": "done"
+        }
+      ],
+      "scope_exceeded": 0
+    },
+    "overlaps": {
+      "total": 0,
+      "by_settlement": {},
+      "list": []
+    },
+    "comments": {
+      "total": 4,
+      "by_target": {
+        "task": 4
+      },
+      "escalation_comments": 0
+    },
+    "objections": {
+      "total": 0,
+      "reason": 0,
+      "evidence": 0,
+      "answered": {},
+      "list": []
+    },
+    "approvals": 0,
+    "holds": 0,
+    "escalations": {
+      "consent": [],
+      "task": [],
+      "resolved_by": {}
+    },
+    "red_tip": {
+      "episodes": 0,
+      "closed": 0,
+      "median_to_green_s": null,
+      "red_at_end": false,
+      "fix_tasks": 0,
+      "list": []
+    },
+    "task": {
+      "alias": "T1",
+      "status": "done",
+      "subtasks": 0,
+      "subtask_status": {},
+      "work_done_s": 25.4,
+      "done_s": 28.5
+    },
+    "events": {
+      "carried": 1,
+      "claim.won": 1,
+      "commented": 4,
+      "linked": 5,
+      "push.received": 4,
+      "task.done": 1,
+      "task.opened": 1,
+      "task.ready": 1,
+      "test.passed": 5
+    },
+    "per_agent": {
+      "@a1": {
+        "pushes": 1,
+        "links": 1,
+        "carried_links": 1,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 1,
+        "claim_msgs": 1,
+        "comments": 1,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [
+          [
+            "todolib.py",
+            "tests/test_lib.py",
+            "docs/library.md"
+          ]
+        ],
+        "claim_scopes_all": [
+          [
+            "todolib.py",
+            "tests/test_lib.py",
+            "docs/library.md"
+          ]
+        ]
+      },
+      "@a2": {
+        "pushes": 1,
+        "links": 1,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 0,
+        "claim_msgs": 0,
+        "comments": 1,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [],
+        "claim_scopes_all": []
+      },
+      "@a3": {
+        "pushes": 1,
+        "links": 1,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 0,
+        "claim_msgs": 0,
+        "comments": 1,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [],
+        "claim_scopes_all": []
+      },
+      "@a4": {
+        "pushes": 1,
+        "links": 1,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 0,
+        "claim_msgs": 0,
+        "comments": 1,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [],
+        "claim_scopes_all": []
+      }
+    },
+    "link_list": [
+      {
+        "seq": 1,
+        "author": "@a4",
+        "carried": false,
+        "files": [
+          "README.md"
+        ],
+        "at_s": 25.4,
+        "intent": "README: link docs/library.md, docs/cli.md, docs/http.md and add quick start"
+      },
+      {
+        "seq": 2,
+        "author": "@a1",
+        "carried": true,
+        "files": [
+          "docs/library.md",
+          "tests/test_lib.py",
+          "todolib.py"
+        ],
+        "at_s": 38.0,
+        "intent": "todolib.py library with tests and docs/library.md"
+      },
+      {
+        "seq": 3,
+        "author": "@a2",
+        "carried": false,
+        "files": [
+          "cli.py",
+          "docs/cli.md",
+          "tests/test_cli.py"
+        ],
+        "at_s": 162.3,
+        "intent": "cli.py, tests/test_cli.py, docs/cli.md"
+      },
+      {
+        "seq": 4,
+        "author": "@a3",
+        "carried": false,
+        "files": [
+          "api.py",
+          "docs/http.md",
+          "tests/test_api.py"
+        ],
+        "at_s": 365.4,
+        "intent": "api.py HTTP API, docs/http.md, tests/test_api.py"
+      }
+    ],
+    "push_list": [
+      {
+        "id": "b00cb346f29b",
+        "author": "@a4",
+        "t": 25.4,
+        "files": [
+          "README.md"
+        ],
+        "base_seq": 0,
+        "end": "linked",
+        "end_t": 25.4,
+        "carried": false,
+        "link_seq": 1,
+        "task": "74387ab486252bb367fb102367e4823cf7d3bcb107c4519c0d0c19ca55506109",
+        "revises": null,
+        "intent": "README: link docs/library.md, docs/cli.md, docs/http.md and add quick start",
+        "collides_with": []
+      },
+      {
+        "id": "67fe019bbb05",
+        "author": "@a1",
+        "t": 38.0,
+        "files": [
+          "docs/library.md",
+          "tests/test_lib.py",
+          "todolib.py"
+        ],
+        "base_seq": 0,
+        "end": "linked_carried",
+        "end_t": 38.0,
+        "carried": true,
+        "link_seq": 2,
+        "task": "74387ab486252bb367fb102367e4823cf7d3bcb107c4519c0d0c19ca55506109",
+        "revises": null,
+        "intent": "todolib.py library with tests and docs/library.md",
+        "collides_with": []
+      },
+      {
+        "id": "c0788060daed",
+        "author": "@a2",
+        "t": 162.3,
+        "files": [
+          "cli.py",
+          "docs/cli.md",
+          "tests/test_cli.py"
+        ],
+        "base_seq": 2,
+        "end": "linked",
+        "end_t": 162.3,
+        "carried": false,
+        "link_seq": 3,
+        "task": "74387ab486252bb367fb102367e4823cf7d3bcb107c4519c0d0c19ca55506109",
+        "revises": null,
+        "intent": "cli.py, tests/test_cli.py, docs/cli.md",
+        "collides_with": []
+      },
+      {
+        "id": "7d83ad92c411",
+        "author": "@a3",
+        "t": 365.4,
+        "files": [
+          "api.py",
+          "docs/http.md",
+          "tests/test_api.py"
+        ],
+        "base_seq": 3,
+        "end": "linked",
+        "end_t": 365.4,
+        "carried": false,
+        "link_seq": 4,
+        "task": "74387ab486252bb367fb102367e4823cf7d3bcb107c4519c0d0c19ca55506109",
+        "revises": null,
+        "intent": "api.py HTTP API, docs/http.md, tests/test_api.py",
+        "collides_with": []
+      }
+    ],
+    "conflicts": []
+  },
+  "agents": [
+    {
+      "handle": "@a1",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 41.6,
+      "turns": 11,
+      "tokens": {
+        "input": 2990,
+        "output": 4974,
+        "cache_read": 126242,
+        "cache_creation": 12312
+      },
+      "cost_usd": 0.127165,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 10,
+      "tool_counts": {
+        "Bash": 1,
+        "Write": 3,
+        "mcp__gud__claim": 1,
+        "mcp__gud__comment": 1,
+        "mcp__gud__inbox": 2,
+        "mcp__gud__inflight": 1,
+        "mcp__gud__push": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The library (`todolib.py`), its tests and `docs/library.md` are pushed and linked at seq 2. `python -m pytest -q` passes locally (8 tests). I have not re-run it on the shared tip since the other agents' pushes landed.\n\nI did not write `cli.py`, `api.py`, `docs/cli.md`, `docs/http.md` or their tests. The comments show @a2 on the command-line app and @a3 and @a4 both taking the API (a duplicate), and @a4 has pushed `README.md`. I posted the library's exact function signatures and error classes on T1 for them. The inbox shows T1 as done, but I haven't confirmed the CLI and API files are in the repo.\n\nNothing is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 1
+    },
+    {
+      "handle": "@a2",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 167.2,
+      "turns": 16,
+      "tokens": {
+        "input": 3000,
+        "output": 3945,
+        "cache_read": 247863,
+        "cache_creation": 16883
+      },
+      "cost_usd": 0.159504,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 15,
+      "tool_counts": {
+        "Bash": 2,
+        "Read": 1,
+        "mcp__gud__claim": 1,
+        "mcp__gud__comment": 1,
+        "mcp__gud__inbox": 3,
+        "mcp__gud__inflight": 1,
+        "mcp__gud__log": 1,
+        "mcp__gud__push": 1,
+        "mcp__gud__sync": 1,
+        "mcp__gud__tasks": 2,
+        "mcp__gud__wait": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "I added `cli.py`, `tests/test_cli.py` and `docs/cli.md`, and the push is linked (seq 3). `python -m pytest -q` gave 10 passed before I pushed. I haven't run it since, so I haven't confirmed that other agents' later changes still pass.\n\nThe two tests in `tests/test_cli.py` run the CLI as a subprocess. They cover the output formats, filters, exit codes 1 and 2, a non-integer id and a missing command.\n\nI haven't seen `api.py`, `tests/test_api.py` or `docs/http.md` in the repo yet. I assumed another agent had them but didn't check. The library and the README links already landed from @a1 and @a4. No reviews are waiting on me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 1
+    },
+    {
+      "handle": "@a3",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 368.4,
+      "turns": 18,
+      "tokens": {
+        "input": 3004,
+        "output": 4658,
+        "cache_read": 307198,
+        "cache_creation": 16140
+      },
+      "cost_usd": 0.175537,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 17,
+      "tool_counts": {
+        "Bash": 2,
+        "Write": 3,
+        "mcp__gud__claim": 1,
+        "mcp__gud__comment": 1,
+        "mcp__gud__inbox": 1,
+        "mcp__gud__inflight": 2,
+        "mcp__gud__log": 1,
+        "mcp__gud__push": 1,
+        "mcp__gud__sync": 2,
+        "mcp__gud__task": 1,
+        "mcp__gud__tasks": 1,
+        "mcp__gud__wait": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "I added `api.py`, `docs/http.md` and `tests/test_api.py`, and the push linked as seq 4. `python -m pytest -q` gave 12 passed on my copy, which had the library and CLI links plus my API files. I didn't re-run it on the shared tip after the push, and I didn't start the server by hand. The API tests start it on a free port.\n\nThe API is built on `todolib` as @a1 wrote it. Errors map as the task says: 404 for an unknown todo id (the library's message) and for any other path, 400 for invalid input or a body that isn't a JSON object.\n\nNo other agent is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 2
+    },
+    {
+      "handle": "@a4",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 28.9,
+      "turns": 13,
+      "tokens": {
+        "input": 2994,
+        "output": 1760,
+        "cache_read": 174626,
+        "cache_creation": 14346
+      },
+      "cost_usd": 0.112846,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 12,
+      "tool_counts": {
+        "Bash": 1,
+        "Read": 1,
+        "mcp__gud__claim": 1,
+        "mcp__gud__comment": 1,
+        "mcp__gud__inbox": 1,
+        "mcp__gud__inflight": 1,
+        "mcp__gud__log": 1,
+        "mcp__gud__push": 1,
+        "mcp__gud__task": 1,
+        "mcp__gud__tasks": 1,
+        "mcp__gud__thread": 1,
+        "mcp__gud__wait": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "I pushed the README change, and it linked as seq 1. It adds links to `docs/library.md`, `docs/cli.md` and `docs/http.md`, plus a short quick start.\n\nI did not write any code or tests. @a1 holds T1 and is writing `todolib.py`. Following a1's plan, @a3 has `api.py`, `docs/http.md` and `tests/test_api.py`. @a2 presumably has the CLI, though I never saw a2 claim it. I haven't run `python -m pytest -q` on the tip, because I only touched `README.md`. I did not review anyone else's pushes. The three doc files the README links to don't exist yet, so those links are dead until the others push them.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 0
+    }
+  ],
+  "analysis": {
+    "summary": {
+      "files_read_per_agent": 1.25,
+      "reads_outside_own_changes_per_agent": 0.25,
+      "reads_outside_claims_per_agent": 1.25,
+      "agents_with_claims": 1,
+      "colliding_pushes": 0,
+      "colliding_with_inflight_before": 0,
+      "colliding_with_comment_before": 0,
+      "colliding_with_inflight_since_last_push": 0,
+      "push_refusals": 0,
+      "stale_base_refusals": 0,
+      "inflight_calls": 5,
+      "comment_calls": 4,
+      "claim_calls": 4,
+      "claim_update_calls": 0,
+      "subtask_calls": 0
+    },
+    "agents": {
+      "@a1": {
+        "files_read": [],
+        "files_changed": [
+          "docs/library.md",
+          "tests/test_lib.py",
+          "todolib.py"
+        ],
+        "reads_outside_own_changes": [],
+        "gud_tools": {
+          "inflight": 1,
+          "comment": 1,
+          "claim": 1,
+          "inbox": 2,
+          "push": 1
+        },
+        "claim_scopes": [
+          [
+            "todolib.py",
+            "tests/test_lib.py",
+            "docs/library.md"
+          ]
+        ],
+        "reads_outside_claims": [],
+        "changes_outside_claims": [],
+        "pushes": 1,
+        "colliding_pushes": [],
+        "push_refusals": []
+      },
+      "@a2": {
+        "files_read": [
+          "cli.py",
+          "docs/cli.md",
+          "tests/test_cli.py",
+          "todolib.py"
+        ],
+        "files_changed": [
+          "cli.py",
+          "docs/cli.md",
+          "tests/test_cli.py"
+        ],
+        "reads_outside_own_changes": [
+          "todolib.py"
+        ],
+        "gud_tools": {
+          "inflight": 1,
+          "comment": 1,
+          "claim": 1,
+          "tasks": 2,
+          "inbox": 3,
+          "wait": 1,
+          "sync": 1,
+          "push": 1,
+          "log": 1
+        },
+        "claim_scopes": [],
+        "reads_outside_claims": [
+          "cli.py",
+          "docs/cli.md",
+          "tests/test_cli.py",
+          "todolib.py"
+        ],
+        "changes_outside_claims": [
+          "cli.py",
+          "docs/cli.md",
+          "tests/test_cli.py"
+        ],
+        "pushes": 1,
+        "colliding_pushes": [],
+        "push_refusals": []
+      },
+      "@a3": {
+        "files_read": [],
+        "files_changed": [
+          "api.py",
+          "docs/http.md",
+          "tests/test_api.py"
+        ],
+        "reads_outside_own_changes": [],
+        "gud_tools": {
+          "inflight": 2,
+          "comment": 1,
+          "claim": 1,
+          "tasks": 1,
+          "task": 1,
+          "inbox": 1,
+          "wait": 1,
+          "sync": 2,
+          "push": 1,
+          "log": 1
+        },
+        "claim_scopes": [],
+        "reads_outside_claims": [],
+        "changes_outside_claims": [
+          "api.py",
+          "docs/http.md",
+          "tests/test_api.py"
+        ],
+        "pushes": 1,
+        "colliding_pushes": [],
+        "push_refusals": []
+      },
+      "@a4": {
+        "files_read": [
+          "README.md"
+        ],
+        "files_changed": [
+          "README.md"
+        ],
+        "reads_outside_own_changes": [],
+        "gud_tools": {
+          "inflight": 1,
+          "comment": 1,
+          "claim": 1,
+          "tasks": 1,
+          "task": 1,
+          "inbox": 1,
+          "wait": 1,
+          "push": 1,
+          "log": 1,
+          "thread": 1
+        },
+        "claim_scopes": [],
+        "reads_outside_claims": [
+          "README.md"
+        ],
+        "changes_outside_claims": [
+          "README.md"
+        ],
+        "pushes": 1,
+        "colliding_pushes": [],
+        "push_refusals": []
+      }
+    }
+  },
+  "requested_budget_usd": 1.2,
+  "cap": {
+    "cap_usd": 30.0,
+    "spent_usd": 13.042,
+    "reserved_usd": 2.4,
+    "remaining_usd": 14.558
+  }
+}

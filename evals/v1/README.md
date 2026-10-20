@@ -253,3 +253,13 @@ reads outside its claimed scope (gud1), its gud tool counts, for each colliding 
 `inflight` or `comment` before it, pushes the working copy refused because the base was stale, and for
 refactor-guard who read the guard file. Pushes collide when they share a file, neither is in the other's base,
 and they were open together or the later one was built on a base older than the earlier one's link.
+
+### First v1 grid (2026-10-20)
+
+[runs/20261020-v1-report.md](runs/20261020-v1-report.md): the three coordination-forcing specs × git, gud1-cc
+and gud1-ref × N=4 × 2 trials, $8.01 ($14.01 including smokes and a grid that was stopped for the integration
+merge, under a $30 cap). Every run passed every hidden test, so pass rate does not separate the arms at
+this N. The context check passed in every arm. gud1-ref runs were one agent claiming `**` and doing the
+whole task. gud1-cc agents coordinated in comments around a single claim, never with subtasks or claim
+updates. Their wall time was inflated by `wait` calls that no event ever ends. Objections, escalations and
+red tips never occurred. The report lists the gud issues found, with repros.

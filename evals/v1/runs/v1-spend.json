@@ -1,0 +1,284 @@
+{
+ "cap_usd": 30.0,
+ "reserved": {},
+ "runs": {
+  "20261020-v1-grid/git-acme-site-shared-n4-t1": {
+   "arm": "git",
+   "at": 1792520019.1759412,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.4745,
+   "trial": 1
+  },
+  "20261020-v1-grid/git-acme-site-shared-n4-t1#2": {
+   "arm": "git",
+   "at": 1792522433.317578,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.4809,
+   "trial": 1
+  },
+  "20261020-v1-grid/git-acme-site-shared-n4-t2": {
+   "arm": "git",
+   "at": 1792520611.7865448,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.6532,
+   "trial": 2
+  },
+  "20261020-v1-grid/git-acme-site-shared-n4-t2#2": {
+   "arm": "git",
+   "at": 1792523148.9733582,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.562,
+   "trial": 2
+  },
+  "20261020-v1-grid/git-refactor-guard-n4-t1": {
+   "arm": "git",
+   "at": 1792520342.109625,
+   "n": 4,
+   "spec": "refactor-guard",
+   "spent_usd": 0.5255,
+   "trial": 1
+  },
+  "20261020-v1-grid/git-refactor-guard-n4-t1#2": {
+   "arm": "git",
+   "at": 1792522683.4237309,
+   "n": 4,
+   "spec": "refactor-guard",
+   "spent_usd": 0.5025,
+   "trial": 1
+  },
+  "20261020-v1-grid/git-refactor-guard-n4-t2": {
+   "arm": "git",
+   "at": 1792523375.121639,
+   "n": 4,
+   "spec": "refactor-guard",
+   "spent_usd": 0.5678,
+   "trial": 2
+  },
+  "20261020-v1-grid/git-todo-stack-n4-t1": {
+   "arm": "git",
+   "at": 1792520117.471791,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.6504,
+   "trial": 1
+  },
+  "20261020-v1-grid/git-todo-stack-n4-t1#2": {
+   "arm": "git",
+   "at": 1792522531.262238,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.709,
+   "trial": 1
+  },
+  "20261020-v1-grid/git-todo-stack-n4-t2": {
+   "arm": "git",
+   "at": 1792523288.288251,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.6781,
+   "trial": 2
+  },
+  "20261020-v1-grid/gud1-cc-acme-site-shared-n4-t1": {
+   "arm": "gud1-cc",
+   "at": 1792520219.732969,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.5944,
+   "trial": 1
+  },
+  "20261020-v1-grid/gud1-cc-acme-site-shared-n4-t1#2": {
+   "arm": "gud1-cc",
+   "at": 1792522548.8808908,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.6536,
+   "trial": 1
+  },
+  "20261020-v1-grid/gud1-cc-acme-site-shared-n4-t2": {
+   "arm": "gud1-cc",
+   "at": 1792520713.896479,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.6295,
+   "trial": 2
+  },
+  "20261020-v1-grid/gud1-cc-acme-site-shared-n4-t2#2": {
+   "arm": "gud1-cc",
+   "at": 1792523139.605083,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.4688,
+   "trial": 2
+  },
+  "20261020-v1-grid/gud1-cc-refactor-guard-n4-t1": {
+   "arm": "gud1-cc",
+   "at": 1792520754.397357,
+   "n": 4,
+   "spec": "refactor-guard",
+   "spent_usd": 0.422467,
+   "trial": 1
+  },
+  "20261020-v1-grid/gud1-cc-refactor-guard-n4-t1#2": {
+   "arm": "gud1-cc",
+   "at": 1792523295.507095,
+   "n": 4,
+   "spec": "refactor-guard",
+   "spent_usd": 0.4132,
+   "trial": 1
+  },
+  "20261020-v1-grid/gud1-cc-refactor-guard-n4-t2": {
+   "arm": "gud1-cc",
+   "at": 1792523716.5813491,
+   "n": 4,
+   "spec": "refactor-guard",
+   "spent_usd": 0.3914,
+   "trial": 2
+  },
+  "20261020-v1-grid/gud1-cc-todo-stack-n4-t1": {
+   "arm": "gud1-cc",
+   "at": 1792520754.637207,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.650422,
+   "trial": 1
+  },
+  "20261020-v1-grid/gud1-cc-todo-stack-n4-t1#2": {
+   "arm": "gud1-cc",
+   "at": 1792523008.8056881,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.4797,
+   "trial": 1
+  },
+  "20261020-v1-grid/gud1-cc-todo-stack-n4-t2": {
+   "arm": "gud1-cc",
+   "at": 1792523668.724013,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.5751,
+   "trial": 2
+  },
+  "20261020-v1-grid/gud1-ref-acme-site-shared-n4-t1": {
+   "arm": "gud1-ref",
+   "at": 1792520011.806072,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.1862,
+   "trial": 1
+  },
+  "20261020-v1-grid/gud1-ref-acme-site-shared-n4-t1#2": {
+   "arm": "gud1-ref",
+   "at": 1792522282.7638102,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.1933,
+   "trial": 1
+  },
+  "20261020-v1-grid/gud1-ref-acme-site-shared-n4-t2": {
+   "arm": "gud1-ref",
+   "at": 1792520754.649488,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.0,
+   "trial": 2
+  },
+  "20261020-v1-grid/gud1-ref-acme-site-shared-n4-t2 (interrupted: agent ledgers)": {
+   "arm": "gud1-ref",
+   "at": 1792520830.775189,
+   "note": "correction",
+   "spent_usd": 0.110466
+  },
+  "20261020-v1-grid/gud1-ref-acme-site-shared-n4-t2#2": {
+   "arm": "gud1-ref",
+   "at": 1792523285.3006651,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.3002,
+   "trial": 2
+  },
+  "20261020-v1-grid/gud1-ref-refactor-guard-n4-t1": {
+   "arm": "gud1-ref",
+   "at": 1792520452.408787,
+   "n": 4,
+   "spec": "refactor-guard",
+   "spent_usd": 0.2456,
+   "trial": 1
+  },
+  "20261020-v1-grid/gud1-ref-refactor-guard-n4-t1#2": {
+   "arm": "gud1-ref",
+   "at": 1792522847.233095,
+   "n": 4,
+   "spec": "refactor-guard",
+   "spent_usd": 0.2774,
+   "trial": 1
+  },
+  "20261020-v1-grid/gud1-ref-refactor-guard-n4-t2": {
+   "arm": "gud1-ref",
+   "at": 1792523507.754869,
+   "n": 4,
+   "spec": "refactor-guard",
+   "spent_usd": 0.2897,
+   "trial": 2
+  },
+  "20261020-v1-grid/gud1-ref-todo-stack-n4-t1": {
+   "arm": "gud1-ref",
+   "at": 1792520215.352305,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.2385,
+   "trial": 1
+  },
+  "20261020-v1-grid/gud1-ref-todo-stack-n4-t1#2": {
+   "arm": "gud1-ref",
+   "at": 1792522644.3389099,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.2484,
+   "trial": 1
+  },
+  "20261020-v1-grid/gud1-ref-todo-stack-n4-t2": {
+   "arm": "gud1-ref",
+   "at": 1792523388.9845,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.2229,
+   "trial": 2
+  },
+  "20261020-v1-smoke/gud1-cc-todo-cli-n2-t1": {
+   "arm": "gud1-cc",
+   "at": 1792519841.925466,
+   "n": 2,
+   "spec": "todo-cli",
+   "spent_usd": 0.2439,
+   "trial": 1
+  },
+  "20261020-v1-smoke/gud1-cc-todo-cli-n2-t1#2": {
+   "arm": "gud1-cc",
+   "at": 1792522081.135621,
+   "n": 2,
+   "spec": "todo-cli",
+   "spent_usd": 0.1392,
+   "trial": 1
+  },
+  "20261020-v1-smoke/gud1-ref-todo-cli-n2-t1": {
+   "arm": "gud1-ref",
+   "at": 1792519642.1580548,
+   "n": 2,
+   "spec": "todo-cli",
+   "spent_usd": 0.158,
+   "trial": 1
+  },
+  "20261020-v1-smoke/gud1-ref-todo-cli-n2-t1#2": {
+   "arm": "gud1-ref",
+   "at": 1792521539.488548,
+   "n": 2,
+   "spec": "todo-cli",
+   "spent_usd": 0.0722,
+   "trial": 1
+  }
+ }
+}

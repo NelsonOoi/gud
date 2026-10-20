@@ -1,0 +1,438 @@
+{
+  "arm": "gud1-cc",
+  "spec": "todo-cli",
+  "agents_n": 2,
+  "trial": 1,
+  "requested_model": "claude-sonnet-5-5",
+  "budget_usd": 1.0,
+  "agent_budget_usd": 0.5,
+  "timeout_s": 900.0,
+  "window_s": 20.0,
+  "test_policy": "tip",
+  "agent_cmd": "/Users/nelson/.local/bin/claude",
+  "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-gud1-cc-a2_bodzf",
+  "fairness": {
+    "agent": "Claude Code headless",
+    "tools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "mcp__gud__*"
+    ],
+    "test_command": "python -m pytest -q -x",
+    "same_prompt_preamble": true
+  },
+  "outcome": "completed",
+  "harness_errors": [],
+  "killed": {},
+  "model": "claude-sonnet-5-5",
+  "wall_s": 315.0,
+  "drain_s": 0.2,
+  "cost_usd": 0.2439,
+  "tokens": {
+    "input": 4280,
+    "output": 4845,
+    "cache_read": 218842,
+    "cache_creation": 36885
+  },
+  "tokens_total": 264852,
+  "turns": 21,
+  "hidden": {
+    "passed": 15,
+    "failed": 0,
+    "total": 15,
+    "pass_rate": 1.0
+  },
+  "spec_checks": {
+    "test_add_prints_and_stores": true,
+    "test_ids_increase": true,
+    "test_list_empty": true,
+    "test_list_shows_status": true,
+    "test_done": true,
+    "test_remove": true,
+    "test_next_id_after_remove_is_max_plus_one": true,
+    "test_unknown_id[done]": true,
+    "test_unknown_id[remove]": true,
+    "test_non_integer_id_is_usage_error": true,
+    "test_no_command_is_usage_error": true,
+    "test_help_lists_subcommands": true,
+    "test_todo_file_env": true,
+    "test_default_file_in_cwd": true,
+    "test_uses_argparse": true
+  },
+  "final_tests_pass": true,
+  "final_files": [
+    ".gudignore",
+    "README.md",
+    "tests/test_smoke.py",
+    "tests/test_todo.py",
+    "todo.py"
+  ],
+  "escalations": 0,
+  "local_test_runs": 1,
+  "hidden_access": [],
+  "integrations": 2,
+  "integrations_per_min": 0.381,
+  "test_runs": 4,
+  "test_runs_per_integration": 2.0,
+  "conflicts_total": 0,
+  "conflicts_resolved": 0,
+  "gud1": {
+    "links": 2,
+    "links_per_min": 0.381,
+    "first_link_s": 8.9,
+    "pushes": 2,
+    "pushes_by_end": {
+      "linked": 2
+    },
+    "carried_links": 0,
+    "carried_events": 0,
+    "superseded": 0,
+    "colliding_pushes": 0,
+    "emails": 10,
+    "emails_by_kind": {
+      "claim": 1,
+      "comment": 2,
+      "push": 2,
+      "task": 1,
+      "test": 4
+    },
+    "emails_per_link": 5.0,
+    "test_runs": 4,
+    "test_runs_by_scope": {
+      "accept": 1,
+      "tip": 3
+    },
+    "test_failures": 0,
+    "test_runs_per_link": 2.0,
+    "claims": {
+      "won": 1,
+      "lost": 0,
+      "updates": 0,
+      "releases": 0,
+      "lapsed": 0,
+      "scopes": [
+        {
+          "holder": "@a2",
+          "task": "T1",
+          "files": [
+            "todo.py"
+          ],
+          "status": "done"
+        }
+      ],
+      "scope_exceeded": 0
+    },
+    "overlaps": {
+      "total": 0,
+      "by_settlement": {},
+      "list": []
+    },
+    "comments": {
+      "total": 2,
+      "by_target": {
+        "task": 2
+      },
+      "escalation_comments": 0
+    },
+    "objections": {
+      "total": 0,
+      "reason": 0,
+      "evidence": 0,
+      "answered": {},
+      "list": []
+    },
+    "approvals": 0,
+    "holds": 0,
+    "escalations": {
+      "consent": [],
+      "task": [],
+      "resolved_by": {}
+    },
+    "red_tip": {
+      "episodes": 0,
+      "closed": 0,
+      "median_to_green_s": null,
+      "red_at_end": false,
+      "fix_tasks": 0,
+      "list": []
+    },
+    "task": {
+      "alias": "T1",
+      "status": "done",
+      "subtasks": 0,
+      "subtask_status": {},
+      "work_done_s": 8.9,
+      "done_s": 11.0
+    },
+    "events": {
+      "claim.won": 1,
+      "commented": 2,
+      "linked": 3,
+      "push.received": 2,
+      "task.done": 1,
+      "task.opened": 1,
+      "task.ready": 1,
+      "test.passed": 4
+    },
+    "per_agent": {
+      "@a1": {
+        "pushes": 1,
+        "links": 1,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 0,
+        "claim_msgs": 0,
+        "comments": 1,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [],
+        "claim_scopes_all": []
+      },
+      "@a2": {
+        "pushes": 1,
+        "links": 1,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 1,
+        "claim_msgs": 1,
+        "comments": 1,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [
+          [
+            "todo.py"
+          ]
+        ],
+        "claim_scopes_all": [
+          [
+            "todo.py"
+          ]
+        ]
+      }
+    },
+    "link_list": [
+      {
+        "seq": 1,
+        "author": "@a2",
+        "carried": false,
+        "files": [
+          "todo.py"
+        ],
+        "at_s": 8.9,
+        "intent": "Add todo.py CLI"
+      },
+      {
+        "seq": 2,
+        "author": "@a1",
+        "carried": false,
+        "files": [
+          "tests/test_todo.py"
+        ],
+        "at_s": 23.5,
+        "intent": "Add tests/test_todo.py covering all commands, errors, env/default file"
+      }
+    ],
+    "push_list": [
+      {
+        "id": "bc4b70a1a97b",
+        "author": "@a2",
+        "t": 8.9,
+        "files": [
+          "todo.py"
+        ],
+        "base_seq": 0,
+        "end": "linked",
+        "end_t": 8.9,
+        "carried": false,
+        "link_seq": 1,
+        "task": "b94bcc665880e8a0137d9ee007b410318ec9fad3784264aae84b857ec1e9cbac",
+        "revises": null,
+        "intent": "Add todo.py CLI",
+        "collides_with": []
+      },
+      {
+        "id": "c70107e938d0",
+        "author": "@a1",
+        "t": 23.5,
+        "files": [
+          "tests/test_todo.py"
+        ],
+        "base_seq": 1,
+        "end": "linked",
+        "end_t": 23.5,
+        "carried": false,
+        "link_seq": 2,
+        "task": "b94bcc665880e8a0137d9ee007b410318ec9fad3784264aae84b857ec1e9cbac",
+        "revises": null,
+        "intent": "Add tests/test_todo.py covering all commands, errors, env/default file",
+        "collides_with": []
+      }
+    ],
+    "conflicts": []
+  },
+  "agents": [
+    {
+      "handle": "@a1",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 26.2,
+      "turns": 11,
+      "tokens": {
+        "input": 2141,
+        "output": 3170,
+        "cache_read": 119327,
+        "cache_creation": 19204
+      },
+      "cost_usd": 0.134473,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 10,
+      "tool_counts": {
+        "Bash": 3,
+        "Write": 2,
+        "mcp__gud__claim": 1,
+        "mcp__gud__comment": 1,
+        "mcp__gud__inflight": 1,
+        "mcp__gud__push": 1,
+        "mcp__gud__sync": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "`todo.py` and its tests are now both in the shared repo, and `python -m pytest -q` passes on my working copy (9 passed). I didn't re-run it on the tip after my push linked.\n\na2 claimed `todo.py` before I did, so I left it to them. They wrote and landed it, and I wrote `tests/test_todo.py` (my push, seq 2, linked).\n\nThe tests run the CLI as a subprocess and cover:\n- `add` and `list`, including the empty-list message\n- `done` and `remove`\n- reuse of the highest id plus one after a removal\n- an unknown id (stderr message, exit 1)\n- a non-integer id and running with no command (exit 2)\n- `--file`, the `TODO_FILE` environment variable, and the default `todos.json`\n\nNo reviews are waiting on me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 1
+    },
+    {
+      "handle": "@a2",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 314.9,
+      "turns": 10,
+      "tokens": {
+        "input": 2139,
+        "output": 1675,
+        "cache_read": 99515,
+        "cache_creation": 17681
+      },
+      "cost_usd": 0.109465,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 9,
+      "tool_counts": {
+        "Write": 1,
+        "mcp__gud__claim": 1,
+        "mcp__gud__comment": 1,
+        "mcp__gud__inbox": 1,
+        "mcp__gud__inflight": 1,
+        "mcp__gud__push": 1,
+        "mcp__gud__wait": 3
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "I pushed `todo.py` and it's linked at the tip. The task isn't finished yet, because the tests aren't in the repo yet.\n\n`todo.py` covers all five commands (`add`, `list`, `done`, `remove`, `--file`) with the `TODO_FILE` and `todos.json` fallbacks. It also has the error handling and exit codes from the task. The tester ran the tip after my push and it passed.\n\nI didn't run `todo.py` by hand, and there are no tests for it yet.\n\n@a1 said they are writing `tests/test_todo.py`, and I'm not touching `tests/`. After waiting about 5 minutes, that push hasn't landed. No review is waiting on me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 0
+    }
+  ],
+  "analysis": {
+    "summary": {
+      "files_read_per_agent": 0.0,
+      "reads_outside_own_changes_per_agent": 0.0,
+      "reads_outside_claims_per_agent": 0.0,
+      "agents_with_claims": 1,
+      "colliding_pushes": 0,
+      "colliding_with_inflight_before": 0,
+      "colliding_with_comment_before": 0,
+      "colliding_with_inflight_since_last_push": 0,
+      "push_refusals": 0,
+      "stale_base_refusals": 0,
+      "inflight_calls": 2,
+      "comment_calls": 2,
+      "claim_calls": 2,
+      "claim_update_calls": 0,
+      "subtask_calls": 0
+    },
+    "agents": {
+      "@a1": {
+        "files_read": [],
+        "files_changed": [
+          "tests/test_todo.py"
+        ],
+        "reads_outside_own_changes": [],
+        "gud_tools": {
+          "inflight": 1,
+          "comment": 1,
+          "claim": 1,
+          "sync": 1,
+          "push": 1
+        },
+        "claim_scopes": [],
+        "reads_outside_claims": [],
+        "changes_outside_claims": [
+          "tests/test_todo.py"
+        ],
+        "pushes": 1,
+        "colliding_pushes": [],
+        "push_refusals": []
+      },
+      "@a2": {
+        "files_read": [],
+        "files_changed": [
+          "todo.py"
+        ],
+        "reads_outside_own_changes": [],
+        "gud_tools": {
+          "inflight": 1,
+          "comment": 1,
+          "claim": 1,
+          "inbox": 1,
+          "wait": 3,
+          "push": 1
+        },
+        "claim_scopes": [
+          [
+            "todo.py"
+          ]
+        ],
+        "reads_outside_claims": [],
+        "changes_outside_claims": [],
+        "pushes": 1,
+        "colliding_pushes": [],
+        "push_refusals": []
+      }
+    }
+  },
+  "requested_budget_usd": 1.0,
+  "cap": {
+    "cap_usd": 30.0,
+    "spent_usd": 0.158,
+    "reserved_usd": 1.0,
+    "remaining_usd": 28.842
+  }
+}
