@@ -1494,3 +1494,25 @@ Public additions and changes, all backward compatible with the sections above. S
 - `gud.transport.imap_smtp`: constructor keywords `imap_tls`/`smtp_tls` (`"ssl" | "starttls" | "none"`), `smtp_username`, `smtp_password`, `max_message_bytes`, `authserv_id` (the provider's, reported in capabilities), `send_quota_per_day`, `preserves_message_id`, `idle_poll`, `timeout`, `ssl_context`, `clock`. Helpers `encode_cursor`, `decode_cursor`, `parse_internaldate`.
 - `gud.transport.primitive`: `PrimitiveMailbox(api_key, address, *, base_url, client, webhook_secret, authserv_id, subscribe_wait, send_quota_per_day, max_message_bytes, clock, sleep)` implements `Mailbox` and `WebhookVerifier`. It adds `accept_webhook(headers, body, now=None) -> list[Received]` (verify, parse, hand to subscribers), `fetch_webhook_secret()` and `head()`. Also exported: `AUTHSERV_ID = "primitive.gud.invalid"`, `MAX_MESSAGE_BYTES`, `PrimitiveError(TransportError)`, `PrimitiveQuotaError(PrimitiveError, QuotaExceeded)`, `signature_header`, `verify_signature`, `dmarc_for`, `unwrap_webhook`, `event_name`, `encode_cursor`, `decode_cursor`, `parse_time`.
 - The conformance suite lives at `tests/v1/transport/conformance.py` (checks) and `tests/v1/transport/test_conformance.py` (transports), replacing the `tests/transport_conformance.py` named under "Test obligations".
+
+## Addendum: public additions from the replay engine
+
+All additions are backward compatible (new optional fields default, new keyword arguments are optional). See "Implementation notes (replay)" in SPEC-v1.md.
+
+- `gud.core.rules`:
+  - `ConsentPlan.humans: tuple[Handle, ...] = ()` (human voters at Y, for the members rule), `ConsentPlan.to_json()`, `ConsentPlan.from_json(d)`.
+  - `Vote.target: Hex | None = None` (the negotiation root a decider vote is about; used by `decide_escalation`).
+  - `ConsentInputs.push: Hex | None = None`, `ConsentInputs.negotiation: Hex | None = None` (select verdicts on the push's candidates and match escalation `chosen`/`declined`).
+  - `ConsentError`, `INF`, `BLOCKING_STATUSES`, `is_confirmed(verdict) -> bool`, `first_verdict(verdicts, objection, push, until) -> EvidenceVerdict | None`.
+  - `decide_escalation` counts decider votes received in `(opened_at, deadline]`.
+- `gud.core.tasks`:
+  - `NoChangeInput.paths_match: bool = True`, `NoChangeInput.has_live_push: bool = False` (tree and live-push checks are the engine's).
+  - `TaskError`; `TaskBoard.take_changes() -> tuple[list[Hex], list[Hex]]`, `has(task)`, `task(id)`, `claim(id)`, `holders(task)`, `escalate(task, reason, at, by) -> Event`.
+- `gud.core.replay`:
+  - `ReplayError(message, delta=None)`; `.delta` is the `ChainDelta` of the verified prefix when `feed` stops at a bad log entry.
+  - `Replayer.from_checkpoint(snapshot, store, *, state_dir=None, trusted_host_keys=())`.
+  - `Replayer.tip`, `Replayer.last_error`, `Replayer.valid_checkpoints() -> list[dict]` (§17 quorum groups `{log, link, snapshot, signers}`).
+  - `ChainReader(chain, store, index=None)`; `index` (a `Replayer`, as returned by `Replayer.reader()`) enables `email`, `thread`, `candidate_tree`, `ops_of` and `stack_tree`; without it they return None/empty (`stack_tree` raises).
+  - `resolve_unsigned_target(email, by_message_id, ids, notify_target)`: `ids` may also be a mapping from 12-hex prefixes to id lists.
+  - The `ChainDelta` contract is documented in the module docstring of `gud/core/replay.py`; `ChainDelta.events` is complete for §19.2.
+- `gud.core.v0`: `V0Chain.now: float = 0.0` and `V0Chain.view() -> Chain` (the v1 `Chain` view: links and adapted proposals; no tasks, claims or log).

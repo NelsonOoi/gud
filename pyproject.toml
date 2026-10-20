@@ -26,3 +26,5 @@ include = ["gud*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: long-running benchmarks, deselected by default (run with -m slow)"]
+addopts = "-m 'not slow'"
