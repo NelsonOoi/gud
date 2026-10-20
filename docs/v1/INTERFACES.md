@@ -1393,23 +1393,40 @@ class AgentRuntime:
 ## `gud/gitbridge.py`
 
 ```python
+class GitBridgeError(ValueError): ...
+class MirrorDivergence(GitBridgeError): ...          # remote branch does not continue the chain; nothing written
+
+DEFAULT_CONFIG: bytes; DEFAULT_TEST: bytes; DEFAULT_OWNERS: bytes   # written when the git tree has none
+
 @dataclass(frozen=True)
 class ImportPlan:
     files: Mapping[str, tuple[Mode, bytes]]          # byte-exact from the git tree, incl. .gud/members from the roster
     source_commit: str
-    intent: str                                      # records the source commit
-def import_git(git_dir: Path, *, ref: str = "main", roster: Path, host_key: str) -> ImportPlan
+    intent: str                                      # "gud import: git <ref> at commit <id>"
+    ref: str = "main"
+    warnings: tuple[str, ...] = ()                   # skipped submodules / paths, replaced .gud/members, ...
+    members: Members | None = None                   # parsed .gud/members (draft for review)
+    def tree(self, store: ObjectStoreLike) -> Tree
+def parse_roster(data: bytes, host_key: str) -> bytes   # roster lines "handle role address [pubkey] [sponsor]" -> .gud/members
+def import_git(git_dir: Path, *, ref: str = "main", roster: Path, host_key: str, git: str = "git") -> ImportPlan
 def genesis_from_plan(plan: ImportPlan, author: Handle, private_raw: bytes, seen: Seen,
-                      store: ObjectStoreLike, inline_budget: int) -> tuple[Envelope, list[bytes]]   # (push, blobs)
+                      store: ObjectStoreLike, inline_budget: int, *, sent: int | None = None
+                      ) -> tuple[Envelope, list[bytes]]  # (signed genesis push, raw contents of its blob-reference puts)
 
 class GitMirror:
-    """One-way, append-only, never force-pushes."""
-    def __init__(self, client: RepoClient, workdir: Path, remote: str, *, branch: str = "gud") -> None
-    def run_once(self) -> int                        # commits for new links; returns count
-    def run_forever(self, stop: threading.Event) -> None
-    def last_mirrored(self) -> Hex | None
-def commit_message(link: LinkState) -> str           # intent + "Gud-State: <state>" trailer
+    """One-way, append-only, never force-pushes. Progress = the remote head's Gud-Link trailer."""
+    def __init__(self, remote: str, workdir: Path, store: ObjectStoreLike, *, branch: str = "gud",
+                 committer: tuple[str, str] = ("gud mirror", "mirror@gud.invalid"),
+                 client: RepoClient | None = None, git: str = "git") -> None
+    def mirror(self, links: Iterable[LinkState] | Chain) -> int   # chain order, genesis first; returns commits pushed
+    def run_once(self) -> int                        # client.sync_log(), then mirror(client.chain().links)
+    def run_forever(self, stop: threading.Event, *, interval: float = 5.0) -> None   # stops on MirrorDivergence
+    def last_mirrored(self) -> Hex | None            # link state named by the remote head, None if no branch
+def commit_message(link: LinkState) -> str           # intent + "\n\nGud-Link: <state>\nGud-Tree: <tree hash>\n"
+def parse_trailers(message: str) -> tuple[Hex, Hex] | None   # (state, tree hash) from a mirror commit message
 ```
+
+`mirror` is the engine; it needs only links and the object store holding their trees, so it works with `Chain.links` from any replay. `run_once`/`run_forever` are the `gud mirror git` loop over a `RepoClient`.
 
 ---
 
