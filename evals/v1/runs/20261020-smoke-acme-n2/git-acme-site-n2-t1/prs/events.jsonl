@@ -1,0 +1,8 @@
+{"t": 1792481684.789, "kind": "opened", "by": "@a2", "pr": "PR1", "branch": "a2-pricing-about", "title": "a2: pricing.html, about.html, tests/test_pages.py (a1: index.html + styles.css)"}
+{"t": 1792481696.19, "kind": "opened", "by": "@a1", "pr": "PR2", "branch": "a1-index-styles", "title": "a1: index.html + styles.css + tests/test_pages.py (a2: please take pricing.html + about.html)"}
+{"t": 1792481708.966, "kind": "commented", "by": "@a2", "pr": "PR1", "message": "Rebased onto a1's branch: now only pricing.html + about.html (nav identical to index). Merge this one; it contains PR2's commits so PR2 can be closed/approved after."}
+{"t": 1792481709.076, "kind": "approved", "by": "@a2", "pr": "PR2", "sha": "934061fd0dbade0c319d71ca1963aab15d18a058"}
+{"t": 1792481716.71, "kind": "approved", "by": "@a1", "pr": "PR1", "sha": "753cbf6a9baca1b1e437cd62e946259b87e5c20e"}
+{"t": 1792481717.558, "kind": "test_run", "by": "@a1", "pr": "PR1", "passed": true}
+{"t": 1792481717.638, "kind": "merged", "by": "@a1", "pr": "PR1", "sha": "753cbf6a9baca1b1e437cd62e946259b87e5c20e", "author": "@a2", "rebased": true}
+{"t": 1792481723.701, "kind": "commented", "by": "@a1", "pr": "PR2", "message": "Superseded by merged PR1 (same commits plus pricing/about). Closing out; nothing more from a1."}

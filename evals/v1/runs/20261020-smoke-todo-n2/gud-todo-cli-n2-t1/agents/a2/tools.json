@@ -1,0 +1,75 @@
+[
+ {
+  "name": "mcp__gud__status",
+  "input": {
+   "handle": "@a2"
+  },
+  "result": "tip 0 221ed1699ab4 @seed [gud] genesis\nmine: none\nneeds-me: none\nsubtasks: none",
+  "is_error": false
+ },
+ {
+  "name": "mcp__gud__ls",
+  "input": {},
+  "result": ".gud/members\nREADME.md\ntests/test_smoke.py",
+  "is_error": false
+ },
+ {
+  "name": "mcp__gud__push",
+  "input": {
+   "handle": "@a2",
+   "private_key": "X/HD0GvIMdwBfIDmJfwtNCmk3rczruQRu4sbt/GIJzs=",
+   "task": "T1",
+   "intent": "@a2 taking todo.py (full implementation). @a1: please write tests/test_todo.py only.",
+   "edits": [
+    {
+     "path": "todo.py",
+     "new": "#!/usr/bin/env python3\n\"\"\"A small command-line todo list.\"\"\"\nimport argparse\nimport json\nimport os\nimport sys\n\n\ndef load(path):\n    if not os.path.exists(path):\n        return []\n    with open(path) as f:\n        return json.load(f)\n\n\ndef save(path, todos):\n    with open(path, \"w\") as f:\n        json.dump(todos, f)\n\n\ndef find(todos, todo_id):\n    for t in todos:\n        if t[\"id\"] == todo_id:\n            return t\n    print(f\"Error: no todo with id {todo_id}\", file=sys.stderr)\n    sys.exit(1)\n\n\ndef build_parser():\n    p = argparse.ArgumentParser(prog=\"todo.py\")\n    p.add_argument(\"--file\", default=None, help=\"JSON file storing the todos\")\n    sub = p.add_subparsers(dest=\"command\")\n    a = sub.add_parser(\"add\", help=\"add a todo\")\n    a.add_argument(\"text\", nargs=\"+\")\n    sub.add_parser(\"list\", help=\"list todos\")\n    d = sub.add_parser(\"done\", help=\"mark a todo done\")\n    d.add_argument(\"id\", type=int)\n    r = sub.add_parser(\"remove\", help=\"remove a todo\")\n    r.add_argument(\"id\", type=int)\n    return p\n\n\ndef main(argv=None):\n    parser = build_parser()\n    args = parser.parse_args(argv)\n    if not args.command:\n        parser.print_usage()\n        sys.exit(2)\n    path = args.file or os.environ.get(\"TODO_FILE\") or \"todos.json\"\n    todos = load(path)\n    if args.command == \"add\":\n        new_id = max((t[\"id\"] for t in todos), default=0) + 1\n        text = \" \".join(args.text)\n        todos.append({\"id\": new_id, \"text\": text, \"done\": False})\n        save(path, todos)\n        print(f\"Added {new_id}: {text}\")\n    elif args.command == \"list\":\n        if not todos:\n            print(\"No todos.\")\n        for t in sorted(todos, key=lambda t: t[\"id\"]):\n            mark = \"x\" if t[\"done\"] else \" \"\n            print(f\"[{mark}] {t['id']} {t['text']}\")\n    elif args.command == \"done\":\n        find(todos, args.id)[\"done\"] = True\n        save(path, todos)\n        print(f\"Done {args.id}\")\n    elif args.command == \"remove\":\n        todos.remove(find(todos, args.id))\n        save(path, todos)\n        print(f\"Removed {args.id}\")\n\n\nif __name__ == \"__main__\":\n    main()\n"
+    }
+   ]
+  },
+  "result": "<e93c383365e3474aaca21ac02987d993@gud.local>\naffected: none\nprotection: none\nconsent: none\nnext: no affected owners; lands when tests pass",
+  "is_error": false
+ },
+ {
+  "name": "mcp__gud__wait",
+  "input": {
+   "handle": "@a2",
+   "push_id": "e93c383365e3474aaca21ac02987d993@gud.local"
+  },
+  "result": "timeout\ntip 1 eca56c948057 @a1 [gud] @a1 takes todo.py (full implementation). @a2: please write tests/test_todo.py.\nmine:\n  <e93c383365e3474aaca21ac02987d993@gud.local> superseded \u2014 superseded by <47f49cad2c444b5b80e915b0e650c08a@gud.local>\nneeds-me: none\nsubtasks: none",
+  "is_error": false
+ },
+ {
+  "name": "mcp__gud__push",
+  "input": {
+   "handle": "@a2",
+   "private_key": "X/HD0GvIMdwBfIDmJfwtNCmk3rczruQRu4sbt/GIJzs=",
+   "task": "T1",
+   "intent": "@a2 yields todo.py to @a1; adding tests/test_todo.py only.",
+   "edits": [
+    {
+     "path": "tests/test_todo.py",
+     "new": "import json\nimport os\nimport subprocess\nimport sys\n\nTODO = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), \"todo.py\")\n\n\ndef run(tmp_path, *args, env=None, use_file=True):\n    cmd = [sys.executable, TODO]\n    if use_file:\n        cmd += [\"--file\", str(tmp_path / \"t.json\")]\n    e = dict(os.environ)\n    e.pop(\"TODO_FILE\", None)\n    e.update(env or {})\n    return subprocess.run(cmd + list(args), capture_output=True, text=True, cwd=tmp_path, env=e)\n\n\ndef test_add_and_list(tmp_path):\n    r = run(tmp_path, \"add\", \"buy\", \"milk\")\n    assert (r.returncode, r.stdout) == (0, \"Added 1: buy milk\\n\")\n    r = run(tmp_path, \"add\", \"call bob\")\n    assert r.stdout == \"Added 2: call bob\\n\"\n    r = run(tmp_path, \"list\")\n    assert r.returncode == 0\n    assert r.stdout == \"[ ] 1 buy milk\\n[ ] 2 call bob\\n\"\n    data = json.loads((tmp_path / \"t.json\").read_text())\n    assert data[0] == {\"id\": 1, \"text\": \"buy milk\", \"done\": False}\n\n\ndef test_list_empty(tmp_path):\n    r = run(tmp_path, \"list\")\n    assert (r.returncode, r.stdout) == (0, \"No todos.\\n\")\n\n\ndef test_done(tmp_path):\n    run(tmp_path, \"add\", \"a\")\n    run(tmp_path, \"add\", \"b\")\n    r = run(tmp_path, \"done\", \"2\")\n    assert (r.returncode, r.stdout) == (0, \"Done 2\\n\")\n    assert run(tmp_path, \"list\").stdout == \"[ ] 1 a\\n[x] 2 b\\n\"\n\n\ndef test_remove_and_id_after_max(tmp_path):\n    for t in \"abc\":\n        run(tmp_path, \"add\", t)\n    r = run(tmp_path, \"remove\", \"2\")\n    assert (r.returncode, r.stdout) == (0, \"Removed 2\\n\")\n    assert run(tmp_path, \"list\").stdout == \"[ ] 1 a\\n[ ] 3 c\\n\"\n    assert run(tmp_path, \"add\", \"d\").stdout == \"Added 4: d\\n\"\n    run(tmp_path, \"remove\", \"4\")\n    assert run(tmp_path, \"add\", \"e\").stdout == \"Added 4: e\\n\"\n\n\ndef test_unknown_id(tmp_path):\n    for cmd in (\"done\", \"remove\"):\n        r = run(tmp_path, cmd, \"7\")\n        assert r.returncode == 1\n        assert r.stderr.strip() == \"Error: no todo with id 7\"\n        assert r.stdout == \"\"\n\n\ndef test_bad_id_and_no_command(tmp_path):\n    assert run(tmp_path, \"done\", \"x\").returncode == 2\n    assert run(tmp_path, \"remove\", \"x\").returncode == 2\n    r = run(tmp_path)\n    assert r.returncode == 2\n    assert \"usage\" in (r.stdout + r.stderr).lower()\n\n\ndef test_env_var_and_default(tmp_path):\n    f = tmp_path / \"env.json\"\n    run(tmp_path, \"add\", \"x\", env={\"TODO_FILE\": str(f)}, use_file=False)\n    assert f.exists()\n    run(tmp_path, \"add\", \"y\", use_file=False)\n    assert (tmp_path / \"todos.json\").exists()\n\n\ndef test_file_flag_beats_env(tmp_path):\n    run(tmp_path, \"add\", \"x\", env={\"TODO_FILE\": str(tmp_path / \"env.json\")})\n    assert (tmp_path / \"t.json\").exists()\n    assert not (tmp_path / \"env.json\").exists()\n"
+    }
+   ]
+  },
+  "result": "<ef37e7a8366340c29d2c0a5606ddddd8@gud.local>\naffected: none\nprotection: none\nconsent: none\nnext: no affected owners; lands when tests pass",
+  "is_error": false
+ },
+ {
+  "name": "mcp__gud__wait",
+  "input": {
+   "handle": "@a2",
+   "push_id": "ef37e7a8366340c29d2c0a5606ddddd8@gud.local",
+   "timeout": 120
+  },
+  "result": "timeout\ntip 2 7eb05095d552 @a2 [gud] @a2 yields todo.py to @a1; adding tests/test_todo.py only.\nmine:\n  <e93c383365e3474aaca21ac02987d993@gud.local> superseded \u2014 superseded by <47f49cad2c444b5b80e915b0e650c08a@gud.local>\nneeds-me: none\nsubtasks: none",
+  "is_error": false
+ },
+ {
+  "name": "mcp__gud__ls",
+  "input": {},
+  "result": ".gud/members\nREADME.md\ntests/test_smoke.py\ntests/test_todo.py\ntodo.py",
+  "is_error": false
+ }
+]

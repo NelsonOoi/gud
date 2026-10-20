@@ -1,0 +1,51 @@
+[
+ {
+  "name": "mcp__gud__status",
+  "input": {
+   "handle": "@a1"
+  },
+  "result": "tip 0 221ed1699ab4 @seed [gud] genesis\nmine: none\nneeds-me: none\nsubtasks: none",
+  "is_error": false
+ },
+ {
+  "name": "mcp__gud__ls",
+  "input": {},
+  "result": ".gud/members\nREADME.md\ntests/test_smoke.py",
+  "is_error": false
+ },
+ {
+  "name": "mcp__gud__push",
+  "input": {
+   "handle": "@a1",
+   "private_key": "ZU9UAkaBxwv96PtU+pW0XAZgR94gx5rLgjb/2+dkd/Q=",
+   "task": "T1",
+   "intent": "@a1 takes todo.py (full implementation). @a2: please write tests/test_todo.py.",
+   "edits": [
+    {
+     "path": "todo.py",
+     "new": "import argparse\nimport json\nimport os\nimport sys\n\n\ndef load(path):\n    if not os.path.exists(path):\n        return []\n    with open(path) as f:\n        return json.load(f)\n\n\ndef save(path, todos):\n    with open(path, \"w\") as f:\n        json.dump(todos, f)\n\n\ndef find(todos, todo_id):\n    for t in todos:\n        if t[\"id\"] == todo_id:\n            return t\n    print(f\"Error: no todo with id {todo_id}\", file=sys.stderr)\n    sys.exit(1)\n\n\ndef main(argv=None):\n    parser = argparse.ArgumentParser(prog=\"todo.py\")\n    parser.add_argument(\"--file\")\n    sub = parser.add_subparsers(dest=\"command\")\n    p = sub.add_parser(\"add\")\n    p.add_argument(\"text\", nargs=\"+\")\n    sub.add_parser(\"list\")\n    for name in (\"done\", \"remove\"):\n        p = sub.add_parser(name)\n        p.add_argument(\"id\", type=int)\n    args = parser.parse_args(argv)\n    if not args.command:\n        parser.print_usage()\n        sys.exit(2)\n    path = args.file or os.environ.get(\"TODO_FILE\") or \"todos.json\"\n    todos = load(path)\n    if args.command == \"add\":\n        new_id = max((t[\"id\"] for t in todos), default=0) + 1\n        text = \" \".join(args.text)\n        todos.append({\"id\": new_id, \"text\": text, \"done\": False})\n        save(path, todos)\n        print(f\"Added {new_id}: {text}\")\n    elif args.command == \"list\":\n        if not todos:\n            print(\"No todos.\")\n        for t in sorted(todos, key=lambda t: t[\"id\"]):\n            print(f\"[{'x' if t['done'] else ' '}] {t['id']} {t['text']}\")\n    elif args.command == \"done\":\n        find(todos, args.id)[\"done\"] = True\n        save(path, todos)\n        print(f\"Done {args.id}\")\n    else:\n        todos.remove(find(todos, args.id))\n        save(path, todos)\n        print(f\"Removed {args.id}\")\n\n\nif __name__ == \"__main__\":\n    main()\n"
+    }
+   ]
+  },
+  "result": "<47f49cad2c444b5b80e915b0e650c08a@gud.local>\naffected: none\nprotection: none\nconsent: none\nnext: no affected owners; lands when tests pass",
+  "is_error": false
+ },
+ {
+  "name": "mcp__gud__wait",
+  "input": {
+   "handle": "@a1",
+   "push_id": "47f49cad2c444b5b80e915b0e650c08a@gud.local"
+  },
+  "result": "timeout\ntip 1 eca56c948057 @a1 [gud] @a1 takes todo.py (full implementation). @a2: please write tests/test_todo.py.\nmine: none\nneeds-me: none\nsubtasks: none",
+  "is_error": false
+ },
+ {
+  "name": "mcp__gud__wait",
+  "input": {
+   "handle": "@a1",
+   "timeout": 120
+  },
+  "result": "timeout\ntip 2 7eb05095d552 @a2 [gud] @a2 yields todo.py to @a1; adding tests/test_todo.py only.\nmine: none\nneeds-me: none\nsubtasks: none",
+  "is_error": false
+ }
+]

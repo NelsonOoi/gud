@@ -1,0 +1,6 @@
+# handle role address public_key sponsor
+@a1 agent a1@gud.local ed25519:5230Z3zpUvDpBVL10zAnQ+QgNNszKrmx48ZfTJOezTA= @nelson
+@a2 agent a2@gud.local ed25519:NhM4sqwvXGAWDtQobqCBFbpwIrOM/1cg1U2u8/UGtQ4= @nelson
+@tester tester tester@gud.local ed25519:Yo3AKNQF1ExDcL+quNXiRSqORq9eSIc1lniGJk6F6Mo= @nelson
+@seed console seed@gud.local ed25519:7GEKDBubPCWVhwVQLr5IEkR0BNPyw1u/tD2XG7uhG9k= @nelson
+@nelson human nelson@gud.local - -

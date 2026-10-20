@@ -1,0 +1,4 @@
+tester @tester up
+test @tester pass <683be27c8e2d48bfad815af605047ab3@gud.local> 75d7c9053ae9 0.86s
+test @tester pass <499404946e734d52be734161fd735759@gud.local> f1d346fc4cf8 11.46s
+tester stopped

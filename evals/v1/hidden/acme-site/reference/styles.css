@@ -1,0 +1,11 @@
+body { font-family: sans-serif; margin: 0; }
+.nav { display: flex; gap: 1rem; padding: 1rem; background: #222; }
+.nav a { color: #fff; }
+.hero { padding: 4rem 1rem; text-align: center; }
+.cards { display: flex; gap: 1rem; padding: 1rem; }
+.card { flex: 1; border: 1px solid #ddd; padding: 1rem; }
+table.pricing { border-collapse: collapse; margin: 1rem; }
+table.pricing td, table.pricing th { border: 1px solid #ccc; padding: .5rem 1rem; }
+@media (max-width: 700px) {
+  .cards { flex-direction: column; }
+}

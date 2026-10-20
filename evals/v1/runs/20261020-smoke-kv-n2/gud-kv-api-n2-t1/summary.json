@@ -1,0 +1,210 @@
+{
+  "arm": "gud",
+  "spec": "kv-api",
+  "agents_n": 2,
+  "trial": 1,
+  "requested_model": "claude-sonnet-5-5",
+  "budget_usd": 3.0,
+  "agent_budget_usd": 1.5,
+  "timeout_s": 1200.0,
+  "window_s": 30.0,
+  "agent_cmd": "/Users/nelson/.local/bin/claude",
+  "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-gud-gotszapp",
+  "fairness": {
+    "tools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "mcp__gud__*"
+    ],
+    "test_command": "python -m pytest -q -x",
+    "same_prompt_preamble": true
+  },
+  "outcome": "completed",
+  "harness_errors": [],
+  "killed": {},
+  "model": "claude-sonnet-5-5",
+  "wall_s": 100.1,
+  "cost_usd": 0.206,
+  "tokens": {
+    "input": 4585,
+    "output": 8414,
+    "cache_read": 175564,
+    "cache_creation": 20566
+  },
+  "tokens_total": 209129,
+  "turns": 17,
+  "hidden": {
+    "passed": 17,
+    "failed": 0,
+    "total": 17,
+    "pass_rate": 1.0
+  },
+  "spec_checks": {
+    "test_make_server_is_threading_http_server": true,
+    "test_put_new_then_replace": true,
+    "test_get": true,
+    "test_get_missing": true,
+    "test_delete": true,
+    "test_list_keys_sorted": true,
+    "test_ttl_expires": true,
+    "test_put_without_ttl_clears_old_ttl": true,
+    "test_bad_put_is_400[not json]": true,
+    "test_bad_put_is_400[[1, 2]]": true,
+    "test_bad_put_is_400[{\"nope\": 1}]": true,
+    "test_bad_put_is_400[{\"value\": 1, \"ttl\": 0}]": true,
+    "test_bad_put_is_400[{\"value\": 1, \"ttl\": -3}]": true,
+    "test_bad_put_is_400[{\"value\": 1, \"ttl\": \"soon\"}]": true,
+    "test_unknown_path_is_error": true,
+    "test_servers_have_separate_stores": true,
+    "test_cli_serves": true
+  },
+  "final_tests_pass": true,
+  "final_files": [
+    ".gud/members",
+    "README.md",
+    "kv_server.py",
+    "tests/test_kv.py",
+    "tests/test_smoke.py"
+  ],
+  "escalations": 0,
+  "local_test_runs": 1,
+  "hidden_access": [],
+  "integrations": 2,
+  "integrations_per_min": 1.199,
+  "test_runs": 2,
+  "test_runs_per_integration": 1.0,
+  "conflicts_total": 0,
+  "conflicts_resolved": 0,
+  "gud": {
+    "links": 2,
+    "links_per_min": 1.199,
+    "pushes": 2,
+    "emails": 5,
+    "emails_by_kind": {
+      "push": 2,
+      "task": 1,
+      "test": 2
+    },
+    "emails_per_link": 2.5,
+    "test_runs": 2,
+    "test_failures": 0,
+    "test_runs_per_link": 1.0,
+    "proposal_statuses": {},
+    "superseded": 0,
+    "stale": 0,
+    "conflict_status": 0,
+    "objected_pushes": 0,
+    "objections": 0,
+    "approvals": 0,
+    "rebase_tool_conflicts": 0,
+    "push_tool_errors": 1,
+    "wait_timeouts": 2,
+    "tool_errors": 1,
+    "first_link_s": 14.0,
+    "link_list": [
+      {
+        "id": "<683be27c8e2d48bfad815af605047ab3@gud.local>",
+        "author": "@a1",
+        "seq": 1,
+        "task": "T1",
+        "at_s": 14.0,
+        "subject": "[gud] @a1 takes kv_server.py (full implementation). @a2: please write tests/test_kv.py"
+      },
+      {
+        "id": "<499404946e734d52be734161fd735759@gud.local>",
+        "author": "@a2",
+        "seq": 2,
+        "task": "T1",
+        "at_s": 30.9,
+        "subject": "[gud] @a2 adds tests/test_kv.py (all endpoints, TTL, errors). Not touching kv_server.p"
+      }
+    ],
+    "conflicts": []
+  },
+  "agents": [
+    {
+      "handle": "@a1",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 98.7,
+      "turns": 9,
+      "tokens": {
+        "input": 2293,
+        "output": 2841,
+        "cache_read": 92673,
+        "cache_creation": 8444
+      },
+      "cost_usd": 0.082958,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 8,
+      "tool_counts": {
+        "Bash": 1,
+        "mcp__gud__export": 1,
+        "mcp__gud__log": 1,
+        "mcp__gud__ls": 1,
+        "mcp__gud__push": 1,
+        "mcp__gud__status": 2,
+        "mcp__gud__wait": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "`kv_server.py` and `tests/test_kv.py` are both on the shared repo, and `python -m pytest -q` passes there (19 passed in about 10 seconds). I ran that against an export of the tip.\n\nI wrote `kv_server.py`, covering all the endpoints and the `--host`/`--port` command line. @a2 wrote the tests for the endpoints, TTL expiry and the error cases.\n\nI didn't start the server from the command line; I only ran the test suite. Nobody is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 1
+    },
+    {
+      "handle": "@a2",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 97.2,
+      "turns": 8,
+      "tokens": {
+        "input": 2292,
+        "output": 5573,
+        "cache_read": 82891,
+        "cache_creation": 12122
+      },
+      "cost_usd": 0.12303,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 7,
+      "tool_counts": {
+        "mcp__gud__ls": 1,
+        "mcp__gud__push": 2,
+        "mcp__gud__read": 1,
+        "mcp__gud__status": 2,
+        "mcp__gud__wait": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The key-value server and its tests are both in the shared repo, and my test push landed at tip 2 after the tester ran it. I didn't run `python -m pytest -q` myself; the tester's `-x` run on my push is the only test result I have. @a1 wrote `kv_server.py`, which I read through and didn't change. I wrote `tests/test_kv.py`.\n\nMy first push of a server was rejected because `kv_server.py` already existed, so I dropped it.\n\nThe tests start a server on port 0 in a thread and cover the following:\n- GET, PUT and DELETE on a key, and the sorted key listing at `/kv`.\n- TTL expiry: a key disappears from GET, the listing and DELETE, an expired key counts as new on the next PUT, and a PUT replaces the ttl.\n- Bad PUT bodies, invalid JSON, wrong paths and wrong methods.\n- Two servers having separate stores.\n\nNo review from another agent is waiting on me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 0
+    }
+  ]
+}

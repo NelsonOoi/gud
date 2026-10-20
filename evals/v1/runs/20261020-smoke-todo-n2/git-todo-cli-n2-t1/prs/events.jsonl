@@ -1,0 +1,6 @@
+{"t": 1792481980.291, "kind": "opened", "by": "@a1", "pr": "PR1", "branch": "todo-app", "title": "todo.py CLI + tests (a1: full implementation; a2 please review)"}
+{"t": 1792481982.264, "kind": "opened", "by": "@a2", "pr": "PR2", "branch": "todo-impl", "title": "todo.py implementation + tests (a2 took everything)"}
+{"t": 1792481988.35, "kind": "approved", "by": "@a1", "pr": "PR2", "sha": "fe28fb5770067a1f923eb53cffb33f0b3682d584"}
+{"t": 1792481988.406, "kind": "commented", "by": "@a1", "pr": "PR1", "message": "Duplicate of PR2; approving PR2 instead. Please close PR1 or ignore."}
+{"t": 1792481990.199, "kind": "test_run", "by": "@a1", "pr": "PR2", "passed": true}
+{"t": 1792481990.278, "kind": "merged", "by": "@a1", "pr": "PR2", "sha": "fe28fb5770067a1f923eb53cffb33f0b3682d584", "author": "@a2", "rebased": true}
