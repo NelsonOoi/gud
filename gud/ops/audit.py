@@ -215,7 +215,7 @@ def audit(mirror, *, retained: Sequence[LogEntry] | None = None,
         if env is not None and env.kind in VOTE_KINDS and env.sent_ms is not None and when - env.sent_ms > cfg.grace:
             late.append((gid, when - env.sent_ms))
 
-    repo = bare_address(log.repo or "")
+    repos = {bare_address(r) for r in log.repos}       # a handover may have moved the address
     head_time = log.head.time if log.head is not None else 0
     retimed: list[tuple[Hex, Ms, Ms]] = []
     withheld: list[Hex] = []
@@ -225,7 +225,7 @@ def audit(mirror, *, retained: Sequence[LogEntry] | None = None,
         email = mime.to_email(raw)
         if email is None or email.gud_id in done:
             continue
-        if repo and repo not in {bare_address(a) for a in (*email.to, *email.cc)}:
+        if repos and not repos & {bare_address(a) for a in (*email.to, *email.cc)}:
             continue
         done.add(email.gud_id)
         gid = email.gud_id

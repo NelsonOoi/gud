@@ -93,10 +93,20 @@ def member_config(home: Path, handle: Handle) -> tuple[str, dict[str, str]]:
     Top-level keys and the keys of a table named after the transport are merged (the table
     wins); `<key>_env` values are read from the environment into `<key>`."""
     path = Path(home) / "members" / handle / "transport.toml"
+    if not path.exists():
+        raise TransportError(f"no transport config for {handle} at {path}")
+    return read_transport_toml(path)
+
+
+def read_transport_toml(path: Path) -> tuple[str, dict[str, str]]:
+    """A transport.toml (a member's, or a host directory's) -> (transport name, string config):
+    top-level keys merged with the table named after the transport; `<key>_env` values are read
+    from the environment into `<key>`, so secrets need not be written to the file."""
+    path = Path(path)
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise TransportError(f"no transport config for {handle} at {path}") from exc
+        raise TransportError(f"no transport config at {path}") from exc
     except tomllib.TOMLDecodeError as exc:
         raise TransportError(f"{path}: {exc}") from exc
     name = str(data.get("transport") or "").strip().lower()

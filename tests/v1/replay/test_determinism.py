@@ -178,6 +178,28 @@ def test_checkpoint_snapshot_resume(scenario):
     assert chain == full.chain()
 
 
+def test_checkpoint_chain_before_any_log_is_fed(scenario, tmp_path):
+    """Regression (integration): `chain()` on a replayer resumed from a checkpoint, before any log
+    entry is fed, used to raise LogError (the processed head indexed the empty log)."""
+    k, full, delta = scenario
+    entries = k.entries()
+    n = len(entries) // 2
+    first = Replayer(k.store)
+    first.feed(k.emails, entries[:n + 1], entries[n].time)
+    snap = first.snapshot()
+    resumed = Replayer.from_checkpoint(snap.to_bytes(), k.store, state_dir=tmp_path / "cp")
+    chain = resumed.chain()
+    assert chain.log_head == snap.log_head and chain.links == first.chain().links
+    assert resumed.snapshot().hash() == snap.hash()
+    resumed.save()                                       # and it survives a restart before feeding
+    again = Replayer.load(tmp_path / "cp", k.store)
+    assert again.chain().log_head == snap.log_head
+    again.feed(k.emails, entries[: n // 2], k.now)       # a partial log, still before the head
+    assert again.chain().log_head == snap.log_head
+    again.feed(k.emails, entries, k.now)
+    assert again.chain() == full.chain()
+
+
 def test_checkpoint_messages_validity():
     k = Kit()
     g = k.genesis({"a": "1\n"})

@@ -20,6 +20,7 @@ def test_push_refuses_build_output_until_it_is_ignored(repo: LocalRepo):
     (root / "__pycache__" / "lib.cpython-313.pyc").write_bytes(b"\x00\x01")
     (root / ".pytest_cache" / "v").mkdir(parents=True)
     (root / ".pytest_cache" / "v" / "nodeids").write_text("[]")
+    (root / ".gudignore").write_text("*.log\n")                # a .gudignore that forgets build output
     out = json.loads(alice.push("add lib"))
     assert "error" in out and ".gudignore" in out["error"] and "__pycache__/" in out["error"]
     assert ".pytest_cache/" in out["error"]
@@ -27,6 +28,19 @@ def test_push_refuses_build_output_until_it_is_ignored(repo: LocalRepo):
     (root / ".gudignore").write_text("__pycache__/\n.pytest_cache/\n")
     out = json.loads(alice.push("add lib"))
     assert out["status"] == "linked" and out["files"] == [".gudignore", "lib.py"]
+
+
+def test_build_output_is_ignored_by_default(repo: LocalRepo):
+    """With no .gudignore at all, the default rules (gud.wc.ignore.DEFAULT_GUDIGNORE) apply."""
+    repo.genesis({"app.py": "x = 1\n"})
+    repo.clone("@alice")
+    alice = repo.tools("@alice")
+    root = repo.wc_dir("@alice")
+    (root / "lib.py").write_text("def f():\n    return 1\n")
+    (root / "__pycache__").mkdir()
+    (root / "__pycache__" / "lib.cpython-313.pyc").write_bytes(b"\x00\x01")
+    out = json.loads(alice.push("add lib"))
+    assert out["status"] == "linked" and out["files"] == ["lib.py"]
 
 
 def test_push_with_edits_for_members_without_a_working_copy(repo: LocalRepo):

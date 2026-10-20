@@ -13,7 +13,7 @@ Endpoints (`create_app`):
 | POST | `/api/v1/delivery` | member; `{"webhook": url}` / `{"sse": true}` / `{"email": true}` |
 | GET | `/api/v1/bugs` | member |
 | POST | `/api/v1/webhook/<provider>` | the provider's own signature (`WebhookVerifier`) |
-| POST | `/api/v1/admin/{tick,catch-up,pump,inject}` | loopback only |
+| POST | `/api/v1/admin/{tick,catch-up,pump,inject,handover}` | loopback only |
 
 "Member" is mirror auth v1 (§21): `X-Gud-Handle`, `X-Gud-Time`, `X-Gud-Sig` over
 `"{METHOD} {path_with_query} {time} {sha256(body)}"`, verified against `.gud/members` at the tip,
@@ -56,7 +56,7 @@ from gud.transport.base import Mailbox, TransportError
 
 __all__ = [
     "create_app", "create_webhook_app", "verify_request", "sign_request", "request_bytes", "format_time",
-    "Host", "open_host", "run_host", "serve", "LOOPBACK_HOSTS",
+    "Host", "open_host", "run_host", "serve", "serve_dir", "LOOPBACK_HOSTS",
 ]
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
@@ -86,7 +86,12 @@ def create_app(intake: Intake, dispatcher: Dispatcher, registry: DeliveryRegistr
         if is_loopback(request):
             handle = request.headers.get(AUTH_HANDLE)
             return handle if handle and E.is_handle(handle) else None
-        handle = verify_request(intake.members(), request.method, _path_with_query(request), body,
+        members = intake.members()
+        if members is None:
+            # before genesis there is no member to sign as, and the genesis author needs the
+            # log head for its Gud-Seen: the mirror is open until genesis links
+            return None
+        handle = verify_request(members, request.method, _path_with_query(request), body,
                                 request.headers, now())
         if handle is None:
             raise HTTPException(401, "member signature required")
@@ -261,6 +266,16 @@ def create_app(intake: Intake, dispatcher: Dispatcher, registry: DeliveryRegistr
         loopback_only(request)
         return {"delivered": dispatcher.pump()}
 
+    @app.post("/api/v1/admin/handover")
+    async def admin_handover(request: Request):
+        loopback_only(request)
+        try:
+            obj = json.loads(await request.body() or b"{}")
+            entry = intake.handover(str(obj["key"]), repo=obj.get("repo") or None)
+        except (KeyError, ValueError, TypeError) as exc:
+            raise HTTPException(400, f"handover: {exc}") from exc
+        return {"seq": entry.seq, "hash": entry.hash, "next": entry.field("next"), "repo": entry.field("repo")}
+
     @app.post("/api/v1/admin/inject")
     async def admin_inject(request: Request):
         loopback_only(request)
@@ -322,11 +337,12 @@ class Host:
 def open_host(home: Path, *, repo: str, mailbox: Mailbox, host_private: bytes, bugs: Mailbox | None = None,
               clock: Callable[[], float] = time.time, http: httpx.Client | None = None,
               store: ObjectStoreLike | None = None, persist_replay: bool = True,
-              dispatcher_kw: Mapping | None = None, intake_kw: Mapping | None = None) -> Host:
-    """Build (or resume) a host under `home/host/`: log.jsonl, mail/, journal/, delivery.json,
-    intake.json, replay/ (the replay cache) and `home/objects` (the object store)."""
+              dispatcher_kw: Mapping | None = None, intake_kw: Mapping | None = None,
+              base: Path | None = None) -> Host:
+    """Build (or resume) a host under `home/host/` (or `base`): log.jsonl, mail/, journal/,
+    delivery.json, intake.json, replay/ (the replay cache) and `home/objects` (the object store)."""
     home = Path(home)
-    base = home / "host"
+    base = Path(base) if base is not None else home / "host"
     base.mkdir(parents=True, exist_ok=True)
     if store is None:
         store = DiskStore(home / "objects") if persist_replay else MemoryStore()
@@ -363,13 +379,16 @@ def open_host(home: Path, *, repo: str, mailbox: Mailbox, host_private: bytes, b
 
 def run_host(home: Path, *, repo: str, mailbox: Mailbox, host_private: bytes, bind: str = "127.0.0.1:8787",
              webhook_bind: str | None = None, bugs: Mailbox | None = None, stop: threading.Event | None = None,
-             log_level: str = "warning") -> None:
+             log_level: str = "warning", base: Path | None = None, store: ObjectStoreLike | None = None,
+             on_ready: Callable[[Host], None] | None = None) -> None:
     """Run a host until `stop` (or Ctrl-C): intake loop + dispatcher thread + the HTTP app (and,
     with `webhook_bind`, a second server with only the provider webhook route)."""
     import uvicorn
 
     stop = stop or threading.Event()
-    host = open_host(home, repo=repo, mailbox=mailbox, host_private=host_private, bugs=bugs)
+    host = open_host(home, repo=repo, mailbox=mailbox, host_private=host_private, bugs=bugs, base=base, store=store)
+    if on_ready is not None:
+        on_ready(host)
     worker = threading.Thread(target=host.intake.run, args=(stop,), name="gud-intake", daemon=True)
     worker.start()
     servers = []
@@ -430,4 +449,45 @@ def serve(home: Path, *, transport: str, bind: str = "127.0.0.1:8787") -> None:
     repo = cfg.get("repo") or mailbox.address
     run_host(home, repo=repo, mailbox=mailbox, host_private=private, bind=bind,
              webhook_bind=cfg.get("webhook_bind") or None)
+
+
+def _decode_key(text: str) -> bytes:
+    """A host key file: `ed25519:<base64 seed>` (`gud host init`) or 64 hex."""
+    value = text.strip()
+    if value.startswith("ed25519:"):
+        raw = base64.b64decode(value[len("ed25519:"):], validate=True)
+    else:
+        raw = bytes.fromhex(value)
+    if len(raw) != 32:
+        raise ValueError("not a 32-byte Ed25519 key")
+    return raw
+
+
+def serve_dir(root: Path, *, bind: str = "127.0.0.1:8787", webhook_bind: str | None = None,
+              stop: threading.Event | None = None, log_level: str = "warning",
+              on_ready: Callable[[Host], None] | None = None) -> None:
+    """`gud host serve`: serve a host directory made by `gud host init` (or `gud init`'s local
+    host): `key`, `host.json` (repo, objects), `transport.toml` (the repo mailbox), and the log and
+    mail it already holds (`log.jsonl`, `mail/`), so a repo started in local host mode continues
+    under the same log. While serving, the directory's `serve.lock` is held and local-mode
+    members only read (`gud.wc.remote.LocalHost.served`)."""
+    import fcntl
+
+    root = Path(root)
+    meta = json.loads((root / "host.json").read_text("utf-8"))
+    private = _decode_key((root / "key").read_text("ascii"))
+    name, cfg = transports.read_transport_toml(root / "transport.toml")     # `<key>_env` from the environment
+    mailbox = transports.open_mailbox(name, cfg)
+    objects = Path(meta.get("objects") or (root / "objects"))
+    lock = open(root / "serve.lock", "a+b")
+    try:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise SystemExit(f"{root} is already being served") from exc
+        run_host(root, repo=meta["repo"], mailbox=mailbox, host_private=private, bind=bind,
+                 webhook_bind=webhook_bind or cfg.get("webhook_bind") or None, stop=stop, log_level=log_level,
+                 base=root, store=DiskStore(objects), on_ready=on_ready)
+    finally:
+        lock.close()
 

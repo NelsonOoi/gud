@@ -329,14 +329,157 @@ def cmd_host_init(args: argparse.Namespace) -> int:
     return ctx.out(data, f"local host for {args.repo} at {root}\nhost key {host.host_key}\nhost url local:{root}")
 
 
+def _host_dir(ctx: Ctx, args: argparse.Namespace) -> Path:
+    """The host directory a host command works on: `--dir`, else the repo's (`--repo`, or the
+    local host this member uses), else the only one under GUD_HOME/host/."""
+    if getattr(args, "dir", None):
+        return Path(args.dir).expanduser().resolve()
+    if getattr(args, "repo", None):
+        return ctx.home / "host" / repo_slug(args.repo)
+    for source in (ctx.local, ctx.remote_json()):
+        url = source.get("host_url") or ""
+        if url.startswith("local:"):
+            return Path(url[len("local:"):]).expanduser().resolve()
+    found = sorted(p.parent for p in (ctx.home / "host").glob("*/host.json")) if (ctx.home / "host").is_dir() else []
+    if len(found) == 1:
+        return found[0]
+    raise CliError("which host? pass --dir DIR (a directory made by `gud host init`)", 2)
+
+
 def cmd_host_serve(args: argparse.Namespace) -> int:
     ctx = Ctx(args)
-    try:
-        from gud import host_v1  # type: ignore[attr-defined]
-    except ImportError:
-        return _not_available(ctx, "host serve", "gud.host_v1")
-    host_v1.serve(ctx.home, transport=args.transport or "", bind=args.bind)
+    from gud import host_v1
+    root = _host_dir(ctx, args)
+    if not (root / "host.json").exists():
+        raise CliError(f"{root} is not a host directory (run `gud host init`)", 2)
+
+    def ready(host) -> None:
+        head = host.intake.head()
+        ctx.out({"serving": f"http://{args.bind}", "dir": str(root), "repo": host.repo, "host_key": host.intake.log.key,
+                 "log_head": head.seq}, f"serving {host.repo} at http://{args.bind} (log head {head.seq})")
+        sys.stdout.flush()
+
+    host_v1.serve_dir(root, bind=args.bind, webhook_bind=args.webhook_bind, on_ready=ready)
     return 0
+
+
+def cmd_host_key(args: argparse.Namespace) -> int:
+    """New host, before a planned handover: the key it will sign with (kept in DIR/key)."""
+    ctx = Ctx(args)
+    from gud.wc.remote import decode_private_key, encode_private_key
+    root = Path(args.dir).expanduser().resolve()
+    path = root / "key"
+    created = not path.exists()
+    if created:
+        root.mkdir(parents=True, exist_ok=True)
+        raw, _ = E.generate_key()
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="ascii") as fh:
+            fh.write(encode_private_key(raw) + "\n")
+    pub = E.public_of(decode_private_key(path.read_text("ascii")))
+    return ctx.out({"dir": str(root), "host_key": pub, "created": created}, pub)
+
+
+def cmd_host_handover(args: argparse.Namespace) -> int:
+    """Old host: sign the planned handover (§11.6) to a new host key, optionally to a new repo
+    address; then `gud export-archive --host OUT` and give the archive to the new host."""
+    ctx = Ctx(args)
+    root = _host_dir(ctx, args)
+    if not E.is_public_key(args.key):
+        raise CliError(f"not a public key: {args.key!r}", 2)
+    try:
+        entry = LocalHost(root).handover(args.key, repo=args.new_repo)
+    except (RemoteError, ValueError) as exc:
+        raise CliError(str(exc)) from exc
+    return ctx.out({"dir": str(root), "seq": entry.seq, "hash": entry.hash, "next": args.key,
+                    "repo": entry.field("repo")},
+                   f"handover {entry.seq} to {args.key}" + (f" at {args.new_repo}" if args.new_repo else ""))
+
+
+def cmd_host_follow(args: argparse.Namespace) -> int:
+    """Member: move to a new host URL after a handover. The new mirror's log must continue the
+    log this member verified (handover, then the new host's open); the cache is kept."""
+    ctx = Ctx(args)
+    old = ctx.client()
+    handle = old.handle
+    new = RepoClient(args.host_url, handle, ctx.key(handle), send_via=ctx.mailbox(handle), repo_address=old.repo,
+                     home=ctx.home, trusted_host_keys=old.trusted_host_keys)
+    try:
+        new.sync_log()
+    except RemoteError as exc:
+        raise CliError(f"the new host does not continue this repo's log: {exc}") from exc
+    log = new.replayer().log()
+    ctx.save_remote(args.host_url, old.repo, handle)
+    if ctx.wc_root is not None:
+        cfg = read_local_config(ctx.wc_root)
+        cfg["host_url"] = args.host_url
+        wc_copy.write_local_config(ctx.wc_root, cfg)
+    return ctx.out({"host_url": args.host_url, "repo": log.repo, "repos": list(log.repos), "host_key": log.key,
+                    "log_head": log.head.seq if log.head else None},
+                   f"following {log.repo} at {args.host_url} (host key {log.key})")
+
+
+def cmd_import_archive(args: argparse.Namespace) -> int:
+    """New host: continue an archived repo (§11.6) in a new host directory; serve it with
+    `gud host serve --dir DIR`. The key is DIR/key (`gud host key`), else a new one."""
+    ctx = Ctx(args)
+    from gud.ops.archive import ArchiveError, import_archive, load_archive
+    from gud.wc.remote import decode_private_key
+    try:
+        archived = load_archive(Path(args.archive))
+    except ArchiveError as exc:
+        raise CliError(str(exc)) from exc
+    from gud.core.hostlog import HostLog
+    head = archived.entries[-1]
+    target_repo = args.repo or (head.field("repo") if head.type == "handover" and head.field("repo") else
+                                HostLog(archived.entries).repo)
+    root = Path(args.dir).expanduser().resolve() if args.dir else ctx.home / "host" / repo_slug(target_repo)
+    if (root / "host.json").exists():
+        raise CliError(f"{root} already holds a host")
+    key_file = root / "key"
+    raw = decode_private_key(key_file.read_text("ascii")) if key_file.exists() else E.generate_key()[0]
+    if not args.transport:
+        raise CliError("import-archive needs the new repo mailbox: --transport NAME [--set k=v]", 2)
+    try:
+        log = import_archive(Path(args.archive), repo=args.repo, host_private=raw, mail_store=root / "mail",
+                             trust_unplanned=args.trust_unplanned)
+        host = LocalHost.install(root, log=log, transport=args.transport, cfg=_kv(args.set), host_private=raw,
+                                 objects=ctx.home / "objects")
+    except (ArchiveError, RemoteError) as exc:
+        raise CliError(str(exc)) from exc
+    data = {"dir": str(root), "host_url": f"local:{root}", "repo": log.repo, "host_key": host.host_key,
+            "log_head": log.head.seq if log.head else None, "messages": len(archived.mail)}
+    return ctx.out(data, f"{log.repo} continues at {root} (host key {host.host_key}); "
+                         f"run `gud host serve --dir {root}`")
+
+
+def cmd_host_line(args: argparse.Namespace) -> int:
+    """Members push recording the new host key (and address) in `.gud/members` after a handover."""
+    ctx = Ctx(args)
+    client = ctx.synced()
+    ctx.need_sender(client)
+    from gud.ops.keys import KeysError, host_key_push
+    try:
+        pid = host_key_push(client, args.key, reason=args.message or "", address=args.address)
+    except KeysError as exc:
+        raise CliError(str(exc)) from exc
+    ctx.wait_logged(pid)
+    return ctx.out({"push": pid, "key": args.key, "address": args.address},
+                   f"members push {_short(pid)} records host {args.key}; it needs a human approve (members rule)")
+
+
+def cmd_delivery(args: argparse.Namespace) -> int:
+    """§19.3: how the host delivers this member's events (POST /api/v1/delivery)."""
+    ctx = Ctx(args)
+    client = ctx.client()
+    if args.webhook:
+        body: dict[str, Any] = {"webhook": args.webhook}
+    elif args.sse:
+        body = {"sse": True}
+    else:
+        body = {"email": True}
+    client.set_delivery(body)
+    return ctx.out({"handle": client.handle, **body}, f"{client.handle}: events by {next(iter(body))}")
 
 
 def cmd_host_trust(args: argparse.Namespace) -> int:
@@ -471,8 +614,13 @@ def _setup_host(ctx: Ctx, args: argparse.Namespace, repo: str) -> str:
         path = ctx.home / "members" / ctx.handle / "transport.toml"
         if not path.exists():
             raise CliError("no transport for the repo mailbox: pass --transport NAME [--set k=v]", 2)
-        from gud.wc.remote import _read_toml_transport
-        name, cfg = _read_toml_transport(path)
+        import tomllib
+        data = tomllib.loads(path.read_text("utf-8"))      # unresolved: `<key>_env` stays a reference
+        name = str(data.get("transport") or "")
+        cfg = {k: (("true" if v else "false") if isinstance(v, bool) else str(v))
+               for k, v in data.items() if k != "transport" and not isinstance(v, dict)}
+        if isinstance(data.get(name), dict):
+            cfg.update({k: str(v) for k, v in data[name].items() if not isinstance(v, dict)})
     LocalHost.create(root, repo=repo, transport=name, cfg={k: v for k, v in cfg.items() if k != "address"},
                      objects=ctx.home / "objects")
     return f"local:{root}"
@@ -512,6 +660,10 @@ def _init(ctx: Ctx, args: argparse.Namespace, *, git_dir: str | None, ref: str, 
                 root.mkdir(parents=True, exist_ok=True)
                 if (root / wc_copy.BASE_FILE).exists():
                     raise CliError(f"{root} is already a working copy")
+                ignore_file = root / ".gudignore"
+                if not ignore_file.exists() and not ignore_file.is_symlink():
+                    from gud.wc.ignore import DEFAULT_GUDIGNORE
+                    ignore_file.write_text(DEFAULT_GUDIGNORE, "utf-8")      # build output is never pushed
                 tmp = WorkingCopy(root, client)
                 files = tmp._scan(Tree.empty(client.store)).to_files()
                 warnings = tmp.warnings
@@ -674,7 +826,7 @@ def cmd_push(args: argparse.Namespace) -> int:
     revises = ctx.resolve(args.revises)
     try:
         result = wc.push(args.message, task=task, revises=revises, carry=not args.no_carry,
-                         allow_secret=args.allow_secret or ())
+                         allow_secret=args.allow_secret or (), allow_artifacts=args.allow_artifacts)
     except wc_copy.SecretsFound as exc:
         raise CliError(str(exc), 1, {"secrets": [dataclasses.asdict(h) for h in exc.hits]}) from exc
     logged = ctx.wait_logged(result.push)
@@ -798,44 +950,8 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 
 def _review(client: RepoClient) -> list[dict]:
-    chain = client.chain()
-    me = client.handle
-    members = client.reader().members() if chain.tip else None
-    member = members.get(me) if members else None
-    items: list[dict] = []
-    for cid in sorted(chain.proposals):
-        prop = chain.proposals[cid]
-        if prop.status not in LIVE_STATUSES:
-            continue
-        approved = {h for h, _ in prop.approvals}
-        if prop.author == me:
-            for obj in prop.objections:
-                if obj.status in ("blocking", "pending_verdict", "confirmed"):
-                    items.append({"type": "objection", "candidate": cid, "push": prop.push, "objection": obj.id,
-                                  "by": obj.by, "reason": obj.reason, "status": obj.status})
-            continue
-        if me in approved:
-            continue
-        why = []
-        if me in prop.askers:
-            why.append("asker")
-        why += [f"explicit {path}" for path, rule, owners in prop.declared if rule == "explicit" and me in owners]
-        if prop.quorum_needed and member is not None and member.votes:
-            why.append("quorum")
-        if prop.members_rule and member is not None and member.role == "human":
-            why.append("members")
-        if why:
-            items.append({"type": "review", "candidate": cid, "push": prop.push, "author": prop.author,
-                          "status": prop.status, "why": why, "files": list(prop.files),
-                          "closes_at": prop.window_closes_at})
-    for esc in chain.escalations.values():
-        if esc.status == "open" and me in esc.deciders:
-            items.append({"type": "escalation", "escalation": esc.id, "reason": esc.reason,
-                          "pushes": list(esc.pushes), "deadline": esc.deadline})
-    for task in chain.tasks.values():
-        if task.status == "work_done" and task.requester == me and not (task.accept_paths or task.accept_cmds):
-            items.append({"type": "accept", "task": task.id, "alias": task.alias, "title": task.title})
-    return items
+    from gud.wc.review import needs_of
+    return needs_of(client)
 
 
 def cmd_review(args: argparse.Namespace) -> int:
@@ -855,8 +971,12 @@ def cmd_review(args: argparse.Namespace) -> int:
                 lines.append(f"objection {_short(it['objection'])} by {it['by']} on your push {_short(it['push'])}: {it['reason']}")
             elif it["type"] == "escalation":
                 lines.append(f"escalation {_short(it['escalation'])} ({it['reason']}) needs your decision")
-            else:
+            elif it["type"] == "accept":
                 lines.append(f"accept {it['alias']} {it['title']}")
+            elif it["type"] == "lease":
+                lines.append(f"your claim {_short(it['claim'])} lapses at {_when(it['lapses_at'])}")
+            else:
+                lines.append(f"your claim {_short(it['claim'])} overlaps {it['holder']}'s {_short(it['other'])}")
         return "\n".join(lines)
 
     return ctx.out({"items": items}, text)
@@ -1136,7 +1256,9 @@ def _not_available(ctx: Ctx, command: str, module: str) -> int:
     return 2
 
 
-def _stub(command: str, module: str) -> Callable[[argparse.Namespace], int]:
+def _delegate(command: str, module: str) -> Callable[[argparse.Namespace], int]:
+    """A command that runs `module.main(argv)` with the global `--home`/`--handle` (and the working
+    copy, `--wc`, when run inside one) followed by the command's own arguments."""
     def run(args: argparse.Namespace) -> int:
         ctx = Ctx(args)
         try:
@@ -1146,30 +1268,95 @@ def _stub(command: str, module: str) -> Callable[[argparse.Namespace], int]:
         main = getattr(mod, "main", None)
         if main is None:
             return _not_available(ctx, command, module + ".main")
-        return int(main(list(getattr(args, "rest", []) or [])) or 0)
+        rest = list(getattr(args, "rest", []) or [])
+        argv = ["--home", str(ctx.home)]
+        try:
+            argv += ["--handle", ctx.handle]
+        except CliError:
+            pass                                  # the module finds the member itself, or says so
+        if ctx.wc_root is not None and "--wc" not in rest:
+            argv += ["--wc", str(ctx.wc_root)]
+        if command == "mcp" and ctx.json and "--json" not in rest:
+            argv.append("--json")
+        return int(main(argv + rest) or 0)
     run.__name__ = "cmd_" + command.replace(" ", "_").replace("-", "_")
     return run
 
 
+cmd_agent = _delegate("agent", "gud.agent.runtime")
+cmd_mcp = _delegate("mcp", "gud.mcp_v1")
+
+
+def cmd_tester(args: argparse.Namespace) -> int:
+    """`gud tester`: this member (role tester) runs the repo's test policy (gud.tester_v1)."""
+    ctx = Ctx(args)
+    import logging
+
+    from gud import tester_v1
+    client = ctx.client(args.host_url, args.repo) if args.host_url else ctx.client()
+    ctx.need_sender(client)
+    tester = tester_v1.Tester(client, tester_v1.make_runner(args.runner),
+                              identity=tester_v1.TesterIdentity(client.handle, client.private_raw),
+                              parallel=args.parallel, state_dir=ctx.home / "tester" / client.handle)
+    if args.once:
+        sent = tester.step()
+        return ctx.out({"handle": client.handle, "sent": sent}, f"tester {client.handle}: {len(sent)} results sent")
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(asctime)s %(name)s %(message)s")
+    print(f"tester {client.handle} running ({args.runner}, every {args.interval}s)", file=sys.stderr)
+    tester.run_forever(interval=args.interval)
+    return 0
+
+
 def cmd_audit(args: argparse.Namespace) -> int:
     ctx = Ctx(args)
-    try:
-        from gud.ops.audit import audit  # type: ignore[import-not-found]
-    except ImportError:
-        return _not_available(ctx, "audit", "gud.ops.audit")
-    report = audit(ctx.synced())
-    ctx.out(report, "audit ok" if report.ok else "audit found problems")
-    return 0 if report.ok else 1
+    from gud.ops.audit import audit
+    client = ctx.client()
+    sync_error = None
+    if not ctx.offline:
+        try:
+            client.sync_log()
+        except RemoteError as exc:            # a forked or rolled-back log is what audit reports
+            sync_error = str(exc)
+    report = audit(client, trusted_keys=client.trusted_host_keys)
+    data = report.to_json() | {"sync_error": sync_error}
+    if args.evidence:
+        Path(args.evidence).write_text(json.dumps(report.to_json(), indent=1, sort_keys=True) + "\n", "utf-8")
+    ctx.out(data, "audit ok" if report.ok else "audit found problems:\n" + json.dumps(report.to_json(), indent=1))
+    return report.exit_status
+
+
+class _HostFiles:
+    """A host directory (`gud host init` layout) as an archive source: the log and raw mail on disk."""
+
+    def __init__(self, root: Path) -> None:
+        self.host = LocalHost(root)
+
+    def log_entries(self, since: int, limit: int):
+        from gud.core.hostlog import decode_entry
+        return [decode_entry(t.encode("utf-8")) for t in self.host.log(since, limit)["entries"]]
+
+    def raw(self, gud_id: Hex) -> bytes | None:
+        return self.host.mail(gud_id)
 
 
 def cmd_export_archive(args: argparse.Namespace) -> int:
     ctx = Ctx(args)
+    from gud.ops.archive import ArchiveError, export_archive
     try:
-        from gud.ops.archive import export_archive  # type: ignore[import-not-found]
-    except ImportError:
-        return _not_available(ctx, "export-archive", "gud.ops.archive")
-    out = export_archive(ctx.synced(), Path(args.out))
-    return ctx.out({"archive": str(out)}, f"archive at {out}")
+        if args.host:
+            root = _host_dir(ctx, args)
+            from gud.wc.remote import decode_private_key
+            key = decode_private_key((root / "key").read_text("ascii"))
+            out = export_archive(_HostFiles(root), Path(args.out), signer=key)
+        else:
+            client = ctx.synced()
+            out = export_archive(client, Path(args.out), trusted_keys=client.trusted_host_keys)
+    except ArchiveError as exc:
+        raise CliError(str(exc)) from exc
+    manifest = json.loads((out / "manifest.json").read_text("utf-8")) if out.is_dir() else {}
+    return ctx.out({"archive": str(out), "entries": manifest.get("log", {}).get("entries"),
+                    "messages": manifest.get("mbox", {}).get("messages"), "missing": manifest.get("missing")},
+                   f"archive at {out}")
 
 
 # ---------------------------------------------------------------- parser
@@ -1220,11 +1407,32 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--set", action="append", metavar="KEY=VALUE")
     p.add_argument("--bugs")
     p.add_argument("--dir", help="host directory (default GUD_HOME/host/<repo>)")
-    p = add("serve", cmd_host_serve, "serve the §21 mirror (gud.host_v1)", host)
+    p = add("serve", cmd_host_serve, "serve a host directory: intake, dispatch and the §21 mirror (gud.host_v1)", host)
     p.add_argument("--bind", default="127.0.0.1:8787")
-    p.add_argument("--transport")
+    p.add_argument("--webhook-bind", help="a second port with only the provider webhook route")
+    p.add_argument("--dir", help="host directory (default: this member's local host, or the only one)")
+    p.add_argument("--repo", help="pick the host directory by repo address")
+    p = add("key", cmd_host_key, "create (or show) a host key in a new host directory, for a handover", host)
+    p.add_argument("--dir", required=True)
+    p = add("handover", cmd_host_handover, "old host: sign the handover to a new host key (§11.6)", host)
+    p.add_argument("key", help="the new host's public key (ed25519:...)")
+    p.add_argument("--new-repo", help="the repo's new address, when it moves (integration note 4)")
+    p.add_argument("--dir", help="host directory (default: this member's local host, or the only one)")
+    p.add_argument("--repo", help="pick the host directory by repo address")
+    p = add("line", cmd_host_line, "members push recording the new host key (and address)", host)
+    p.add_argument("key")
+    p.add_argument("--address", help="the repo's new address, when it moved")
+    p.add_argument("-m", "--message")
+    p = add("follow", cmd_host_follow, "move to the new host after a handover (keeps the cache)", host)
+    p.add_argument("host_url")
     p = add("trust", cmd_host_trust, "trust a host key after an unplanned handover (§11.6)", host)
     p.add_argument("key")
+
+    p = add("delivery", cmd_delivery, "how the host delivers my events: --webhook URL, --sse or --email")
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--webhook", metavar="URL")
+    g.add_argument("--sse", action="store_true")
+    g.add_argument("--email", action="store_true")
 
     p = add("doctor", cmd_doctor, "check key, transport (round trip), mirror and membership")
     transport_args(p)
@@ -1279,6 +1487,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--revises")
     p.add_argument("--no-carry", action="store_true")
     p.add_argument("--allow-secret", action="append", metavar="PATH")
+    p.add_argument("--allow-artifacts", action="store_true", help="push build output (__pycache__, ...) anyway")
     add("sync", cmd_sync, "merge the tip into the working copy (stops on conflict)")
     p = add("log", cmd_log, "links, newest first")
     p.add_argument("-n", type=int, default=20)
@@ -1354,20 +1563,39 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--branch", default="gud")
     p.add_argument("--workdir")
 
-    for name, module in (("agent", "gud.agent.runtime"), ("tester", "gud.tester_v1"),
-                         ("import-archive", "gud.ops.archive")):
-        p = add(name, _stub(name, module), f"run {module} (not part of the working-copy layer)")
-        p.add_argument("rest", nargs=argparse.REMAINDER)
-    p = add("export-archive", cmd_export_archive, "export the mailbox, log and snapshots (gud.ops.archive)")
+    p = add("agent", cmd_agent, "run the reference agent as this member (gud.agent.runtime; its options follow)")
+    p.set_defaults(passthrough=True)
+    p = add("mcp", cmd_mcp, "run the MCP server (stdio) as this member (gud.mcp_v1; its options follow)")
+    p.set_defaults(passthrough=True)
+    p = add("tester", cmd_tester, "run the tester (gud.tester_v1) as this member")
+    p.add_argument("--runner", default="local", choices=["local", "docker", "instabox"])
+    p.add_argument("--parallel", type=int, default=1)
+    p.add_argument("--interval", type=float, default=5.0, help="seconds between passes")
+    p.add_argument("--once", action="store_true", help="one pass, then exit")
+    p.add_argument("--host-url", help="host URL (default: this member's repo)")
+    p.add_argument("--repo", help="repo address (with --host-url)")
+    p = add("export-archive", cmd_export_archive, "export the mailbox, log and snapshot (gud.ops.archive)")
     p.add_argument("out")
+    p.add_argument("--host", action="store_true", help="export a host directory, signed by the host key")
+    p.add_argument("--dir", help="host directory (with --host)")
+    p = add("import-archive", cmd_import_archive, "continue an archived repo on a new host (gud.ops.archive)")
+    p.add_argument("archive")
+    p.add_argument("--repo", help="repo address (default: the archived log's, or the handover's new address)")
+    p.add_argument("--dir", help="new host directory (default GUD_HOME/host/<repo>)")
+    p.add_argument("--trust-unplanned", action="store_true", help="§11.6 unplanned handover")
+    transport_args(p)
     p = add("audit", cmd_audit, "host log audit (gud.ops.audit)")
-    p.add_argument("--evidence")
+    p.add_argument("--evidence", help="write the report (with any fork proof) to this file")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args, unknown = parser.parse_known_args(argv)
+    if unknown:
+        if not getattr(args, "passthrough", False):
+            parser.error(f"unrecognized arguments: {' '.join(unknown)}")
+        args.rest = unknown                       # gud agent / gud mcp: the module's own options
     try:
         return int(args.func(args) or 0)
     except CliError as exc:

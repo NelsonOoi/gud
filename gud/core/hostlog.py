@@ -18,10 +18,11 @@ _FIELDS: dict[str, tuple[str, ...]] = {
     "open": ("repo", "key", "from"),
     "mail": ("id",),
     "tick": (),
-    "handover": ("next",),
+    "handover": ("next", "repo"),
 }
 _UINT_RE = re.compile(r"0|[1-9][0-9]*")
 _SEEN_RE = re.compile(r"(0|[1-9][0-9]*):([0-9a-f]{64})")
+_ADDR_RE = re.compile(r"[^@\s]+@[^@\s]+")
 
 
 def entry_bytes(seq: int, prev: Hex, time: Ms, type: str, fields: Sequence[tuple[str, str]]) -> bytes:
@@ -46,6 +47,9 @@ def _check_fields(type: str, fields: Sequence[tuple[str, str]], seq: int) -> Non
             raise LogError("open needs repo, key and optionally from")
         if (seq == 0) != (len(names) == 2):
             raise LogError("from is required on a continuing open and forbidden at seq 0")
+    elif type == "handover":
+        if names not in (["next"], ["next", "repo"]):
+            raise LogError("handover needs next and optionally repo (the new repo address)")
     elif names != list(allowed):
         raise LogError(f"{type} fields must be {', '.join(allowed) or 'empty'}")
     for key, value in fields:
@@ -57,6 +61,8 @@ def _check_fields(type: str, fields: Sequence[tuple[str, str]], seq: int) -> Non
             raise LogError("bad mail id")
         if key == "from" and not _SEEN_RE.fullmatch(value):
             raise LogError("bad from value")
+        if key == "repo" and not _ADDR_RE.fullmatch(value):
+            raise LogError("bad repo address")
 
 
 def decode_entry(text: bytes) -> LogEntry:
@@ -113,6 +119,7 @@ class HostLog:
         self._keys: list[str] = []          # signing key of each entry
         self._next_key: str | None = None   # key current for the next entry
         self._repo: str | None = None
+        self._repos: list[str] = []         # every repo address, oldest first (a handover may move it)
         self._mail: dict[Hex, int] = {}
         self._trusted = tuple(trusted_keys)
         if entries:
@@ -132,6 +139,23 @@ class HostLog:
 
     @property
     def repo(self) -> str | None:
+        """The current repo address: the `repo` of the latest `open`."""
+        return self._repo
+
+    @property
+    def repos(self) -> tuple[str, ...]:
+        """Every address the repo has had in this log, oldest first."""
+        return tuple(self._repos)
+
+    @property
+    def trusted_keys(self) -> tuple[str, ...]:
+        return self._trusted
+
+    def next_repo(self) -> str | None:
+        """The repo address the next `open` must name: a final handover's `repo`, else the current."""
+        head = self.head
+        if head is not None and head.type == "handover" and head.field("repo"):
+            return head.field("repo")
         return self._repo
 
     def __len__(self) -> int:
@@ -183,8 +207,10 @@ class HostLog:
             key = entry.field("key") or ""
         elif entry.type == "open":
             key = entry.field("key") or ""
-            if entry.field("repo") != self._repo:
-                raise LogError(f"entry {n}: open names a different repo")
+            want = head.field("repo") if head.type == "handover" and head.field("repo") else self._repo  # type: ignore[union-attr]
+            if entry.field("repo") != want:
+                raise LogError(f"entry {n}: open names a different repo"
+                               + (" than its handover" if want != self._repo else ""))
             if entry.field("from") != f"{head.seq}:{head.hash}":  # type: ignore[union-attr]
                 raise LogError(f"entry {n}: open must cite the previous entry in from")
             planned = head.type == "handover" and head.field("next") == key  # type: ignore[union-attr]
@@ -204,6 +230,8 @@ class HostLog:
         self._keys.append(key)
         if entry.type == "open":
             self._repo = entry.field("repo")
+            if self._repo not in self._repos:
+                self._repos.append(self._repo)  # type: ignore[arg-type]
             self._next_key = key
         elif entry.type == "handover":
             self._next_key = entry.field("next")
@@ -269,15 +297,21 @@ class HostLog:
     def append_tick(self, host_private: bytes, now: Ms) -> LogEntry:
         return self._sign("tick", (), self._time_after_head(now), host_private)
 
-    def handover(self, old_private: bytes, new_public: str, now: Ms) -> LogEntry:
-        return self._sign("handover", (("next", new_public),), self._time_after_head(now), old_private)
+    def handover(self, old_private: bytes, new_public: str, now: Ms, *, repo: str | None = None) -> LogEntry:
+        """Planned handover (§11.6) to `new_public`; `repo` names the repo's new address when the
+        new host takes it to another one (integration note 4)."""
+        fields: tuple[tuple[str, str], ...] = (("next", new_public),)
+        if repo is not None and repo != self._repo:
+            fields += (("repo", repo),)
+        return self._sign("handover", fields, self._time_after_head(now), old_private)
 
     def continue_after_handover(self, new_private: bytes, now: Ms) -> LogEntry:
         """The new host's first entry: open citing the previous entry (planned, or a trusted key)."""
         head = self.head
         if head is None or self._repo is None:
             raise LogError("log is not open")
-        fields = (("repo", self._repo), ("key", public_of(new_private)), ("from", f"{head.seq}:{head.hash}"))
+        fields = (("repo", self.next_repo() or self._repo), ("key", public_of(new_private)),
+                  ("from", f"{head.seq}:{head.hash}"))
         return self._sign("open", fields, self._time_after_head(now), new_private)
 
     # ------------------------------------------------------------ members

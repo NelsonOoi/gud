@@ -1666,6 +1666,27 @@ Public additions and changes in `gud/wc/` and `gud/cli_v1.py`, all backward comp
   - `WorkingCopy.adopt(client, root, base) -> WorkingCopy` (an existing directory after `gud init`), `WorkingCopy.fast_forward() -> bool`, `WorkingCopy.warnings`.
   - Module functions: `build_push(client, parent, before, after, intent, *, kind="push", headers=None) -> (Envelope, blobs, ops)`, `create_genesis(client, files, intent="genesis") -> Hex`, `push_tree(client, parent, after, intent, *, headers=None) -> Hex`, `verify_cache(client, *, from_checkpoint=True, base=None) -> list[str]`, `conflict_markers(base, mine, theirs, tip_label="tip") -> bytes`, `find_root(start) -> Path | None`, `read_local_config(root)`, `write_local_config(root, data)`, constants `BASE_FILE`, `LOCAL_DIR`.
 - **`gud.cli_v1`**: console entry point `gud1 = "gud.cli_v1:main"` (`gud` stays v0). `build_parser()`. Every command is `cmd_<name>` (nested ones `cmd_<group>_<name>`, e.g. `cmd_task_new`, `cmd_host_init`, `cmd_keys_rotate`, `cmd_mirror_git`). Commands added to the table above: `keys new [--address A] [--transport N] [--set K=V]... [--force]`, `keys show`, `keys promote`, `admit JOIN [-m TEXT]`, `task list [--all]`, `task show ID`. Arguments added: global `-C DIR` and `--offline`; `init [DIR] [--from-git GIT_DIR] [--ref R] [--host-url URL] [--transport N] [--set K=V]... [-m INTENT]`; `import ... [--dir D] [--host-url URL]`; `join ... [--transport N] [--set K=V]...`; `host init ... [--set K=V]... [--dir D]`; `doctor [--transport N] [--set K=V]... [--no-send] [--timeout S]`; `object|veto ... [--test FILE [--test-path P]]`; `comment ... [--verdict reject]`; `checkpoint [--at-log N]`; `mirror git ... [--workdir D]`.
+- The wc tests run against the real host (`gud.host_v1.open_host` over a `FakeMailbox` root, `tests/v1/wc/conftest.py`); the former test double is gone.
+- `gud.core.replay.snapshot_at(entries, mail, seq, store, trusted_host_keys=())` (§17 snapshot bytes at a log position; raises `ReplayError`) is shared by the host, the local host and members; `gud.wc.remote.snapshot_at` wraps it (raises `RemoteError`).
+
+## Addendum: integration
+
+Public additions from joining the layers (see "Implementation notes (integration)" in SPEC-v1.md). All are backward compatible.
+
+- `gud.core.hostlog`: `handover(old_private, new_public, now, *, repo=None)`; `HostLog.repos`, `HostLog.next_repo()`, `HostLog.trusted_keys`. A `handover` entry's fields are `next` and optionally `repo`.
+- `gud.core.replay.snapshot_at` (above). `Replayer.save`/`load` keep the checkpoint head of a replayer resumed from a snapshot.
+- `gud.events.intake.Intake.handover(new_public, *, repo=None) -> LogEntry`; the intake indexes logged checkpoints and `snapshot_bytes` computes the snapshot they name.
+- `gud.host_v1`: `open_host(..., base=None)` (where the host files live; default `home/host`), `run_host(..., base=None, store=None, on_ready=None)`, `serve_dir(root, *, bind, webhook_bind=None, stop=None, log_level="warning", on_ready=None)` (`gud host serve`), `POST /api/v1/admin/handover` (loopback; body `{"key", "repo"?}`). Reads are open before genesis.
+- `gud.ops`: `plan_handover(..., repo=None)`; `import_archive(repo=None | address, ...)`, `log_path` ending in `.jsonl` gets the hosts' format; `edit_members(..., address=None)`; `host_key_push(..., address=None)`.
+- `gud.wc.remote`: the mirror-auth names are `gud.events.dispatch`'s; `client_from_home(home, handle=None, *, host_url=None, repo=None, key=None, clock=time.time)`; `RepoClient.log_entries(since, limit)`, `RepoClient.raw(id)`, `RepoClient.private_raw`, `RepoClient.http`, `RepoClient.repo_address`; `LocalHost.install(root, *, log, transport, cfg, host_private, bugs=None, objects=None)`, `LocalHost.handover(new_public, *, repo=None)`, `LocalHost.served()`.
+- `gud.tester_v1`: `run_tester(client, handle, private_key, *, runner="local", parallel=1, interval=5.0, once=False, state_dir=None, stop=None, events=None) -> Tester`; `main(argv) -> int`; `run_forever` survives `RuntimeError`/`OSError`/`ValueError` from a step.
+- `gud.cli_v1`: `tester` takes `--runner --parallel --interval --once --host-url --repo`; `host serve [--dir D] [--repo R] [--bind] [--webhook-bind]`; `host key --dir D`; `host handover KEY [--new-repo ADDR] [--dir D]`; `host follow URL`; `export-archive OUT [--host [--dir D]]`; `import-archive ARCHIVE [--repo] [--dir] --transport N [--set k=v] [--trust-unplanned]`; `audit [--evidence FILE]` exits with the report's status. `agent` is still a stub.
+- Tests: `tests/v1/procs.py` (subprocess helpers: `gud`, `Proc`, `serve`, `wait_for`); the CLI suite runs in local host mode and against `gud host serve`.
+- `gud.wc.review` (new; imports core only): `needs(chain, me, *, members, now, tip_paths=None, lease_warn_ms=300000) -> list[dict]`, `needs_of(client)`, `why_codes`, `why_text`, `my_claims`. Used by `gud review` and the MCP `inbox`.
+- `gud.wc.ignore`: `DEFAULT_GUDIGNORE`, `ARTIFACT_PATTERNS`, `artifacts(paths)`, `ignore_lines(paths)`; `IgnoreRules.load` falls back to the defaults. `gud.wc.copy.ArtifactsFound(WcError)` (`.paths`); `WorkingCopy.push(..., allow_artifacts=False)`.
+- `RepoClient.on_delta: list[Callable[[ChainDelta], None]]`; `Replayer.by_message_id(mid) -> Hex | None`.
+- `gud.cli_v1`: `delivery`, `agent`, `mcp` (pass-through options), `push --allow-artifacts`.
+
 - The §21 host test double used by the wc tests is `tests/v1/wc/host_double.py` (`HostDouble`, `InProcess`, `Clock`); it is not product code.
 
 ## Addendum: mcp and agent
