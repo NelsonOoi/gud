@@ -1449,3 +1449,15 @@ def audit(client: RepoClient, *, retained: Sequence[LogEntry] = ()) -> AuditRepo
   - **shuffle determinism**: the same emails and log in any feed order and batching give identical `Chain`, `Snapshot.hash()` and event ids, and `Replayer` equals `replay()`;
   - the protocol tests listed under "Verification" in `PLAN.md` (host log, consent v1, test policy, carry-forward).
 - Every adapter passes `tests/transport_conformance.py` (§20.2); `FakeMailbox` and `FakeNetwork` run it in CI.
+
+## Addendum: public additions from the core foundations (a330f30)
+
+These names are public and part of the contract:
+
+- `gud.core.envelope`: `is_hex64`, `is_handle`, `is_public_key`, `is_signature`.
+- `gud.core.config`: `bare_address`.
+- `gud.core.types`: `MODES`, `REGULAR_MODES`, `ROLES`. `TestPolicy` fields have defaults.
+- `gud.core.objects`: `EMPTY_DIR`, `Tree.store`, `BlameMap.paths()`, `BlameMap.__contains__`.
+- `gud.core.hostlog`: `HostLog.repo`, `HostLog.entries(since=0, limit=None)`.
+
+Event data carries every event-id key. That adds `approved.approve`, `held.hold`, `test.*.test`, `claim.lapsed.lapsed_at` and `task.ready.link`. See "Implementation notes (core)" at the end of SPEC-v1.md, which binds every later module.
