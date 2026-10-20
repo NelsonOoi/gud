@@ -374,6 +374,34 @@ class WorkingCopy:
             raise WcError(f"base {base[:12]} is not a link in the local cache; run `gud sync`")
         return link
 
+    def _merge_base(self, base_link: LinkState, base_tree: Tree, wt: Tree, tip: LinkState) -> Tree:
+        """The base for merging the tip into the working tree: `base_tree`, except that a path the
+        working tree changed takes its entry at the latest link after the base where it already
+        equals the working tree's (this member's own linked push, or an identical edit). Without
+        this, a tip that built on top of one's own linked change (in the same lines) would
+        conflict with it."""
+        changed = list(base_tree.changed_paths(wt))
+        if not changed:
+            return base_tree
+        links = [l for l in self.client.chain().links if base_link.seq < l.seq <= tip.seq]
+        if not links:
+            return base_tree
+        reader = self.client.reader()
+        adjusted = base_tree
+        for link in reversed(links):
+            if not changed:
+                break
+            tree = reader.tree(link.state)
+            for path in list(changed):
+                if tree.get(path) == wt.get(path):
+                    entry = tree.get(path)
+                    adjusted = adjusted.set_entry(path, entry) if entry is not None else (
+                        adjusted.delete(path) if path in adjusted else adjusted)
+                    changed.remove(path)
+        if check_tree_shape(adjusted) is not None:
+            return base_tree
+        return adjusted
+
     def _base_tree(self) -> Tree:
         self._base_link()
         return self.client.reader().tree(self.base)
@@ -556,7 +584,7 @@ class WorkingCopy:
         wt = self._scan(base_tree)
         tip_tree = client.reader().tree(tip.state)
         if tip.tree_hash not in self._pushed_trees():
-            merged = three_way(base_tree, wt, tip_tree)
+            merged = three_way(self._merge_base(base_link, base_tree, wt, tip), wt, tip_tree)
             if merged.conflicts or merged.tree.hash() != wt.hash():
                 return False
         self._write_base(tip.state)
@@ -650,7 +678,7 @@ class WorkingCopy:
             self._clear_conflicts()
             return SyncResult(True, tip.state, ())
         tip_tree = client.reader().tree(tip.state)
-        merged = three_way(base_tree, wt, tip_tree)
+        merged = three_way(self._merge_base(base_link, base_tree, wt, tip), wt, tip_tree)
         if merged.conflicts:
             markers = self._record_conflicts(merged.conflicts, base_tree, wt, tip_tree, tip.state)
             return SyncResult(False, base_link.state, tuple(merged.conflicts), (), markers)

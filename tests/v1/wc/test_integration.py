@@ -33,6 +33,35 @@ def test_tester_runs_over_a_repo_client(tmp_path: Path):
     assert tester.step() == []                                  # one result per key
 
 
+def test_sync_after_the_tip_built_on_my_own_linked_change(tmp_path: Path):
+    """Regression (e2e): a member whose push linked, and who did not sync since, conflicted with
+    a later link that rewrote the same lines on top of that push. Sync now merges each changed
+    path from the latest link where it equals the working tree."""
+    net = Net(tmp_path)
+    util = "def triple(x):\n    return 3 * x\n"
+    net.genesis({"util.py": util})
+    bob, alice = net.clone("@bob"), net.clone("@alice")
+    (bob.root / "util.py").write_text(util.replace("3 * x", "x * 3"))
+    p = bob.push("bob's edit").push
+    net.settle()
+    net.host.approve("@nelson", p)
+    net.settle()
+    bob.client.sync_log()
+    assert status(bob.client.chain(), p) == "linked"
+    assert alice.sync().ok
+    (alice.root / "util.py").write_text('def triple(x):\n    """Three times x."""\n    return x * 3\n')
+    q = alice.push("docstring").push
+    net.settle()
+    net.host.approve("@nelson", q)                     # the insertion is inside his def
+    net.settle()
+    alice.client.sync_log()
+    assert status(alice.client.chain(), q) == "linked"
+    result = bob.sync()                                # bob's base is still the genesis
+    assert result.ok, result.conflicts
+    assert (bob.root / "util.py").read_text() == 'def triple(x):\n    """Three times x."""\n    return x * 3\n'
+    assert bob.status().clean
+
+
 def test_audit_reads_the_served_log_not_the_cache(tmp_path: Path):
     """Regression: with a RepoClient, audit used the member's own verified log as the "served"
     log, so it compared the cache with itself and passed a forked host."""
