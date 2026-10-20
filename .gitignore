@@ -11,3 +11,8 @@ ui/dist/
 *.key
 *.egg-info/
 DEMO.md
+.tools/
+evals/v1/runs/**
+!evals/v1/runs/**/
+!evals/v1/runs/**/summary.json
+!evals/v1/runs/*report.md

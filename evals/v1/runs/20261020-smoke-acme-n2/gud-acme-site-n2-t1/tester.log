@@ -1,5 +1,0 @@
-tester @tester up
-test @tester pass <79e5e13165a346beaeb53530cd1eeace@gud.local> aceae243831c 0.70s
-test @tester fail <9540cd8971df43f3a583435b34881b2f@gud.local> 4ef55a8fc901 0.71s
-test @tester pass <dcac48684f894739abf6d8f62205931c@gud.local> a604830b02e7 0.91s
-tester stopped
