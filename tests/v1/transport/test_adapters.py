@@ -54,7 +54,9 @@ def test_imap_reads_junk_and_rescans_on_uidvalidity_change(greenmail_server) -> 
     start = box.head()
     alice.send(Outgoing(from_addr=alice.address, to=(box.address,), subject="inbox one", text="x"))
     time.sleep(1.1)
-    assert conn.append("Junk", None, imaplib.Time2Internaldate(time.time()), junk_raw)[0] == "OK"
+    # No explicit date: GreenMail parses APPEND dates with a 12-hour pattern (12:xx becomes 00:xx),
+    # so let the server stamp its own receipt time.
+    assert conn.append("Junk", None, None, junk_raw)[0] == "OK"
     conn.logout()
     items, cursor = box.list(since=start)
     subjects = [mime.parse(i.raw_mime).subject for i in items]
