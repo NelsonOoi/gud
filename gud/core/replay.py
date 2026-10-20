@@ -2383,6 +2383,18 @@ class ChainReader:
         ordered = sorted((s["seen"][g], g) for g in found if g in s["seen"])
         return [e for e in (self.email(g) for _, g in ordered) if e is not None]
 
+    def tip_verdicts(self) -> dict[Hex, tuple[str, Ms]]:
+        """Read-only: the counting §15.4 tip verdict per link state, `(result, received)` (needs `index`)."""
+        if self._index is None:
+            return {}
+        return {k: (v[0], v[1]) for k, v in self._index._s["verdicts"].items()}
+
+    def joins(self) -> tuple[Hex, ...]:
+        """Read-only: ids of logged `join` requests whose self-signature verifies, in log order (needs `index`)."""
+        if self._index is None:
+            return ()
+        return tuple(self._index._s["joins"])
+
     def forecast(self, parent: Hex, ops: Sequence[ChangeOp], author: Handle, at: Ms) -> ConsentPlan:
         """Owners and rules a change would need on `parent` if received at `at` (for agents before pushing)."""
         link = self._link(parent)

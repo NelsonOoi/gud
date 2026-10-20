@@ -1,993 +1,409 @@
-import { diffstat } from "@/lib/diff"
-import { ApiError } from "@/lib/errors"
-import { isOpenStatus } from "@/lib/status"
-import type {
-  Activity,
-  BlameResponse,
-  BugReport,
-  EmailView,
-  JoinRequest,
-  Link,
-  Proposal,
-  RawEmail,
-  RepoState,
-  Task,
-  TreeResponse,
-} from "@/lib/types"
-import { FILES, linesAt, membersAtSeq } from "@/mock/files"
-import { geminiJoin, joinMailBody, joinSummary } from "@/mock/joins"
-import {
-  PUSH,
-  REPO,
-  WINDOW_SECONDS,
-  addressOf,
-  agentCc,
-  fakeHash,
-  linkId,
-  mid,
-  sig,
-} from "@/mock/ids"
-import { createWorld, type World } from "@/mock/world"
+// The offline host: answers `/api/v1/view/*` from the v1 story in `world.ts`, applies the UI's
+// actions (as @nelson), and drives a short timeline so the dashboard moves: an approval lands the
+// windowed push, the tester passes the new tip (green again, the fix task is done), and a new push
+// opens a window.
 
-export type MockEvent = { event: string; data: unknown }
+import { ApiError } from "@/lib/errors"
+import type {
+  ActResult,
+  BlameResponse,
+  FileResponse,
+  GudEvent,
+  HostView,
+  Link,
+  NeedsResponse,
+  Proposal,
+  RedState,
+  Task,
+  ThreadMessage,
+  TreeFile,
+  TreeResponse,
+  ViewState,
+} from "@/lib/types"
+import { createWorld, diffFor, hex, proposal, REPO, type World } from "@/mock/world"
+
+export type MockMessage = { type: "event"; event: GudEvent } | { type: "head"; seq: number; time: number } | { type: "open" }
 
 let world: World | null = null
-const listeners = new Set<(event: MockEvent) => void>()
-let subscribers = 0
-let timer: number | null = null
+const listeners = new Set<(message: MockMessage) => void>()
+const HUMAN = "@nelson"
 
-export function getWorld(): World {
-  if (!world) world = createWorld(Date.now() / 1000)
+function getWorld(): World {
+  world ??= createWorld(Date.now())
   return world
 }
 
-function emit(event: string, data: unknown) {
-  const payload = structuredClone(data)
-  for (const listener of listeners) listener({ event, data: payload })
-}
-
-export function onMockEvent(listener: (event: MockEvent) => void): () => void {
+export function onMockEvent(listener: (message: MockMessage) => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
 }
 
-export function startMockDriver(): () => void {
-  const current = getWorld()
-  subscribers += 1
-  if (subscribers === 1) {
-    current.t0 = Date.now() / 1000
-    timer = window.setInterval(tick, 1000)
-  }
-  return () => {
-    subscribers -= 1
-    if (subscribers <= 0 && timer != null) {
-      window.clearInterval(timer)
-      timer = null
-      subscribers = 0
-    }
-  }
+function emit(type: string, data: Record<string, unknown>, concerns: string[] = []): GudEvent {
+  const w = getWorld()
+  const event: GudEvent = { n: w.events.length + 1, id: hex(`live-${type}-${w.events.length}-${Date.now()}`), type, at: Date.now(), concerns, data }
+  w.events.push(event)
+  const head = (w.log[0]?.seq ?? 0) + 1
+  w.log.unshift({ seq: head, type: "mail", time: event.at, hash: hex(`entry-live-${head}`), id: String(data.push ?? data.link ?? data.task ?? event.id),
+    kind: type, author: String(data.author ?? data.by ?? data.tester ?? "@host"), summary: type })
+  for (const listener of listeners) listener({ type: "event", event })
+  return event
 }
 
-function tick() {
-  const current = getWorld()
-  const now = Date.now() / 1000
-  const elapsed = now - current.t0
-  if (elapsed >= 6 && !current.flags.nonce) arriveNonce(current, now)
-  if (elapsed >= 9 && !current.flags.retry) arriveRetry(current, now)
-  if (elapsed >= 14 && !current.flags.quorum) bumpQuorum(current, now)
-  if (elapsed >= 22 && !current.flags.objected) objectNonce(current, now)
-  if (elapsed >= 28 && !current.flags.tested) passRetry(current, now)
-  if (elapsed >= 36 && !current.flags.task) completeTask(current, now)
-  if (elapsed >= 20 && !current.flags.gemini) arriveGemini(current, now)
-  if (elapsed >= 45 && !current.flags.geminiLanded) landGemini(current, now)
-  advanceWindow(current, now)
+function tip(w: World): Link {
+  return w.links[0]!
 }
 
-function tipOf(current: World): Link {
-  const tip = current.links[current.links.length - 1]
-  if (!tip) throw new ApiError(409, "repo has no tip")
-  return tip
-}
-
-function arriveGemini(current: World, now: number) {
-  current.flags.gemini = true
-  const join = geminiJoin(now)
-  current.joins.unshift(join)
-  rememberMail(current, {
-    id: join.id,
-    handle: join.handle,
-    fromAddr: join.address,
-    subject: `Join ${join.handle}`,
-    body: joinMailBody(join),
-    at: now,
-    kind: "join",
-    summary: joinSummary(join),
-    target: join.id,
-  })
-  emit("join", join)
-}
-
-function landGemini(current: World, now: number) {
-  current.flags.geminiLanded = true
-  const join = current.joins.find((item) => item.handle === "@gemini-agent")
-  if (!join || !join.valid || join.status !== "pending") return
-  join.status = "member"
-  current.members.push({
-    handle: join.handle,
-    role: "agent",
-    address: join.address,
-    fingerprint: fakeHash(join.public_key).slice(0, 16),
-    sponsor: join.sponsor,
-    votes: true,
-    lines_owned: 0,
-    added_by_link: null,
-  })
-  const tip = tipOf(current)
-  const host = window.location.origin
-  rememberMail(current, {
-    id: mid("welcome-gemini"),
-    handle: "@console",
-    subject: "Welcome @gemini-agent",
-    body: trailer(`You are on the roster. Replay ${host} from the checkpoint below.`, [
-      ["Kind", "notify"],
-      ["Author", "@console"],
-      ["Host", host],
-      ["Tip", tip.id],
-      ["State", tip.state],
-      ["Tree", tip.tree_hash],
-    ]),
-    at: now,
-    kind: "notify",
-    summary: "welcomed @gemini-agent with the host URL and a checkpoint",
-    target: join.id,
-    to: [join.address, REPO],
-  })
-  const welcome = current.activity[0]
-  if (welcome) emit("mail", welcome)
-}
-
-function arriveNonce(current: World, now: number) {
-  current.flags.nonce = true
-  const id = mid("push-nonce")
-  current.nonceId = id
-  const diff = [
-    "diff --git a/ratelimit.py b/ratelimit.py",
-    "--- a/ratelimit.py",
-    "+++ b/ratelimit.py",
-    "@@ -8,6 +8,9 @@",
-    " def allow(user_id: str, bucket: str, limit: int) -> bool:",
-    "+    if bucket == \"login\" and user_id in _seen:",
-    "+        return False",
-    "     key = (bucket, user_id)",
-    "     _hits[key] += 1",
-  ].join("\n")
-  const proposal = baseProposal(current, {
-    id,
-    author: "@api-agent",
-    subject: "Reject replayed nonces",
-    intent: "Drop a login retry when the user id was already seen in this process.",
-    at: now,
-    status: "window",
-    reason: "lazy consensus is open",
-    affected: ["@sub-1"],
-    windowClosesAt: now + WINDOW_SECONDS,
-  })
-  commitProposal(current, proposal, diff)
-  emit("proposal", proposal)
-}
-
-function arriveRetry(current: World, now: number) {
-  current.flags.retry = true
-  const id = mid("push-retry")
-  current.retryId = id
-  const diff = [
-    "diff --git a/billing.py b/billing.py",
-    "--- a/billing.py",
-    "+++ b/billing.py",
-    "@@ -10,6 +10,8 @@",
-    " def record(user_id: str, sku: str, cents: int) -> None:",
-    "+    if sku == \"webhook\":",
-    "+        cents = min(cents, 1)",
-    "     if cents < 0:",
-    "         raise ValueError(\"cents\")",
-  ].join("\n")
-  const proposal = baseProposal(current, {
-    id,
-    author: "@billing-agent",
-    subject: "Retry invoice webhooks with jitter",
-    intent: "Cap webhook replays at one cent while consent is already satisfied on the author's lines.",
-    at: now,
-    status: "testing",
-    reason: "consent holds; waiting for @tester",
-    affected: [],
-    windowClosesAt: null,
-  })
-  commitProposal(current, proposal, diff)
-  emit("proposal", proposal)
-}
-
-function bumpQuorum(current: World, now: number) {
-  current.flags.quorum = true
-  const proposal = current.proposals.find((item) => item.id === PUSH.quorum)
-  if (!proposal || proposal.protected_rule !== "human" || proposal.status !== "needs_approval") return
-  if (!proposal.approvals.includes("@nelson")) proposal.approvals.push("@nelson")
-  proposal.status = "testing"
-  proposal.reason = "waiting for a passing test"
-  rememberMail(current, {
-    id: mid("approve-quorum-nelson"),
-    handle: "@nelson",
-    subject: `Re: ${proposal.subject}`,
-    body: "approve — adding @sub-3 is fine.\n",
-    at: now,
-    inReplyTo: proposal.id,
-    kind: null,
-    summary: "approved adding @sub-3",
-    target: proposal.id,
-    human: true,
-  })
-  emit("proposal", proposal)
-}
-
-function objectNonce(current: World, now: number) {
-  current.flags.objected = true
-  const proposal = current.nonceId
-    ? current.proposals.find((item) => item.id === current.nonceId)
-    : undefined
-  if (!proposal || proposal.status !== "window") return
-  const emailId = mid("object-nonce")
-  proposal.objections.push({
-    by: "@sub-1",
-    reason: "nonce replay belongs in auth, not the limiter",
-    id: emailId,
-  })
-  proposal.status = "objected"
-  proposal.reason = "@sub-1 objected"
-  proposal.window_closes_at = null
-  rememberMail(current, {
-    id: emailId,
-    handle: "@sub-1",
-    subject: `Re: ${proposal.subject}`,
-    body: trailer("nonce replay belongs in auth, not the limiter", [
-      ["Kind", "object"],
-      ["Author", "@sub-1"],
-      ["Target", proposal.id],
-      ["Reason", "nonce replay belongs in auth, not the limiter"],
-      ["Sig", sig(emailId)],
-    ]),
-    at: now,
-    inReplyTo: proposal.id,
-    kind: "object",
-    summary: "objected: nonce replay belongs in auth",
-    target: proposal.id,
-  })
-  emit("proposal", proposal)
-}
-
-function passRetry(current: World, now: number) {
-  current.flags.tested = true
-  const proposal = current.retryId
-    ? current.proposals.find((item) => item.id === current.retryId)
-    : undefined
-  if (!proposal || proposal.status !== "testing") return
-  proposal.test_result = "pass"
-  proposal.status = "qualified"
-  proposal.reason = "qualified; an earlier sibling is still pending"
-  const tree = fakeHash(`ptree:${proposal.id}`)
-  rememberMail(current, {
-    id: mid("test-retry"),
-    handle: "@tester",
-    subject: `Re: ${proposal.subject}`,
-    body: trailer("tests passed against the proposed tree.", [
-      ["Kind", "test"],
-      ["Author", "@tester"],
-      ["Target", proposal.id],
-      ["Result", "pass"],
-      ["Tree", tree],
-      ["Sig", sig("test-retry")],
-    ]),
-    at: now,
-    inReplyTo: proposal.id,
-    kind: "test",
-    summary: "tests passed",
-    target: proposal.id,
-  })
-  emit("proposal", proposal)
-}
-
-function completeTask(current: World, now: number) {
-  current.flags.task = true
-  const task = current.tasks.find((item) => item.id === "T4")
-  if (!task || task.status === "done") return
-  task.status = "done"
-  task.notified_at = now
-  task.done_link = tipOf(current).id
-  for (const sub of task.subtasks) {
-    sub.status = "landed"
-    if (!sub.link_id) sub.link_id = task.done_link
-  }
-  rememberMail(current, {
-    id: mid("task-done-T4"),
-    handle: "@lead",
-    subject: "T4 is done",
-    body: trailer("Reject replayed login nonces is done.", [
-      ["Kind", "task-done"],
-      ["Author", "@lead"],
-      ["Task", "T4"],
-      ["Tip", task.done_link ?? "none"],
-      ["Sig", sig("task-done-T4")],
-    ]),
-    at: now,
-    kind: "task-done",
-    summary: "marked T4 done",
-    target: "T4",
-  })
-  rememberMail(current, {
-    id: mid("notify-T4"),
-    handle: "@console",
-    subject: "T4 is done",
-    body: trailer("@nelson: Reject replayed login nonces landed.", [
-      ["Kind", "notify"],
-      ["Author", "@console"],
-      ["Task", "T4"],
-    ]),
-    at: now + 1,
-    kind: "notify",
-    summary: "emailed @nelson",
-    target: "T4",
-    to: [addressOf("@nelson"), REPO],
-  })
-  emit("task", task)
-}
-
-function advanceWindow(current: World, now: number) {
-  if (current.flags.landed) return
-  const proposal = current.proposals.find((item) => item.id === PUSH.window)
-  if (!proposal) return
-  const tip = current.links[current.links.length - 1]
-  if (!tip || proposal.parent !== tip.id) return
-  if (proposal.status === "window" && proposal.window_closes_at != null && now >= proposal.window_closes_at) {
-    proposal.status = "testing"
-    proposal.reason = "window closed with no objection"
-    proposal.window_closes_at = null
-    current.landAfter = now + 3
-    emit("proposal", proposal)
-    return
-  }
-  if (
-    proposal.status === "testing" &&
-    current.landAfter != null &&
-    now >= current.landAfter &&
-    earliestOpen(current, proposal.parent)?.id === proposal.id
-  ) {
-    land(current, proposal, now)
-  }
-}
-
-function land(current: World, proposal: Proposal, now: number) {
-  if (current.flags.landed) return
-  const parent = current.links[current.links.length - 1]
-  if (!parent || proposal.parent !== parent.id) return
-  current.flags.landed = true
-  const diff = current.diffs[proposal.id] ?? ""
-  const seq = parent.seq + 1
-  const state = fakeHash(`state:land:${proposal.id}`)
-  const tree = fakeHash(`tree:land:${proposal.id}`)
-  const link: Link = {
-    id: proposal.id,
-    seq,
-    author: proposal.author,
-    subject: proposal.subject,
-    intent: current.intents[proposal.id] ?? proposal.subject,
-    state,
-    tree_hash: tree,
-    received_at: proposal.received_at,
-    task: proposal.task,
-    diffstat: diffstat(diff),
-  }
-  current.links.push(link)
-  current.proposals = current.proposals.filter((item) => item.id !== proposal.id)
-  for (const sibling of current.proposals) {
-    if (sibling.parent !== parent.id) continue
-    if (sibling.status === "qualified") {
-      sibling.status = "superseded"
-      sibling.reason = `earlier sibling #${seq} landed first`
-    } else if (isOpenStatus(sibling.status)) {
-      sibling.status = "stale"
-      sibling.reason = "parent already linked"
-    }
-  }
-  proposal.test_result = "pass"
-  rememberMail(current, {
-    id: mid("test-window-land"),
-    handle: "@tester",
-    subject: `Re: ${proposal.subject}`,
-    body: trailer("tests passed against the proposed tree.", [
-      ["Kind", "test"],
-      ["Author", "@tester"],
-      ["Target", proposal.id],
-      ["Result", "pass"],
-      ["Tree", tree],
-      ["Sig", sig("test-window-land")],
-    ]),
-    at: now,
-    inReplyTo: proposal.id,
-    kind: "test",
-    summary: "tests passed",
-    target: proposal.id,
-  })
-  const landed: Activity = {
-    id: mid(`landed-${seq}`),
-    at: now + 1,
-    kind: "link",
-    from: proposal.author,
-    subject: proposal.subject,
-    summary: `landed as #${seq}`,
-    target: proposal.id,
-  }
-  current.activity.unshift(landed)
-  emit("chain", { tip: link })
-}
-
-function earliestOpen(current: World, parent: string): Proposal | undefined {
-  return current.proposals
-    .filter((item) => item.parent === parent && isOpenStatus(item.status))
-    .sort((a, b) => a.received_at - b.received_at)[0]
-}
-
-function baseProposal(
-  current: World,
-  spec: {
-    id: string
-    author: string
-    subject: string
-    intent: string
-    at: number
-    status: Proposal["status"]
-    reason: string
-    affected: string[]
-    windowClosesAt: number | null
-  },
-): Proposal {
-  current.intents[spec.id] = spec.intent
+function redState(w: World): RedState {
+  const by = (state: string | null) => w.links.find((l) => l.state === state) ?? null
+  const fb = by(w.red.first_bad)
+  const fix = w.tasks.find((t) => t.id === w.fixTask) ?? null
   return {
-    id: spec.id,
-    parent: tipOf(current).id,
-    author: spec.author,
-    subject: spec.subject,
-    received_at: spec.at,
-    status: spec.status,
-    reason: spec.reason,
-    affected_owners: spec.affected,
-    approvals: [],
-    objections: [],
-    window_closes_at: spec.windowClosesAt,
-    protected_rule: null,
-    quorum_needed: null,
-    quorum_have: null,
-    test_result: null,
-    task: null,
+    red: w.red.red, red_link: w.red.red_link, red_link_seq: by(w.red.red_link)?.seq ?? null, red_since: w.red.red_since,
+    last_green: w.red.last_green, last_green_seq: by(w.red.last_green)?.seq ?? null, first_bad: w.red.first_bad,
+    first_bad_seq: fb?.seq ?? null, first_bad_author: fb?.author ?? null, first_bad_title: fb?.title ?? null,
+    fix_task: fix && w.red.red ? { id: fix.id, alias: fix.alias, status: fix.status, title: fix.title, offered_to: fix.offered_to,
+      offer_until: fix.offer_until, cited_link: fix.cited_link, holder: fix.holder } : null,
   }
 }
 
-function commitProposal(current: World, proposal: Proposal, diff: string, extra: [string, string][] = []) {
-  current.proposals.push(proposal)
-  current.diffs[proposal.id] = diff
-  const parent = current.links.find((link) => link.id === proposal.parent)
-  rememberMail(current, {
-    id: proposal.id,
-    handle: proposal.author,
-    subject: proposal.subject,
-    body: pushBody(current.intents[proposal.id] ?? proposal.subject, [
-      ["Kind", "push"],
-      ["Author", proposal.author],
-      ["Parent", proposal.parent],
-      ["Base", parent?.state ?? "0".repeat(64)],
-      ["State", fakeHash(`pstate:${proposal.id}`)],
-      ["Tree", fakeHash(`ptree:${proposal.id}`)],
-      ["Sig", sig(proposal.id)],
-      ...extra,
-    ], diff),
-    at: proposal.received_at,
-    kind: "push",
-    summary: `proposed · ${proposal.subject}`,
-    target: proposal.id,
-  })
-}
-
-export function mockState(): RepoState {
-  const current = getWorld()
-  const tip = current.links[current.links.length - 1] ?? null
-  return structuredClone({
-    repo: current.repo,
-    bugs_address: "bugs@gud.primitive.email",
-    now: Date.now() / 1000,
-    window_seconds: current.windowSeconds,
-    tip,
-    links: current.links,
-    proposals: current.proposals,
-    members: current.members,
-    removed_members: current.removed,
-  })
-}
-
-export function mockDiff(id: string): { id: string; diff: string } {
-  const diff = getWorld().diffs[id]
-  if (diff == null) throw new ApiError(404, "no diff for that message")
-  return { id, diff }
-}
-
-export function mockTree(at: string | null): TreeResponse {
-  const current = getWorld()
-  const link = resolveLink(current, at)
-  const files = Object.keys(FILES)
-    .sort((a, b) => a.localeCompare(b))
-    .flatMap((path) => {
-      const versions = FILES[path]
-      if (!versions) return []
-      const lines = linesAt(versions, link.seq)
-      if (!lines) return []
-      const owners: Record<string, number> = {}
-      for (const line of lines) owners[line.owner] = (owners[line.owner] ?? 0) + 1
-      return [{ path, lines: lines.length, owners }]
-    })
-  return { at: link.id, files }
-}
-
-export function mockBlame(path: string, at: string | null): BlameResponse {
-  const current = getWorld()
-  const versions = FILES[path]
-  if (!versions) throw new ApiError(404, "unknown path")
-  const link = resolveLink(current, at)
-  const snap = linesAt(versions, link.seq) ?? []
-  const roster = membersAtSeq(link.seq)
+function state(): ViewState {
+  const w = getWorld()
+  const now = Date.now()
   return {
-    path,
-    at: link.id,
-    lines: snap.map((line, index) => ({
-      n: index + 1,
-      text: line.text,
-      owner: line.owner,
-      link_id: linkId(line.seq),
-      orphaned: !roster.has(line.owner),
-    })),
+    repo: REPO, bugs_address: `bugs@acme.example`, host_key: w.members.find((m) => m.role === "host")?.key ?? "", transport: "mock",
+    now, t: now, log_head: { seq: w.log[0]?.seq ?? 0, hash: w.log[0]?.hash ?? "", time: w.log[0]?.time ?? now, type: "mail" },
+    processed: { seq: w.log[0]?.seq ?? 0, hash: w.log[0]?.hash ?? "" },
+    config: w.config,
+    test_policy: { command: "pytest -q", image: "python:3.12-slim", timeout: 600_000, on_paths: ["app/auth.py"], on_tip_links: 1,
+      on_tip_time: 600_000, every_link: false, stack_max: 8, auto_revert: null },
+    tip: tip(w), red: redState(w),
+    counts: { links: w.links.length, proposals_live: w.proposals.filter((p) => p.live).length,
+      tasks_open: w.tasks.filter((t) => t.status !== "done").length, claims_active: w.claims.filter((c) => c.status === "active").length,
+      escalations_open: w.escalations.filter((e) => e.status === "open").length },
+    ui: { signers: [{ handle: HUMAN, role: "human" }], human: HUMAN, console: null, actions: true },
   }
 }
 
-export function mockTasks(): Task[] {
-  return structuredClone(getWorld().tasks)
-}
-
-export function mockBugs(): BugReport[] {
-  return structuredClone(getWorld().bugs).sort((a, b) => b.received_at - a.received_at)
-}
-
-export function mockReviewBug(
-  id: string,
-  body: { action?: string; from?: string; reason?: string },
-): { id: string; task_id: string | null } {
-  const current = getWorld()
-  const bug = current.bugs.find((item) => item.id === id)
-  if (!bug) throw new ApiError(404, "unknown bug report")
-  if (bug.status !== "pending" || bug.verdict) throw new ApiError(409, "bug report is already reviewed")
-  const action = body.action === "approve" || body.action === "reject" ? body.action : ""
-  if (!action) throw new ApiError(400, "action must be approve or reject")
-  const who = body.from?.trim() || "@nelson"
-  bug.review_by = who
-  bug.verdict = action
-  bug.reason = body.reason?.trim() || (action === "approve" ? "Approved." : "Rejected.")
-  if (action === "reject") {
-    bug.status = "rejected"
-    return { id: bug.id, task_id: null }
-  }
-  const created = mockCreateTask({
-    title: bug.subject,
-    description: bug.description,
-    requester: who.startsWith("@") ? who : "@nelson",
-  })
-  const task = current.tasks.find((item) => item.id === created.id)
-  if (task) task.bug = bug.id
-  bug.status = "accepted"
-  bug.task_id = created.id
-  return { id: bug.id, task_id: created.id }
-}
-
-export function mockJoins(): JoinRequest[] {
-  return structuredClone(getWorld().joins).sort((a, b) => b.received_at - a.received_at || b.id.localeCompare(a.id))
-}
-
-export function mockProposeJoin(id: string): { push_id: string } {
-  const current = getWorld()
-  const join = current.joins.find((item) => item.id === id)
-  if (!join) throw new ApiError(404, "unknown join request")
-  if (!join.valid || join.status === "rejected") throw new ApiError(409, "join request is invalid")
-  if (join.status === "member") throw new ApiError(409, "already a member")
-  if (join.status === "proposed" && join.push_id) {
-    const existing = current.proposals.find((item) => item.id === join.push_id)
-    if (existing) {
-      existing.status = "testing"
-      existing.reason = "waiting for a passing test"
-      existing.protected_rule = "human"
-      emit("proposal", existing)
+function tree(at: string | null): TreeResponse {
+  const w = getWorld()
+  const link = w.links.find((l) => l.state === at) ?? tip(w)
+  const files: TreeFile[] = Object.entries(w.files).map(([path, f]) => {
+    const owners: Record<string, number> = {}
+    const live: Record<string, number> = {}
+    for (const line of f.lines) {
+      owners[line.owner] = (owners[line.owner] ?? 0) + 1
+      if (isLive(w, line.seq)) live[line.owner] = (live[line.owner] ?? 0) + 1
     }
-    return { push_id: join.push_id }
-  }
-  const tip = tipOf(current)
-  const pushId = mid(`push-join-${current.emails.length + 1}`)
-  const sponsor = join.sponsor ?? "-"
-  const subject = `Add ${join.handle}`
-  const intent = `Membership push. ${join.handle} joins as ${join.role}, sponsored by ${join.sponsor ?? "no one"}, citing ${join.id}.`
-  const diff = [
-    "diff --git a/.gud/members b/.gud/members",
-    "--- a/.gud/members",
-    "+++ b/.gud/members",
-    "@@ -6,6 +6,7 @@",
-    " @sub-1 agent sub-1@gud.primitive.email ed25519:c3ViLTEta2V5LTAwNw @nelson",
-    `+${join.handle} ${join.role} ${join.address} ${join.public_key} ${sponsor}`,
-    " @tester tester tester@gud.primitive.email ed25519:dGVzdGVyLWtleS0wMDU @nelson",
-  ].join("\n")
-  const proposal: Proposal = {
-    id: pushId,
-    parent: tip.id,
-    author: "@console",
-    subject,
-    received_at: Date.now() / 1000,
-    status: "testing",
-    reason: "waiting for a passing test",
-    affected_owners: [],
-    approvals: ["@nelson"],
-    objections: [],
-    window_closes_at: null,
-    protected_rule: "human",
-    quorum_needed: null,
-    quorum_have: null,
-    test_result: null,
-    task: null,
-  }
-  current.intents[pushId] = intent
-  commitProposal(current, proposal, diff, [["Join", join.id]])
-  join.status = "proposed"
-  join.push_id = pushId
-  emit("proposal", proposal)
-  return { push_id: pushId }
-}
-
-export function mockMail(): { emails: RawEmail[]; next_since: null } {
-  const emails = getWorld()
-    .emails.slice()
-    .sort((a, b) => a.received_at - b.received_at || a.id.localeCompare(b.id))
-    .map((email) => ({
-      message_id: email.id,
-      from_addr: email.from,
-      to: email.to,
-      cc: email.cc,
-      subject: email.subject,
-      body: email.body,
-      received_at: email.received_at,
-      sender_verified: email.sender_verified,
-      in_reply_to: email.in_reply_to,
-      references: email.in_reply_to ? [email.in_reply_to] : [],
-      provider_id: null,
-    }))
-  return { emails, next_since: null }
-}
-
-export function mockActivity(limit: number): Activity[] {
-  const size = Number.isFinite(limit) && limit > 0 ? limit : 100
-  return structuredClone(getWorld().activity.slice(0, size))
-}
-
-export function mockThread(id: string): EmailView[] {
-  return structuredClone(
-    getWorld()
-      .emails.filter((email) => email.id === id || email.in_reply_to === id)
-      .sort((a, b) => a.received_at - b.received_at),
-  )
-}
-
-export function mockCreateTask(body: { title?: string; description?: string; requester?: string }): { id: string } {
-  const current = getWorld()
-  const title = body.title?.trim() ?? ""
-  const description = body.description?.trim() ?? ""
-  const requester = body.requester?.trim() ?? ""
-  if (!title) throw new ApiError(400, "title is required")
-  if (!requester.startsWith("@")) throw new ApiError(400, "requester must be a handle")
-  const id = `T${current.nextTask}`
-  current.nextTask += 1
-  const now = Date.now() / 1000
-  const task: Task = {
-    id,
-    title,
-    description,
-    requester,
-    created_at: now,
-    status: "open",
-    subtasks: [],
-    done_link: null,
-    notified_at: null,
-  }
-  current.tasks.push(task)
-  rememberMail(current, {
-    id: mid(`task-${id}`),
-    handle: "@console",
-    subject: title,
-    body: trailer(description || title, [
-      ["Kind", "task"],
-      ["Author", "@console"],
-      ["Task", id],
-      ["Requester", requester],
-      ["Sig", sig(`task-${id}`)],
-    ]),
-    at: now,
-    kind: "task",
-    summary: `opened ${id} for ${requester}`,
-    target: id,
+    return { path, mode: f.mode, size: f.binary?.size ?? f.lines.reduce((n, l) => n + l.text.length + 1, 0), sha256: hex(path),
+      binary: Boolean(f.binary), lines: f.binary ? null : f.lines.length, owners, live_owners: live, former: [] }
   })
-  return { id }
+  return { at: { kind: "link", state: link.state, seq: link.seq }, files }
 }
 
-export function mockMembers(body: {
-  action?: string
-  handle?: string
-  role?: string
-  address?: string
-  public_key?: string
-  sponsor?: string
-}): { push_id: string } {
-  const current = getWorld()
-  const action = body.action
-  if (action !== "add" && action !== "remove") throw new ApiError(400, "action must be add or remove")
-  const handle = normalizeHandle(body.handle ?? "")
-  const tip = tipOf(current)
-  const id = mid(`push-mem-${current.emails.length + 1}`)
-  const role = body.role?.trim() || "agent"
-  const address = body.address?.trim() || addressOf(handle)
-  const publicKey = body.public_key?.trim() || "ed25519:bmV3LWtleQ"
-  const sponsor = body.sponsor?.trim() || "@nelson"
-  const subject = action === "add" ? `Add ${handle}` : `Remove ${handle}`
-  const intent =
-    action === "add"
-      ? `Membership push. ${handle} joins as ${role}, sponsored by ${sponsor}.`
-      : `Membership push. Remove ${handle} from .gud/members.`
-  const diff =
-    action === "add"
-      ? [
-          "diff --git a/.gud/members b/.gud/members",
-          "--- a/.gud/members",
-          "+++ b/.gud/members",
-          "@@ -6,6 +6,7 @@",
-          " @sub-1 agent sub-1@gud.primitive.email ed25519:c3ViLTEta2V5LTAwNw @nelson",
-          `+${handle} ${role} ${address} ${publicKey} ${sponsor}`,
-          " @tester tester tester@gud.primitive.email ed25519:dGVzdGVyLWtleS0wMDU @nelson",
-        ].join("\n")
-      : [
-          "diff --git a/.gud/members b/.gud/members",
-          "--- a/.gud/members",
-          "+++ b/.gud/members",
-          "@@ -4,6 +4,5 @@",
-          `-${handle} removed from the roster`,
-        ].join("\n")
-  const proposal: Proposal = {
-    id,
-    parent: tip.id,
-    author: "@console",
-    subject,
-    received_at: Date.now() / 1000,
-    status: "testing",
-    reason: "waiting for a passing test",
-    affected_owners: [],
-    approvals: ["@nelson"],
-    objections: [],
-    window_closes_at: null,
-    protected_rule: "human",
-    quorum_needed: null,
-    quorum_have: null,
-    test_result: null,
-    task: null,
-  }
-  current.intents[id] = intent
-  commitProposal(current, proposal, diff)
-  emit("proposal", proposal)
-  return { push_id: id }
+function isLive(w: World, seq: number): boolean {
+  const t = tip(w)
+  if (t.seq - seq < w.config.own_links) return true
+  const written = w.links.find((l) => l.seq === seq)?.linked_at ?? 0
+  return Date.now() - written < w.config.own_time
 }
 
-export function mockApprove(body: { target?: string; as?: string }): { id: string } {
-  const current = getWorld()
-  const target = body.target ?? ""
-  const as = normalizeHandle(body.as ?? "")
-  const proposal = current.proposals.find((item) => item.id === target)
-  if (!proposal) throw new ApiError(404, "unknown proposal")
-  const member = current.members.find((item) => item.handle === as)
-  if (!member) throw new ApiError(400, `${as} is not a current member`)
-  if (member.role === "human") throw new ApiError(400, "use reply for a human")
-  const id = mid(`approve-ui-${current.emails.length + 1}`)
-  if (!proposal.approvals.includes(as)) proposal.approvals.push(as)
-  if (isOpenStatus(proposal.status)) recompute(current, proposal)
-  rememberMail(current, {
-    id,
-    handle: as,
-    subject: `Re: ${proposal.subject}`,
-    body: trailer("approved.", [
-      ["Kind", "approve"],
-      ["Author", as],
-      ["Target", target],
-      ["Sig", sig(id)],
-    ]),
-    at: Date.now() / 1000,
-    inReplyTo: target,
-    kind: "approve",
-    summary: "approved",
-    target,
-  })
-  emit("proposal", proposal)
-  return { id }
-}
-
-export function mockReply(body: { target?: string; from?: string; text?: string }): { id: string } {
-  const current = getWorld()
-  const target = body.target ?? ""
-  const from = body.from?.trim() || "@nelson"
-  const text = body.text?.trim() ?? ""
-  if (!text) throw new ApiError(400, "text is required")
-  const proposal = current.proposals.find((item) => item.id === target)
-  if (!proposal && !current.links.some((link) => link.id === target)) {
-    throw new ApiError(404, "unknown target")
-  }
-  const id = mid(`reply-ui-${current.emails.length + 1}`)
-  const word = text.split(/\s+/)[0]?.toLowerCase() ?? ""
-  const rest = text.replace(/^\S+\s*/, "")
-  rememberMail(current, {
-    id,
-    handle: from,
-    subject: `Re: ${proposal?.subject ?? "thread"}`,
-    body: text,
-    at: Date.now() / 1000,
-    inReplyTo: target,
-    kind: null,
-    summary: text.length > 80 ? `${text.slice(0, 77)}…` : text,
-    target,
-    human: true,
-  })
-  if (proposal && isOpenStatus(proposal.status)) {
-    if (word === "veto") {
-      proposal.status = "vetoed"
-      proposal.reason = rest ? `@nelson vetoed: ${rest}` : "@nelson vetoed"
-      proposal.window_closes_at = null
-    } else if (word === "approve") {
-      if (!proposal.approvals.includes(from)) proposal.approvals.push(from)
-      recompute(current, proposal)
-    } else if (word === "object") {
-      const reason = rest || "objected"
-      proposal.objections.push({ by: from, reason, id })
-      if (proposal.status === "window" && proposal.affected_owners.includes(from)) {
-        proposal.status = "objected"
-        proposal.reason = `${from} objected`
-        proposal.window_closes_at = null
+function blame(path: string, at: string | null): BlameResponse {
+  const w = getWorld()
+  const f = w.files[path]
+  const link = w.links.find((l) => l.state === at) ?? tip(w)
+  if (!f) throw new ApiError(404, `${path} is not in the tree`)
+  return {
+    path, at: { kind: "link", state: link.state, seq: link.seq }, binary: Boolean(f.binary), own_links: w.config.own_links,
+    own_time: w.config.own_time, t: Date.now(),
+    lines: f.lines.map((line, i) => {
+      const src = w.links.find((l) => l.seq === line.seq)
+      const live = isLive(w, line.seq)
+      return {
+        n: i + 1, text: f.binary ? `(binary file, ${f.binary.size} bytes)` : line.text, owner: line.owner, seq: line.seq,
+        link: src?.state ?? null, intent: src?.title ?? "", live, voter: true, member: true,
+        expires_at: live && link.seq - line.seq >= w.config.own_links ? (src?.linked_at ?? 0) + w.config.own_time : null,
+        links_left: Math.max(0, w.config.own_links - (link.seq - line.seq)),
       }
-    }
-    emit("proposal", proposal)
+    }),
   }
-  return { id }
 }
 
-function recompute(current: World, proposal: Proposal) {
-  if (proposal.protected_rule === "human") {
-    const humanApproved = proposal.approvals.some((handle) =>
-      current.members.some((member) => member.handle === handle && member.role === "human"),
-    )
-    if (humanApproved) {
-      proposal.status = "testing"
-      proposal.reason = "waiting for a passing test"
+function file(path: string): FileResponse {
+  const w = getWorld()
+  const f = w.files[path]
+  if (!f) throw new ApiError(404, `${path} is not in that tree`)
+  if (f.binary) return { path, mode: f.mode, size: f.binary.size, sha256: hex(path), kind: "binary", placeholder: `binary file, ${f.binary.size} bytes` }
+  return { path, mode: f.mode, size: 0, sha256: hex(path), kind: "text", text: f.lines.map((l) => l.text).join("\n") + "\n" }
+}
+
+function thread(id: string): { head: { id: string; type: string }; messages: ThreadMessage[] } {
+  const w = getWorld()
+  const prop = w.proposals.find((p) => p.id === id || p.push === id)
+  const link = w.links.find((l) => l.state === id || l.push === id)
+  const task = w.tasks.find((t) => t.id === id)
+  const key = prop?.negotiation ?? prop?.push ?? link?.push ?? id
+  let messages = w.threads[key] ?? w.threads[id]
+  if (!messages) {
+    const author = prop?.author ?? link?.author ?? task?.author ?? HUMAN
+    const title = prop?.title ?? link?.title ?? task?.title ?? "message"
+    messages = [{ id, seq: null, received_at: prop?.received_at ?? link?.received_at ?? task?.opened_at ?? Date.now(),
+      kind: task ? (task.kind === "subtask" ? "subtask" : "task") : "push", author, from: `${author.slice(1)}@acme.example`,
+      subject: `[gud] ${title}`, signed: true, text: task?.description || title, message_id: "", headers: {}, evidence: null }]
+  }
+  return { head: { id, type: prop ? "proposal" : link ? "link" : task ? "task" : "message" }, messages }
+}
+
+function host(): HostView {
+  const w = getWorld()
+  const head = w.log[0]
+  return {
+    repo: REPO, key: w.members.find((m) => m.role === "host")?.key ?? "", repos: [REPO],
+    head: head ? { seq: head.seq, hash: head.hash, time: head.time, type: head.type } : null, processed_seq: head?.seq ?? 0,
+    entries: (head?.seq ?? 0) + 1, counts: { open: 1, mail: Math.max(0, (head?.seq ?? 0) - 9), tick: 9 }, tail: w.log.slice(0, 40),
+    handed_over: false, missing_mail: [], last_error: null, next_wakeup: Date.now() + 20_000,
+    intake: { received: 71, logged: 70, duplicates: 1, ignored: 0, rate_limited: 0, ticks: 9, webhooks: 0 },
+    dispatch: { webhook: 64, email: 3, notify: 2, failures: 0 },
+    deliveries: w.members.filter((m) => m.delivery?.registered).map((m) => ({ handle: m.handle, channel: m.delivery!.channel,
+      url: m.delivery!.url, journal_head: m.delivery!.journal_head, acked: m.delivery!.acked })),
+    feed_head: w.events.length,
+    audit: { ok: true, exit_status: 0, log_ok: true, log_error: null, checked_at: Date.now(), mail_entries: 70, seen_mismatches: 0,
+      fork_proofs: 0, late_votes: 1, missing_mail: 0, altered: 0 },
+  }
+}
+
+function needs(): NeedsResponse {
+  const w = getWorld()
+  const items: NeedsResponse["items"] = []
+  for (const e of w.escalations) if (e.status === "open") items.push({ type: "escalation", escalation: e.id, pushes: e.pushes.map((p) => p.root), deadline: e.deadline })
+  for (const t of w.tasks) if (t.waiting === "acceptance" && t.requester === HUMAN) items.push({ type: "accept", task: t.id, alias: t.alias })
+  for (const p of w.proposals) if (p.live && p.plan.askers.includes(HUMAN) && !p.approvals.some((a) => a.by === HUMAN)) items.push({ type: "review", push: p.push })
+  return { member: HUMAN, items }
+}
+
+function linkProposal(w: World, p: Proposal) {
+  const prev = tip(w)
+  const seq = prev.seq + 1
+  const state = p.carried ? hex(`carried-${p.push}`) : p.push
+  const l: Link = {
+    seq, state, push: p.push, kind: p.kind, author: p.author, intent: p.intent, title: p.title, tree_hash: hex(`tree-l${seq}`),
+    parent: prev.state, named_parent: p.named_parent, carried_from: p.carried ? p.named_parent : null,
+    carried_from_seq: p.carried ? p.named_parent_seq : null, revert_of: null, received_at: p.received_at, linked_at: Date.now(),
+    task: p.task, task_alias: p.task_alias, files: p.files, verdict: null, verdict_at: null, red_role: null,
+    diffstat: { added: 2, removed: 1, files: p.files, binary: [] },
+  }
+  w.links.unshift(l)
+  w.proposals = w.proposals.filter((x) => x.push !== p.push)
+  for (const other of w.proposals) {
+    if (!other.live) continue
+    other.parent = l.state
+    other.parent_seq = l.seq
+    other.carried = other.named_parent !== other.parent
+    other.race = other.race != null ? Math.max(0, other.race - 1) : null
+    other.blocks_tip = other.race === 0 && other.status !== "qualified"
+  }
+  if (w.diffs[p.push]) w.diffs[l.state] = w.diffs[p.push]!
+  emit("linked", { link: l.state, push: l.push, seq, author: l.author, files: l.files, carried_from: l.carried_from }, [l.author])
+}
+
+function act(kind: string, body: Record<string, unknown>): ActResult {
+  const w = getWorld()
+  const id = hex(`act-${kind}-${Date.now()}`)
+  const target = String(body.target ?? body.join ?? "")
+  const p = w.proposals.find((x) => x.push === target || x.id === target)
+  const t = w.tasks.find((x) => x.id === target)
+  const text = String(body.text ?? "").trim()
+  const types: string[] = []
+  const say = (type: string, data: Record<string, unknown>) => types.push(emit(type, data).type)
+  if (kind === "task") {
+    const n = w.tasks.filter((x) => x.kind !== "subtask").length + 1
+    const created: Task = { ...w.tasks[0]!, id, alias: `T${n}`, kind: "task", title: String(body.title ?? "task"), description: String(body.description ?? ""),
+      author: HUMAN, requester: HUMAN, opened_at: Date.now(), status: "open", children: [], claim: null, holder: null, claims: [], links: [],
+      waiting: null, work_done_at: null, work_done_link: null, accept_paths: (body.accept as string[] | undefined) ?? [], accept_cmds: [],
+      has_criteria: Boolean((body.accept as string[] | undefined)?.length), cited_link: null, cited_seq: null, cited_author: null,
+      offered_to: null, offer_until: null, bug: (body.bug as string | undefined) ?? null }
+    w.tasks.push(created)
+    say("task.opened", { task: id, alias: created.alias, title: created.title, requester: HUMAN })
+  } else if (kind === "vote" && body.kind === "approve" && t) {
+    t.status = "done"
+    t.waiting = null
+    t.done_at = Date.now()
+    say("task.done", { task: t.id, link: tip(w).state })
+  } else if (kind === "vote" && p) {
+    if (body.kind === "approve") {
+      p.approvals.push({ by: HUMAN, at: Date.now() })
+      say("approved", { push: p.push, by: HUMAN, approve: id })
+      if (p.escalation) {
+        const esc = w.escalations.find((e) => e.id === p.escalation)
+        if (esc) {
+          esc.status = "resolved"
+          esc.chosen = p.negotiation
+          esc.decided_by = HUMAN
+          esc.decided_at = Date.now()
+          say("escalation.resolved", { escalation: esc.id, chosen: p.negotiation, by: HUMAN })
+          for (const o of w.proposals.filter((x) => x.negotiation === p.negotiation)) {
+            for (const ob of o.objections) {
+              ob.status = "advisory"
+              ob.blocking = false
+            }
+            o.status = "qualified"
+            o.escalation = null
+          }
+          linkProposal(w, p)
+        }
+      }
+    } else if (body.kind === "hold") {
+      p.timers.held = true
+      p.timers.held_by = HUMAN
+      if (p.timers.window_closes_at && p.timers.window) {
+        p.timers.window_closes_at += p.timers.window
+        p.timers.grace_until = (p.timers.grace_until ?? 0) + p.timers.window
+        p.timers.park_at = p.timers.grace_until
+      }
+      say("held", { push: p.push, by: HUMAN, hold: id })
+    } else if (body.kind === "veto") {
+      p.status = "vetoed"
+      p.live = false
+      p.dead = true
+      say("objected", { push: p.push, by: HUMAN, reason: `veto ${text}`.trim(), veto: true })
+      say("push.rejected", { push: p.push, status: "vetoed" })
     } else {
-      proposal.status = "needs_approval"
-      proposal.reason = "needs approval from a human member"
+      p.objections.push({ id, by: HUMAN, reason: text, received: Date.now(), kind: "reason", evidence: null, status: "blocking",
+        answered_by: null, episode: 1, blocking: true })
+      p.status = "objected"
+      say("objected", { push: p.push, by: HUMAN, reason: text })
     }
-    return
+  } else if (kind === "comment") {
+    say("commented", { target, by: HUMAN, text, comment: id })
+  } else if (kind === "admit") {
+    const j = w.joins.find((x) => x.id === target)
+    if (!j) throw new ApiError(404, "no such join")
+    const push = proposal(`admit-${j.handle}`, HUMAN, `admit ${j.handle} (${j.role})`, Date.now(), w.config, tip(w).seq, [".gud/members"], {
+      status: "qualified", join: j.id, plan: { line_owners: [], askers: [], declared: [], quorum_needed: null, quorum_have: null, members_rule: true, waiting_on: [] },
+    })
+    j.status = "proposed"
+    j.push = push.push
+    w.proposals.push(push)
+    say("push.received", { push: push.push, author: HUMAN, files: push.files })
+    window.setTimeout(() => {
+      linkProposal(w, push)
+      j.status = "member"
+      w.members.push({ ...w.members[0]!, handle: j.handle, address: j.address ?? "", key: j.key, key_short: j.key_short, sponsor: j.sponsor,
+        lines: 0, lines_live: 0, added_seq: tip(w).seq, delivery: null })
+    }, 1500)
+    return { id: push.push, kind: "push", as: HUMAN, logged: true, events: types, member: { handle: j.handle, role: j.role ?? "agent" } } as ActResult
+  } else {
+    throw new ApiError(404, "nothing to act on")
   }
-  if (proposal.protected_rule === "quorum" || proposal.status === "needs_quorum") {
-    const voters = new Set<string>()
-    const author = current.members.find((member) => member.handle === proposal.author)
-    if (author?.votes) voters.add(proposal.author)
-    for (const handle of proposal.approvals) {
-      const member = current.members.find((item) => item.handle === handle)
-      if (member?.votes) voters.add(handle)
+  return { id, kind: kind === "vote" ? String(body.kind) : kind, as: HUMAN, logged: true, events: types }
+}
+
+function decode(segment: string): string {
+  try {
+    return decodeURIComponent(segment)
+  } catch {
+    return segment
+  }
+}
+
+export async function mockRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const w = getWorld()
+  const url = new URL(path, "http://gud.local")
+  const method = (init?.method ?? "GET").toUpperCase()
+  const q = (name: string) => url.searchParams.get(name)
+  const p = url.pathname
+  if (method === "POST") {
+    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {}
+    const m = /^\/api\/v1\/view\/act\/(task|vote|comment|admit)$/.exec(p)
+    if (m?.[1]) return act(m[1], body) as T
+    throw new ApiError(404, `no mock for POST ${p}`)
+  }
+  switch (p) {
+    case "/api/v1/view/state":
+      return state() as T
+    case "/api/v1/view/chain":
+      return { links: w.links, total: w.links.length, next_before: null } as T
+    case "/api/v1/view/proposals":
+      return { proposals: w.proposals, live: w.proposals.filter((x) => x.live).length, dead_shown: w.proposals.filter((x) => x.dead).length } as T
+    case "/api/v1/view/tasks":
+      return {
+        tasks: w.tasks, claims: w.claims,
+        overlaps: [{ claims: [w.claims[0]!.id, w.claims[1]!.id], holders: [w.claims[0]!.holder, w.claims[1]!.holder],
+          tasks: [w.claims[0]!.task, w.claims[1]!.task], globs: ["app/auth.py"], paths: ["app/auth.py"] }],
+        bugs: [{ id: hex("bug-1"), from: "ann@customer.example", subject: "Login says 429 after one try", text: "Since this morning the first wrong password locks me out.",
+          received_at: Date.now() - 30 * 60_000, task: null, task_alias: null }],
+      } as T
+    case "/api/v1/view/escalations":
+      return { escalations: w.escalations } as T
+    case "/api/v1/view/members":
+      return { members: w.members, removed: [{ handle: "@sub-2", role: "agent", address: "sub-2@acme.example", removed_seq: 2,
+        removed_link: w.links.find((l) => l.seq === 2)?.state ?? "", lines: 0 }], joins: w.joins } as T
+    case "/api/v1/view/host":
+      return host() as T
+    case "/api/v1/view/needs":
+      return needs() as T
+    case "/api/v1/view/events": {
+      const after = Number(q("after") ?? 0)
+      return { events: w.events.slice(after), head: w.events.length } as T
     }
-    proposal.quorum_have = voters.size
-    const needed = proposal.quorum_needed ?? 1
-    if (voters.size >= needed) {
-      proposal.status = "testing"
-      proposal.reason = "quorum reached; waiting for @tester"
-    } else {
-      proposal.status = "needs_quorum"
-      proposal.reason = `quorum ${voters.size}/${needed}`
-    }
-    return
+    case "/api/v1/view/tree":
+      return tree(q("at")) as T
+    case "/api/v1/view/file":
+      return file(q("path") ?? "") as T
+    case "/api/v1/view/blame":
+      return blame(q("path") ?? "", q("at")) as T
+    default:
+      break
   }
-  if (proposal.protected_rule === "explicit" || proposal.status === "needs_approval") {
-    const owners = proposal.affected_owners
-    const satisfied =
-      owners.length === 0
-        ? proposal.approvals.some((handle) => handle !== proposal.author)
-        : owners.every((owner) => proposal.approvals.includes(owner))
-    if (satisfied) {
-      proposal.status = "testing"
-      proposal.reason = "approvals complete; waiting for @tester"
-    }
-    return
+  const diff = /^\/api\/v1\/view\/diff\/(.+)$/.exec(p)
+  if (diff?.[1]) {
+    const d = diffFor(w, decode(diff[1]))
+    if (!d) throw new ApiError(404, "not a link or a push")
+    return d as T
   }
-  if (
-    proposal.status === "window" &&
-    proposal.affected_owners.length > 0 &&
-    proposal.affected_owners.every((owner) => proposal.approvals.includes(owner))
-  ) {
-    proposal.status = "testing"
-    proposal.reason = "all affected owners approved"
-    proposal.window_closes_at = null
-    if (proposal.id === PUSH.window) current.landAfter = Date.now() / 1000 + 3
-  }
+  const th = /^\/api\/v1\/view\/thread\/(.+)$/.exec(p)
+  if (th?.[1]) return thread(decode(th[1])) as T
+  throw new ApiError(404, `no mock for ${method} ${p}`)
 }
 
-function resolveLink(current: World, at: string | null): Link {
-  if (!at) {
-    const tip = current.links[current.links.length - 1]
-    if (!tip) throw new ApiError(409, "repo has no tip")
-    return tip
-  }
-  const link = current.links.find((item) => item.id === at)
-  if (!link) throw new ApiError(404, "unknown link")
-  return link
-}
-
-function normalizeHandle(handle: string): string {
-  const trimmed = handle.trim()
-  if (!trimmed) throw new ApiError(400, "handle is required")
-  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`
-}
-
-function pushBody(intent: string, pairs: [string, string][], diff: string): string {
-  const trailers = pairs.map(([name, value]) => `Gud-${name}: ${value}`).join("\n")
-  return `${intent}\n\n${trailers}\n\n\`\`\`diff\n${diff}\n\`\`\``
-}
-
-function trailer(prose: string, pairs: [string, string][]): string {
-  return `${prose}\n\n${pairs.map(([name, value]) => `Gud-${name}: ${value}`).join("\n")}`
-}
-
-function rememberMail(
-  current: World,
-  opts: {
-    id: string
-    handle: string
-    subject: string
-    body: string
-    at: number
-    inReplyTo?: string
-    kind: string | null
-    summary: string
-    target?: string | null
-    human?: boolean
-    to?: string[]
-    fromAddr?: string
-  },
-) {
-  current.emails.push({
-    id: opts.id,
-    from: opts.fromAddr ?? addressOf(opts.handle),
-    to: opts.to ?? [REPO],
-    cc: opts.human ? [] : agentCc(opts.handle),
-    subject: opts.subject,
-    body: opts.body,
-    received_at: opts.at,
-    in_reply_to: opts.inReplyTo ?? null,
-    sender_verified: true,
-    kind: opts.kind,
+/** A short scripted timeline so the offline dashboard moves. */
+export function startMockDriver(): () => void {
+  const timers: number[] = []
+  const at = (ms: number, fn: () => void) => timers.push(window.setTimeout(fn, ms))
+  for (const listener of listeners) listener({ type: "open" })
+  at(12_000, () => {
+    const w = getWorld()
+    const p = w.proposals.find((x) => x.title.startsWith("cap overage"))
+    if (!p || !p.live) return
+    p.approvals.push({ by: "@auth-agent", at: Date.now() })
+    p.plan.waiting_on = []
+    emit("approved", { push: p.push, by: "@auth-agent" }, [p.author])
+    p.status = "qualified"
+    linkProposal(w, p)
   })
-  current.activity.unshift({
-    id: opts.id,
-    at: opts.at,
-    kind: opts.kind ?? "human",
-    from: opts.handle,
-    subject: opts.subject,
-    summary: opts.summary,
-    target: opts.target ?? opts.inReplyTo ?? null,
+  at(22_000, () => {
+    const w = getWorld()
+    const t = tip(w)
+    t.verdict = "pass"
+    t.verdict_at = Date.now()
+    emit("test.passed", { scope: "tip", target: t.state, tester: "@t1", result: "pass" })
+    w.red.red = false
+    const fix = w.tasks.find((x) => x.id === w.fixTask)
+    if (fix) {
+      fix.status = "done"
+      fix.done_at = Date.now()
+    }
+    emit("tip.green", { link: t.state, red_link: w.red.red_link })
   })
+  at(34_000, () => {
+    const w = getWorld()
+    const p = proposal(`prop-live-${Date.now()}`, "@auth-agent", "log 429s with the user id", Date.now(), w.config, tip(w).seq, ["app/auth.py"], {
+      plan: { line_owners: ["@nelson"], askers: ["@nelson"], declared: [], quorum_needed: null, quorum_have: null, members_rule: false, waiting_on: [HUMAN] },
+    })
+    w.proposals.unshift(p)
+    emit("push.received", { push: p.push, author: p.author, files: p.files })
+    emit("review.requested", { push: p.push, owner: HUMAN, why: "line" })
+  })
+  return () => {
+    for (const id of timers) window.clearTimeout(id)
+  }
 }

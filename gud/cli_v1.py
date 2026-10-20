@@ -353,13 +353,26 @@ def cmd_host_serve(args: argparse.Namespace) -> int:
     if not (root / "host.json").exists():
         raise CliError(f"{root} is not a host directory (run `gud host init`)", 2)
 
+    from gud.host_view import default_ui_dist, load_signers
+    homes = [Path(h).expanduser() for h in (args.ui_home or [])] or [ctx.home]
+    signers = {} if args.no_ui_actions else load_signers(homes)
+    dist: Path | bool | None = False if args.no_ui else (Path(args.ui_dist).expanduser() if args.ui_dist
+                                                         else default_ui_dist())
+
     def ready(host) -> None:
         head = host.intake.head()
+        members = host.intake.members()
+        usable = sorted(h for h in signers if members is not None and members.get(h) is not None)
+        ui = f"http://{args.bind}/" if dist else None
         ctx.out({"serving": f"http://{args.bind}", "dir": str(root), "repo": host.repo, "host_key": host.intake.log.key,
-                 "log_head": head.seq}, f"serving {host.repo} at http://{args.bind} (log head {head.seq})")
+                 "log_head": head.seq, "ui": ui, "ui_dist": str(dist) if dist else None, "ui_signers": usable},
+                f"serving {host.repo} at http://{args.bind} (log head {head.seq})"
+                + (f"; dashboard {ui}" if ui else "; no UI build (npm run build in ui/)" if not args.no_ui else "")
+                + (f"; UI acts as {', '.join(usable)}" if usable else ""))
         sys.stdout.flush()
 
-    host_v1.serve_dir(root, bind=args.bind, webhook_bind=args.webhook_bind, on_ready=ready)
+    host_v1.serve_dir(root, bind=args.bind, webhook_bind=args.webhook_bind, on_ready=ready,
+                      ui_signers=signers, ui_dist=dist if dist else False)
     return 0
 
 
@@ -1412,6 +1425,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--webhook-bind", help="a second port with only the provider webhook route")
     p.add_argument("--dir", help="host directory (default: this member's local host, or the only one)")
     p.add_argument("--repo", help="pick the host directory by repo address")
+    p.add_argument("--ui-home", action="append", metavar="GUD_HOME",
+                   help="a member GUD_HOME whose keys the loopback dashboard may sign with (repeatable; "
+                        "default: this GUD_HOME)")
+    p.add_argument("--ui-dist", help="the built web UI to serve at / (default: ui/dist of this checkout, or $GUD_UI_DIST)")
+    p.add_argument("--no-ui", action="store_true", help="do not serve the web UI at /")
+    p.add_argument("--no-ui-actions", action="store_true", help="read-only dashboard: no signing keys")
     p = add("key", cmd_host_key, "create (or show) a host key in a new host directory, for a handover", host)
     p.add_argument("--dir", required=True)
     p = add("handover", cmd_host_handover, "old host: sign the handover to a new host key (§11.6)", host)

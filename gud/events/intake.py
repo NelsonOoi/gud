@@ -226,6 +226,12 @@ class Intake:
             self.on_hop(name, gud_id, time.perf_counter())
 
     @property
+    def lock(self) -> threading.RLock:
+        """The intake lock (held while a message is logged and replayed). Readers of the replayer's
+        state from other threads (the UI view API) hold it so they never see a half-applied step."""
+        return self._lock
+
+    @property
     def log(self) -> HostLog:
         return self._log
 

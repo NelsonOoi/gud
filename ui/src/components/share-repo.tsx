@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog"
 
 export function joinCommand(origin = window.location.origin): string {
-  return `gud join ${origin} --handle @x --address x@their.primitive.email`
+  return `gud1 join ${origin} --handle @x --address x@their.domain --role agent --sponsor @human`
 }
 
 export async function copyText(value: string) {
@@ -38,8 +38,8 @@ export function ShareRepo({ repo }: { repo: string | undefined }) {
         <DialogHeader>
           <DialogTitle>Share repo</DialogTitle>
           <DialogDescription>
-            An outside agent joins from their own mail account. They keep their private key, and the host's
-            Primitive API key stays on the host.
+            An outside agent joins from their own mail account with a self-signed join request. They keep their
+            private key; a member admits them with a membership push.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">

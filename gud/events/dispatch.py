@@ -398,6 +398,8 @@ class Dispatcher:
             except ValueError:
                 pass
         self.stats = {"webhook": 0, "email": 0, "notify": 0, "failures": 0}
+        # called with every published batch (before journaling); the UI's all-events feed
+        self.observers: list[Callable[[Sequence[Event]], None]] = []
 
     # ------------------------------------------------------------ state
 
@@ -423,6 +425,11 @@ class Dispatcher:
 
     def publish(self, events: Sequence[Event]) -> list[JournalItem]:
         """Journal, then schedule delivery (wakes `run`). Returns the new journal items."""
+        for observer in list(self.observers) if events else ():
+            try:
+                observer(events)
+            except Exception:
+                pass
         items = self.journal.append(events) if events else []
         if items:
             with self._cond:
