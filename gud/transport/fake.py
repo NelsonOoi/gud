@@ -321,6 +321,7 @@ class FakeNetwork:
         self._boxes: dict[str, list[Received]] = {}
         self._subs: dict[str, list[Callable[[Received], None]]] = {}
         self._lock = threading.RLock()
+        self._msg_seq = 0          # network-wide, so Message-IDs never repeat across mailboxes
 
     @property
     def now_ms(self) -> Ms:
@@ -442,7 +443,9 @@ class NetworkMailbox:
     def send(self, message: Outgoing | bytes) -> Sent:
         if isinstance(message, Outgoing):
             if message.message_id is None:
-                self._msg_counter += 1
+                with self.net._lock:
+                    self.net._msg_seq += 1
+                    self._msg_counter = self.net._msg_seq
                 domain = self.address.rsplit("@", 1)[-1]
                 message = replace(message, message_id=f"<net-{self.net.now_ms}-{self._msg_counter}@{domain}>")
             raw = mime.build(message, date=formatdate(self.net.clock(), usegmt=True))

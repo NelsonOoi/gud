@@ -174,3 +174,16 @@ def test_network_subscribe_is_synchronous_and_bytes_deterministic() -> None:
         return seen
 
     assert run() == run()
+
+
+def test_network_message_ids_are_unique_across_mailboxes() -> None:
+    # Regression: each NetworkMailbox numbered its own Message-IDs, so two senders on one domain
+    # (or a second mailbox object for one address) sending in the same millisecond produced the
+    # same id, and §4 ("two unsigned messages with one Message-ID count once") dropped one.
+    net = FakeNetwork()
+
+    def send(addr: str) -> str:
+        out = Outgoing(from_addr=addr, to=("r@x.org",), subject="s", text="t")
+        return net.mailbox(addr).send(out).message_id
+
+    assert len({send("a@x.org"), send("b@x.org"), send("a@x.org")}) == 3
