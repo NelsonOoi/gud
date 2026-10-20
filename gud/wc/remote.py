@@ -37,6 +37,7 @@ import fcntl
 import json
 import math
 import os
+import re
 import time
 import tomllib
 from contextlib import contextmanager
@@ -50,16 +51,20 @@ from gud.core.envelope import sha256_hex
 from gud.core.hostlog import HostLog, LogError, decode_entry, encode_entry
 from gud.core.objects import DiskStore
 from gud.core.replay import ChainReader, ReplayError, Replayer, Snapshot
+from gud.core.replay import snapshot_at as _core_snapshot_at
 from gud.core.types import (
     Chain, ChainDelta, Email, Envelope, Handle, Hex, LogEntry, Member, Ms, ObjectStoreLike, Record, Seen,
+)
+from gud.events.dispatch import (
+    AUTH_HANDLE, AUTH_SIG, AUTH_TIME, MAX_SKEW_S, format_time, request_bytes, sign_request, verify_request,
 )
 from gud.transport import mime
 from gud.transport.base import Mailbox, Outgoing, envelope_budget
 
-HANDLE_HEADER = "X-Gud-Handle"
-TIME_HEADER = "X-Gud-Time"
-SIG_HEADER = "X-Gud-Sig"
-MAX_SKEW = 300
+# Mirror auth v1 (§21) has one implementation, in gud.events.dispatch (the host verifies with
+# the same code); these names are re-exported for members.
+HANDLE_HEADER, TIME_HEADER, SIG_HEADER = AUTH_HANDLE, AUTH_TIME, AUTH_SIG
+MAX_SKEW = MAX_SKEW_S
 API = "/api/v1"
 PAGE = 500
 _BLOB_HEADROOM = 2048            # bytes of a blob envelope that are not chunk data
@@ -68,60 +73,6 @@ _TICK_GAP_MS = 1000              # local host: append a tick when the head is th
 
 class RemoteError(RuntimeError):
     """The mirror is unreachable, refused a request, or served data that fails verification."""
-
-
-# ---------------------------------------------------------------- mirror auth v1 (§21)
-
-def format_time(now: float) -> str:
-    """Stable decimal unix time (the v0 `hostauth.format_time` form): no fraction when whole."""
-    text = format(float(now), ".6f")
-    if "." in text:
-        text = text.rstrip("0").rstrip(".")
-    return text
-
-
-def request_bytes(method: str, path_with_query: str, time_token: str, body: bytes = b"") -> bytes:
-    """`"{METHOD} {path_with_query} {time} {sha256(body)}"` (the hash of b"" for no body)."""
-    return f"{method.upper()} {path_with_query} {time_token} {sha256_hex(body or b'')}".encode("utf-8")
-
-
-def sign_request(handle: Handle, private_raw: bytes, method: str, path_with_query: str,
-                 body: bytes, now: float) -> dict[str, str]:
-    """Headers for one mirror request. The time is whole unix seconds."""
-    token = format_time(math.floor(now))
-    return {
-        HANDLE_HEADER: handle,
-        TIME_HEADER: token,
-        SIG_HEADER: E.sign_bytes(private_raw, request_bytes(method, path_with_query, token, body)),
-    }
-
-
-def _header(headers: Mapping[str, str], name: str) -> str | None:
-    for key in headers:
-        if key.lower() == name.lower():
-            return headers[key]
-    return None
-
-
-def verify_request(members: Any, method: str, path_with_query: str, body: bytes,
-                   headers: Mapping[str, str], now: float, max_skew: int = MAX_SKEW) -> Handle | None:
-    """The member handle when `headers` carry a valid mirror signature by a member of `members`
-    (a `gud.core.config.Members` at the tip) within `max_skew` seconds, else None."""
-    handle, token, sig = (_header(headers, n) for n in (HANDLE_HEADER, TIME_HEADER, SIG_HEADER))
-    if not handle or not token or not sig:
-        return None
-    try:
-        when = float(token)
-    except ValueError:
-        return None
-    if not math.isfinite(when) or abs(float(now) - when) > max_skew:
-        return None
-    member = members.get(handle) if members is not None else None
-    if member is None or not member.public_key:
-        return None
-    if not E.verify_bytes(member.public_key, request_bytes(method, path_with_query, token, body), sig):
-        return None
-    return member.handle
 
 
 # ---------------------------------------------------------------- keys and small helpers
@@ -195,14 +146,8 @@ def _write_atomic(path: Path, data: bytes) -> None:
 
 
 def _read_toml_transport(path: Path) -> tuple[str, dict[str, str]]:
-    data = tomllib.loads(path.read_text("utf-8"))
-    name = str(data.get("transport") or "").strip().lower()
-    cfg = {k: (("true" if v else "false") if isinstance(v, bool) else str(v))
-           for k, v in data.items() if k != "transport" and not isinstance(v, dict)}
-    table = data.get(name)
-    if isinstance(table, dict):
-        cfg.update({k: str(v) for k, v in table.items() if not isinstance(v, dict)})
-    return name, cfg
+    from gud.transport.registry import read_transport_toml
+    return read_transport_toml(path)
 
 
 def write_transport_toml(path: Path, name: str, cfg: Mapping[str, str]) -> None:
@@ -213,20 +158,11 @@ def write_transport_toml(path: Path, name: str, cfg: Mapping[str, str]) -> None:
 
 def snapshot_at(entries: Sequence[LogEntry], mail: Callable[[Hex], Email | None], seq: int,
                 store: ObjectStoreLike, trusted_host_keys: Sequence[str] = ()) -> bytes:
-    """§17 snapshot bytes for log position `seq`: replay entries <= seq with now = time(seq)."""
-    upto = [e for e in entries if e.seq <= seq]
-    if not upto or upto[-1].seq != seq:
-        raise RemoteError(f"no log entry {seq}")
-    emails = []
-    for e in upto:
-        if e.type == "mail":
-            email = mail(e.fields[0][1])
-            if email is None:
-                raise RemoteError(f"mail {e.fields[0][1][:12]} of entry {e.seq} is not available")
-            emails.append(email)
-    r = Replayer(store, trusted_host_keys=trusted_host_keys)
-    r.feed(emails, upto, upto[-1].time)
-    return r.snapshot().to_bytes()
+    """§17 snapshot bytes for log position `seq` (`gud.core.replay.snapshot_at`)."""
+    try:
+        return _core_snapshot_at(entries, mail, seq, store, trusted_host_keys)
+    except ReplayError as exc:
+        raise RemoteError(str(exc)) from exc
 
 
 # ---------------------------------------------------------------- mirror back ends
@@ -261,7 +197,9 @@ class HttpMirror:
         import httpx
         headers = {"Content-Type": "application/json"} if body else {}
         if signed:
-            headers.update(sign_request(self.handle, self._key, method, self._prefix + path, body, self._clock()))
+            # X-Gud-Time is whole unix seconds (wc note 7)
+            headers.update(sign_request(self.handle, self._key, method, self._prefix + path, body,
+                                        math.floor(self._clock())))
         try:
             resp = self._http.request(method, self.base_url + path, content=body or None, headers=headers)
         except httpx.HTTPError as exc:
@@ -311,7 +249,7 @@ class LocalHost:
         host.json           {"repo", "bugs"}
         transport.toml      the repo mailbox's transport (gud.transport.registry form)
         log.jsonl           host log, one JSON string (entry text incl. sig line) per line
-        mail/<id>.eml       raw MIME of every logged message, as received
+        mail/<2 hex>/<id>.eml  raw MIME of every logged message, as received (the host_v1 layout)
         cursor              the repo mailbox cursor
         checkpoints.json    snapshot sha256 -> log seq, from logged checkpoint messages
         snapshots/<sha256>  computed snapshot bytes
@@ -362,6 +300,47 @@ class LocalHost:
         (root / "host.json").write_text(json.dumps(meta, indent=1) + "\n", "utf-8")
         return cls(root, clock=clock, mailbox=mailbox)
 
+    @classmethod
+    def install(cls, root: Path, *, log: HostLog, transport: str, cfg: Mapping[str, str], host_private: bytes,
+                bugs: str | None = None, objects: Path | None = None) -> LocalHost:
+        """A host directory for a log continued from an archive (`gud import-archive`): the key,
+        the log (which must already be signed up to its `open` by this key), the transport for
+        the log's current repo address. Mail goes in `mail/` (flat or sharded)."""
+        root = Path(root)
+        if (root / "host.json").exists():
+            raise RemoteError(f"{root} already holds a host")
+        if log.key != E.public_of(host_private):
+            raise RemoteError("the log's current key is not this host's key")
+        root.mkdir(parents=True, exist_ok=True)
+        key_file = root / "key"
+        if not key_file.exists():
+            fd = os.open(key_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="ascii") as fh:
+                fh.write(encode_private_key(host_private) + "\n")
+        repo = log.repo or ""
+        write_transport_toml(root / "transport.toml", transport, {**cfg, "address": repo})
+        _write_atomic(root / "log.jsonl", "".join(json.dumps(encode_entry(e).decode("utf-8")) + "\n"
+                                                   for e in log.entries()).encode("utf-8"))
+        meta = {"repo": repo, "bugs": bugs}
+        if objects is not None:
+            meta["objects"] = str(objects)
+        (root / "host.json").write_text(json.dumps(meta, indent=1) + "\n", "utf-8")
+        return cls(root)
+
+    def handover(self, new_public: str, *, repo: str | None = None) -> LogEntry:
+        """Old host, before `gud export-archive --host`: sign the §11.6 handover to `new_public`
+        (and the repo's new address, integration note 4). Nothing is logged after it."""
+        if self.served():
+            raise RemoteError(f"{self.root} is being served; stop `gud host serve` first")
+        with _flock(self.root / "lock"):
+            self._log = self._load_log()
+            head = self._log.head
+            if head is None or head.type == "handover":
+                raise RemoteError("the log already ends in a handover")
+            entry = self._log.handover(self._key, new_public, max(now_ms(self._clock), head.time + 1), repo=repo)
+            self._append(entry)
+            return entry
+
     @property
     def host_key(self) -> str:
         return E.public_of(self._key)
@@ -375,8 +354,14 @@ class LocalHost:
 
     def _load_log(self) -> HostLog:
         path = self.root / "log.jsonl"
-        entries = [decode_entry(json.loads(line).encode("utf-8"))
-                   for line in path.read_text("utf-8").splitlines() if line.strip()]
+        entries = []
+        for line in path.read_text("utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                entries.append(decode_entry(json.loads(line).encode("utf-8")))
+            except (ValueError, LogError):
+                break             # a torn last line while `gud host serve` appends
         return HostLog(entries)
 
     def _append(self, entry: LogEntry) -> None:
@@ -387,9 +372,28 @@ class LocalHost:
 
     # ------------------------------------------------------------ intake
 
+    def served(self) -> bool:
+        """Whether `gud host serve` runs on this directory (it holds `serve.lock`). Its intake
+        then owns the log: local-mode members only read."""
+        path = self.root / "serve.lock"
+        if not path.exists():
+            return False
+        with open(path, "a+b") as fh:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(fh, fcntl.LOCK_UN)
+            return False
+
     def pull(self) -> None:
+        if self.served():
+            self._log = self._load_log()
+            return
         with _flock(self.root / "lock"):
             self._log = self._load_log()
+            if self._log.head is not None and self._log.head.type == "handover":
+                return                    # handed over: this host logs nothing more (§11.6)
             cursor_path = self.root / "cursor"
             cursor = cursor_path.read_text("utf-8").strip() if cursor_path.exists() else None
             mailbox = self.mailbox()
@@ -417,7 +421,7 @@ class LocalHost:
         head = self._log.head
         assert head is not None
         host_now = max(now_ms(self._clock), head.time + 1)
-        _write_atomic(self.root / "mail" / f"{email.gud_id}.eml", raw)
+        _write_atomic(self.root / "mail" / email.gud_id[:2] / f"{email.gud_id}.eml", raw)
         entry = self._log.append_mail(email.gud_id, min(int(received_at), host_now), self._key, host_now)
         self._append(entry)
         env = email.envelope
@@ -504,8 +508,12 @@ class LocalHost:
     def mail(self, gud_id: Hex) -> bytes | None:
         if not E.is_hex64(gud_id):
             return None
-        path = self.root / "mail" / f"{gud_id}.eml"
-        return path.read_bytes() if path.exists() else None
+        # the host_v1 layout (mail/<2 hex>/<id>.eml), so `gud host serve` can serve this directory;
+        # flat mail/<id>.eml is read too
+        for path in (self.root / "mail" / gud_id[:2] / f"{gud_id}.eml", self.root / "mail" / f"{gud_id}.eml"):
+            if path.exists():
+                return path.read_bytes()
+        return None
 
     def object(self, sha256: Hex) -> bytes | None:
         try:
@@ -550,6 +558,33 @@ def open_mirror(host_url: str, handle: Handle, private_raw: bytes, *, http: Any 
     if host_url.startswith(("http://", "https://")):
         return HttpMirror(host_url, handle, private_raw, http=http, clock=clock)
     raise RemoteError(f"unsupported host url {host_url!r} (use http(s)://... or local:<dir>)")
+
+
+def client_from_home(home: Path, handle: Handle | None = None, *, host_url: str | None = None,
+                     repo: str | None = None, key: bytes | None = None,
+                     clock: Callable[[], float] = time.time) -> "RepoClient":
+    """A `RepoClient` from a member's GUD_HOME: `remote.json` (written by `gud init`, `clone`,
+    `join`) gives the host URL, repo and handle unless passed; the key is
+    `members/<handle>/key`; the member's transport (`members/<handle>/transport.toml`) sends."""
+    home = Path(home)
+    path = home / "remote.json"
+    remote = json.loads(path.read_text("utf-8")) if path.exists() else {}
+    handle = handle or remote.get("handle")
+    host_url = host_url or remote.get("host_url")
+    if not handle or not host_url:
+        raise RemoteError(f"no repo in {home} (run `gud clone` or pass the host URL and handle)")
+    handle = handle if handle.startswith("@") else "@" + handle
+    raw = key if key is not None else load_key(home, handle)
+    mailbox = None
+    if (home / "members" / handle / "transport.toml").exists():
+        from gud.transport.registry import member_config, open_mailbox
+        name, cfg = member_config(home, handle)
+        mailbox = open_mailbox(name, cfg)
+    if not repo:
+        repo = remote.get("repo") if remote.get("host_url") == host_url else None
+    if not repo:
+        repo = open_mirror(host_url, handle, raw, clock=clock).info()["repo"]
+    return RepoClient(host_url, handle, raw, send_via=mailbox, repo_address=repo, home=home, clock=clock)
 
 
 class FetchingStore:
@@ -631,6 +666,9 @@ class RepoClient:
         self._replayer = self._load_replayer()
         self._info: dict | None = None
         self.last_problems: list[str] = []
+        # called with every delta `sync_log` produces (including the syncs WorkingCopy runs), so
+        # tools that journal events (gud.mcp_v1, gud.agent) see all of them
+        self.on_delta: list[Callable[[ChainDelta], None]] = []
 
     # ------------------------------------------------------------ cache
 
@@ -682,6 +720,14 @@ class RepoClient:
     def replayer(self) -> Replayer:
         return self._replayer
 
+    @property
+    def repo_address(self) -> str:
+        """Where this member sends: the repo address of the latest `open` in the verified log, so
+        members follow a handover that moved the repo (integration note 4). `repo` stays the
+        address the cache is named after."""
+        log = self._replayer.log()
+        return (log.repo if len(log) else None) or self.repo
+
     def chain(self) -> Chain:
         return self._replayer.chain()
 
@@ -701,6 +747,32 @@ class RepoClient:
 
     def _fetch_object_raw(self, sha256: Hex) -> bytes | None:
         return self.mirror.object(sha256)
+
+    @property
+    def private_raw(self) -> bytes:
+        """The member's signing key (for `EventClient.stream`, which signs its own SSE request)."""
+        return self._key
+
+    @property
+    def http(self) -> Any:
+        return getattr(self.mirror, "_http", None)
+
+    def log_entries(self, since: int, limit: int) -> list[LogEntry]:
+        """Log entries as the mirror serves them now, decoded but not verified against the cache
+        (for `gud audit` and `gud export-archive`, which verify them themselves). Stops at the
+        first entry that does not decode."""
+        self.mirror.pull()
+        out: list[LogEntry] = []
+        for text in self.mirror.log(since, limit).get("entries") or ():
+            try:
+                out.append(decode_entry(text.encode("utf-8")))
+            except LogError:
+                break
+        return out
+
+    def raw(self, gud_id: Hex) -> bytes | None:
+        """Raw MIME of one logged message as the mirror serves it now (None if it does not)."""
+        return self.mirror.mail(gud_id)
 
     def fetch_object(self, sha256: Hex) -> bytes:
         data = self.mirror.object(sha256)
@@ -794,11 +866,7 @@ class RepoClient:
             self.mirror.pull()
             r = self._replayer
             entries = self._fetch_log(len(r.log()))
-            if len(r.log()) == 0 and self._meta().get("checkpoint_seq") is not None:
-                # a cache just loaded from a checkpoint has no log yet (Replayer.chain() needs it)
-                processed = int(self._meta()["checkpoint_seq"])
-            else:
-                processed = r.chain().log_head.seq
+            processed = r.chain().log_head.seq
             wanted: dict[Hex, int] = {}
             for e in entries:
                 if e.type == "mail" and e.seq > processed:
@@ -813,9 +881,16 @@ class RepoClient:
                 delta = r.feed(emails, entries, self.now_ms())
             except ReplayError as exc:
                 r.save()
+                if exc.delta is not None:
+                    self._deliver_delta(exc.delta)
                 raise RemoteError(f"host log verification failed: {exc}") from exc
             r.save()
-            return delta
+        self._deliver_delta(delta)
+        return delta
+
+    def _deliver_delta(self, delta: ChainDelta) -> None:
+        for hook in list(self.on_delta):
+            hook(delta)
 
     def bootstrap(self, *, checkpoint: bool = True) -> str:
         """Prepare an empty cache: from the newest valid checkpoint when `checkpoint` and one
@@ -829,8 +904,8 @@ class RepoClient:
                     self.store = FetchingStore(self.objects, self._fetch_object_raw)
                     self._replayer = Replayer.from_checkpoint(found, self.store, state_dir=self.cache_dir,
                                                               trusted_host_keys=self.trusted_host_keys)
-                    self._save_meta({**self._meta(), "checkpoint": True,
-                                     "checkpoint_seq": Snapshot.from_bytes(found).log_head.seq})
+                    self._replayer.save()
+                    self._save_meta({**self._meta(), "checkpoint": True})
                 return "checkpoint"
         return "genesis"
 
@@ -966,7 +1041,7 @@ class RepoClient:
             if target is not None and target.message_id:
                 reply, refs = target.message_id, (target.message_id,)
         self.send_via.send(Outgoing(  # type: ignore[union-attr]
-            from_addr=self._address(), to=(self.repo,), subject=mime.subject_for(env, gid, summary),
+            from_addr=self._address(), to=(self.repo_address,), subject=mime.subject_for(env, gid, summary),
             text=mime.render_human_part(env, gid, text), envelope=data, in_reply_to=reply, references=refs,
         ))
         return gid
@@ -1011,8 +1086,23 @@ class RepoClient:
     # ------------------------------------------------------------ ids
 
     def resolve(self, ref: str) -> Hex:
-        """A full id, a hex prefix (>= 4) of any known id, a task alias (`T3`, `T3.1`), or `tip`."""
+        """A full id, a hex prefix (>= 4) of any known id, a task alias (`T3`, `T3.1`), or `tip`; also
+        the forms people paste from mail: a subject tag `[gud:<hex>]`, `gud:<hex>`, `<id>`, and a
+        `<Message-ID>` of a logged message."""
         ref = ref.strip()
+        tag = re.search(r"\[gud:([0-9a-fA-F]{4,64})\]", ref)
+        if tag:
+            ref = tag.group(1).lower()
+        elif ref.startswith("<") and ref.endswith(">"):
+            inner = ref[1:-1].strip()
+            if "@" in inner:
+                found = self._replayer.by_message_id(ref) or self._replayer.by_message_id(inner)
+                if found:
+                    return found
+                inner = inner.split("@", 1)[0]
+            ref = inner
+        if ref.lower().startswith("gud:"):
+            ref = ref[4:]
         chain = self.chain()
         if ref == "tip":
             if chain.tip is None:

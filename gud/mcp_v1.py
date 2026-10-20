@@ -59,6 +59,7 @@ from gud.core.types import (
 from gud.events.model import event_dict, event_from_dict
 from gud.transport.base import TransportError
 from gud.wc.copy import SecretsFound, WcError, WorkingCopy, find_root, push_tree, read_local_config, verify_cache
+from gud.wc.review import my_claims, needs as review_needs, why_text
 from gud.wc.remote import RemoteError, RepoClient, load_key
 
 TOOL_NAMES = (
@@ -136,53 +137,15 @@ def _path_hits(paths: Sequence[str], files: Iterable[str]) -> bool:
     return False
 
 
-# Paths that are almost always local build output, never source. `push` refuses them unless
-# allow_artifacts=True, and says to add them to .gudignore (every member receives every diff).
-ARTIFACT_PATTERNS = (
-    "**/__pycache__/**", "**/*.pyc", "**/*.pyo", "**/.pytest_cache/**", "**/.mypy_cache/**", "**/.ruff_cache/**",
-    "**/node_modules/**", "**/.DS_Store", "**/*.egg-info/**", "**/.venv/**", "**/.tox/**", "**/.coverage",
-)
-_IGNORE_LINES = {"__pycache__": "__pycache__/", ".pyc": "*.pyc", ".pyo": "*.pyo", ".pytest_cache": ".pytest_cache/",
-                 ".mypy_cache": ".mypy_cache/", ".ruff_cache": ".ruff_cache/", "node_modules": "node_modules/",
-                 ".DS_Store": ".DS_Store", ".egg-info": "*.egg-info/", ".venv": ".venv/", ".tox": ".tox/",
-                 ".coverage": ".coverage"}
-
-
-def artifacts(paths: Iterable[str]) -> list[str]:
-    """The paths that look like build output (ARTIFACT_PATTERNS)."""
-    out = []
-    for p in paths:
-        if any(glob_match(g, p) or glob_match(g.removeprefix("**/"), p) for g in ARTIFACT_PATTERNS):
-            out.append(p)
-    return sorted(out)
-
-
-def _ignore_lines(paths: Sequence[str]) -> list[str]:
-    lines = []
-    for p in paths:
-        for marker, line in _IGNORE_LINES.items():
-            if marker in p and line not in lines:
-                lines.append(line)
-    return lines
+# Build output (__pycache__, .pytest_cache, node_modules, ...): `push` refuses it unless
+# allow_artifacts=True, and says to add it to .gudignore. One list, in gud.wc.ignore.
+from gud.wc.ignore import ARTIFACT_PATTERNS, artifacts, ignore_lines as _ignore_lines  # noqa: E402
 
 
 def is_echo(event: Event, me: Handle) -> bool:
     """An event that only confirms this member's own action (its claim won, its push linked)."""
     d = event.data
     return (event.type == "claim.won" and d.get("holder") == me) or (event.type == "linked" and d.get("author") == me)
-
-
-def _ref_clean(ref: str) -> str:
-    ref = str(ref or "").strip()
-    m = re.search(r"\[gud:([0-9a-fA-F]{4,64})\]", ref)
-    if m:
-        return m.group(1).lower()
-    ref = ref.strip("<>").strip()
-    if ref.lower().startswith("gud:"):
-        ref = ref[4:]
-    if "@" in ref and not ref.startswith("@"):        # a Message-ID like <abc...@host>
-        ref = ref.split("@", 1)[0]
-    return ref.strip()
 
 
 # ---------------------------------------------------------------- the member's event journal
@@ -268,24 +231,18 @@ class MemberEvents:
 
 
 def journal_deltas(client: RepoClient, journal: MemberEvents) -> None:
-    """Make every `client.sync_log()` record its delta's events in `journal`, including the syncs
-    `WorkingCopy` runs internally (push, sync, clone), so no event is consumed unseen. Idempotent;
-    the instance attribute shadows the method."""
-    original = getattr(client, "_gud_sync_original", None) or client.sync_log
-    journals: list[MemberEvents] = getattr(client, "_gud_journals", [])
-    if any(j.path == journal.path for j in journals):
-        return
-    journals.append(journal)
+    """Record every delta `client.sync_log()` produces in `journal` (RepoClient.on_delta), including
+    the syncs `WorkingCopy` runs internally (push, sync, clone), so no event is consumed unseen.
+    Idempotent per journal file."""
+    for hook in client.on_delta:
+        if getattr(hook, "_gud_journal", None) == journal.path:
+            return
 
-    def sync_log() -> Any:
-        delta = original()
-        for j in journals:
-            j.record(delta.events)
-        return delta
+    def record(delta: Any) -> None:
+        journal.record(delta.events)
 
-    client._gud_sync_original = original  # type: ignore[attr-defined]
-    client._gud_journals = journals  # type: ignore[attr-defined]
-    client.sync_log = sync_log  # type: ignore[method-assign]
+    record._gud_journal = journal.path  # type: ignore[attr-defined]
+    client.on_delta.append(record)
 
 
 # ---------------------------------------------------------------- describing things
@@ -570,7 +527,7 @@ class GudTools:
     def _resolve(self, ref: str | None, what: str = "id") -> Hex | None:
         if ref is None or str(ref).strip() == "":
             return None
-        clean = _ref_clean(str(ref))
+        clean = str(ref).strip()             # RepoClient.resolve takes <id>, [gud:...] and Message-IDs
         if clean == "base":
             return self._wc().base
         try:
@@ -672,7 +629,7 @@ class GudTools:
         return set(st.added) | set(st.modified) | set(st.deleted) | set(st.mode_changed)
 
     def _my_claims(self, chain: Chain) -> list[ClaimState]:
-        return [c for c in chain.claims.values() if c.holder == self.me and c.status == "active"]
+        return my_claims(chain, self.me)
 
     # ------------------------------------------------------------ working copy
 
@@ -803,7 +760,7 @@ class GudTools:
             self._need_sender()
             st = wc.status()
             self._check_artifacts(st.added + st.modified + st.mode_changed, allow_artifacts)
-            result = wc.push(intent, task=task_id, revises=rev_id, carry=carry)
+            result = wc.push(intent, task=task_id, revises=rev_id, carry=carry, allow_artifacts=allow_artifacts)
             pid, parent_state, files = result.push, result.parent, list(result.files)
             forecast = result.forecast
         logged = self._wait_logged(pid)
@@ -1290,62 +1247,15 @@ class GudTools:
     # ------------------------------------------------------------ what needs me
 
     def _needs(self, chain: Chain) -> list[dict]:
-        me = self.me
-        now = self._now()
         reader = self.client.reader()
-        member = reader.members().get(me) if chain.tip else None
-        items: list[dict] = []
-        seen_push: set[Hex] = set()
-        for cid in sorted(chain.proposals):
-            prop = chain.proposals[cid]
-            if prop.status not in LIVE_STATUSES or prop.push in seen_push:
-                continue
-            cur = chain.push_status(prop.push) or prop
-            if cur.id != prop.id:
-                continue
-            seen_push.add(prop.push)
-            approved = {h for h, _ in prop.approvals}
-            if prop.author == me:
-                for obj in prop.objections:
-                    if obj.status in ("blocking", "pending_verdict", "confirmed"):
-                        items.append({"type": "objection", "push": prop.push, "objection": obj.id, "by": obj.by,
-                                      "reason": obj.reason, "status": obj.status,
-                                      "evidence": obj.evidence.path if obj.evidence else None})
-                continue
-            if me in approved or any(o.by == me for o in prop.objections):
-                continue
-            why = []
-            if me in prop.askers:
-                why.append("you own lines it changes" if me in prop.line_owners else "declared owner")
-            why += [f"explicit owner of {path}" for path, rule, owners in prop.declared if rule == "explicit" and me in owners]
-            if prop.quorum_needed and member is not None and member.votes:
-                why.append("quorum vote")
-            if why:
-                items.append({"type": "review", "push": prop.push, "candidate": prop.id, "author": prop.author,
-                              "status": prop.status, "why": why, "files": list(prop.files),
-                              "closes_at": prop.window_closes_at})
-        for esc in chain.escalations.values():
-            if esc.status == "open" and me in esc.deciders:
-                items.append({"type": "escalation", "escalation": esc.id, "reason": esc.reason,
-                              "pushes": list(esc.pushes), "deadline": esc.deadline})
-        for c in self._my_claims(chain):
-            if c.lapses_at - now < 5 * 60_000:
-                items.append({"type": "lease", "claim": c.id, "task": c.task, "lapses_at": c.lapses_at})
+        members = reader.members() if chain.tip else None
         tip_paths = list(reader.tree().paths()) if chain.tip else []
-        mine = self._my_claims(chain)
-        for c in chain.claims.values():
-            if c.status != "active" or c.holder == me:
-                continue
-            for m in mine:
-                if globs_overlap(list(m.files), list(c.files), tip_paths):
-                    items.append({"type": "overlap", "claim": m.id, "other": c.id, "holder": c.holder,
-                                  "files": list(c.files)})
-        return items
+        return review_needs(chain, self.me, members=members, now=self._now(), tip_paths=tip_paths)
 
     def _render_need(self, chain: Chain, it: dict) -> str:
         now = self._now()
         if it["type"] == "review":
-            return (f"review push {_short(it['push'])} by {it['author']} ({', '.join(it['why'])}; window closes "
+            return (f"review push {_short(it['push'])} by {it['author']} ({', '.join(why_text(w) for w in it['why'])}; window closes "
                     f"{_rel(it['closes_at'], now)}): {', '.join(it['files'])} — inflight/thread, then approve, object "
                     f"or comment")
         if it["type"] == "objection":
@@ -1355,6 +1265,9 @@ class GudTools:
                     f"push a revision with revises=\"{_short(it['push'])}\"")
         if it["type"] == "escalation":
             return f"escalation {_short(it['escalation'])} ({it['reason']}) needs your decision"
+        if it["type"] == "accept":
+            return (f"accept {it['alias']} {it['title']}: its work is done; approve(target=" + repr(it['alias'])
+                    + ") accepts it")
         if it["type"] == "lease":
             return (f"your claim {_short(it['claim'])} on {_alias(chain, it['task'])} lapses {_rel(it['lapses_at'], now)}"
                     f": push or comment with task= to renew it, or release it")

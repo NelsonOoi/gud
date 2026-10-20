@@ -1,4 +1,4 @@
-"""Working copy end to end against the §21 host test double (SPEC-v1 §21, §22)."""
+"""Working copy end to end against the real v1 host (gud.host_v1; SPEC-v1 §21, §22)."""
 
 from __future__ import annotations
 
@@ -358,16 +358,14 @@ def test_sync_rejects_a_forged_log(net: Net):
     # the host rewrites history: a different log signed by another key
     other = Kit()
     other.host_key = b"\x01" * 32
-    from gud.core.hostlog import HostLog
-    net.host.key = other.host_key
-    net.host.log = HostLog.open(net.host.repo, other.host_key, net.clock.ms + 5)
+    net.host.forge_log(other.host_key)
     net.clock.advance(2000)
     from gud.wc.remote import RemoteError
     with pytest.raises(RemoteError, match="rolled its log back|fork"):
         c.sync_log()
     for _ in range(6):                                    # a longer forged history does not chain either
         net.clock.advance(2000)
-        net.host.log.append_tick(other.host_key, net.clock.ms)
+        net.host.forged_tick()
     with pytest.raises(RemoteError, match="verification"):
         c.sync_log()
     assert len(c.replayer().log()) >= 2 and c.chain().tip is not None   # the verified prefix is kept

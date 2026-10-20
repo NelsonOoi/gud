@@ -155,12 +155,15 @@ class KeyStore:
 _FIELD_SPLIT = re.compile(r"[ \t]+")
 
 
-def edit_members(data: bytes, handle: Handle, *, key: str | None = None, remove: bool = False) -> bytes:
-    """`.gud/members` bytes with `handle`'s line changed: its public key replaced by `key`, or the
-    line removed. Every other line (comments, order, spacing) is kept byte for byte. The result
-    must parse (§10.2). Raises KeysError."""
+def edit_members(data: bytes, handle: Handle, *, key: str | None = None, remove: bool = False,
+                 address: str | None = None) -> bytes:
+    """`.gud/members` bytes with `handle`'s line changed: its public key replaced by `key` (and
+    its address by `address`, when given), or the line removed. Every other line (comments,
+    order, spacing) is kept byte for byte. The result must parse (§10.2). Raises KeysError."""
     if (key is None) == (not remove):
         raise KeysError("give exactly one of key= or remove=True")
+    if address is not None and (remove or not address or any(c.isspace() for c in address)):
+        raise KeysError("bad address")
     if key is not None and not E.is_public_key(key):
         raise KeysError("bad public key")
     lines = data.split(b"\n")
@@ -174,6 +177,8 @@ def edit_members(data: bytes, handle: Handle, *, key: str | None = None, remove:
             if remove:
                 continue
             fields[3] = key  # type: ignore[assignment]
+            if address is not None:
+                fields[2] = address
             line = " ".join(fields).encode("utf-8") + ((b" #" + comment) if hash_ else b"")
         out.append(line)
     if not found:
@@ -343,14 +348,16 @@ def revoke_member(client: MemberClient, handle: Handle, reason: str) -> Hex:
     return _send_members_push(client, data, intent=intent, summary=f"revoke {handle}")
 
 
-def host_key_push(client: MemberClient, new_public: str, *, reason: str = "") -> Hex:
-    """Members push moving the `host` line to `new_public` (§11.6, after the log handover)."""
+def host_key_push(client: MemberClient, new_public: str, *, reason: str = "", address: str | None = None) -> Hex:
+    """Members push moving the `host` line to `new_public` (§11.6, after the log handover) and,
+    when the repo moved, to its new `address` (integration note 4)."""
     reader, _ = _tip(client)
     host = reader.members().host()
-    if host.public_key == new_public:
+    if host.public_key == new_public and (address is None or address == host.address):
         raise KeysError("the host line already has that key")
-    data = edit_members(reader.tree().read(MEMBERS), host.handle, key=new_public)
-    intent = f"host key handover to {new_public}" + (f": {reason}" if reason else "")
+    data = edit_members(reader.tree().read(MEMBERS), host.handle, key=new_public, address=address)
+    intent = f"host key handover to {new_public}" + (f" at {address}" if address else "") + \
+        (f": {reason}" if reason else "")
     return _send_members_push(client, data, intent=intent, summary="host key handover")
 
 

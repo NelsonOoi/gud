@@ -331,3 +331,24 @@ def test_thread_finished_rules(world: World):
     assert thread_finished("push:" + "e" * 64, chain)
     batch = render_batch([], chain, key="idle:0", idle=True)
     assert "open work on the board" in batch
+
+
+def test_pushed_events_are_turned_on_a_synced_chain(world: World):
+    """Regression (e2e): with a webhook or SSE channel the runtime polls only every 10 s, and a
+    turn for a pushed event ran on the chain from before that event (a task.opened for a task the
+    session could not see yet). Pushed events now sync first."""
+    seen: list[bool] = []
+    r = world.repo
+    alice = world.runtime("@alice", lambda s, text: seen.append(tid in r.client("@alice").chain().tasks)
+                          or SessionTurn(text="looked", usd=0.0, tokens=0, session_id="x"))
+    alice.step()
+    nelson = r.client("@nelson")
+    nelson.sync_log()
+    deltas: list = []
+    nelson.on_delta.append(deltas.append)
+    tid = r.task("pushed work")
+    opened = [e for d in deltas for e in d.events if e.type == "task.opened" and e.data["task"] == tid]
+    assert opened and tid not in r.client("@alice").chain().tasks       # alice has not synced
+    alice._incoming.put(opened[0])                                     # what the webhook receiver does
+    assert alice.step(poll=False) == 1
+    assert seen == [True]

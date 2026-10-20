@@ -36,7 +36,7 @@ from typing import Callable, Mapping, Sequence
 from gud.core import envelope as E
 from gud.core.config import Members, RepoRules
 from gud.core.hostlog import HostLog, LogError, decode_entry, encode_entry
-from gud.core.replay import Replayer, ReplayError
+from gud.core.replay import Replayer, ReplayError, snapshot_at
 from gud.core.types import ChainDelta, Email, Hex, LogEntry, Ms, Seen
 from gud.transport import auth, mime
 from gud.transport.base import Mailbox, Received, TransportError, WebhookVerifier
@@ -119,6 +119,8 @@ class Intake:
         state = self._read_state()
         self._cursor: str | None = state.get("cursor")
         self._notify_events: set[Hex] = set(state.get("notify_events") or [])
+        # snapshot sha256 -> log seq, from logged `checkpoint` messages (served on request, §17)
+        self._checkpoints: dict[Hex, int] = {k: int(v) for k, v in (state.get("checkpoints") or {}).items()}
         self.verifiers: dict[str, WebhookVerifier] = dict(verifiers or {})
         if not self.verifiers and callable(getattr(mailbox, "verify", None)) and callable(getattr(mailbox, "parse", None)):
             try:
@@ -141,7 +143,8 @@ class Intake:
             return {}
 
     def _write_state(self) -> None:
-        data = {"cursor": self._cursor, "notify_events": sorted(self._notify_events)}
+        data = {"cursor": self._cursor, "notify_events": sorted(self._notify_events),
+                "checkpoints": dict(sorted(self._checkpoints.items()))}
         tmp = self.state_path.with_name(f".{self.state_path.name}.tmp")
         tmp.write_text(json.dumps(data), "utf-8")
         os.replace(tmp, self.state_path)
@@ -193,7 +196,7 @@ class Intake:
 
     def _store_raw(self, gud_id: Hex, raw: bytes) -> None:
         path = self._mail_path(gud_id)
-        if path.exists():
+        if path.exists() or (self.mail_store / f"{gud_id}.eml").exists():
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f".{path.name}.tmp")
@@ -267,10 +270,12 @@ class Intake:
     def raw(self, gud_id: Hex) -> bytes | None:
         if not E.is_hex64(gud_id):
             return None
-        try:
-            return self._mail_path(gud_id).read_bytes()
-        except FileNotFoundError:
-            return None
+        for path in (self._mail_path(gud_id), self.mail_store / f"{gud_id}.eml"):   # sharded, or flat (archive import)
+            try:
+                return path.read_bytes()
+            except FileNotFoundError:
+                continue
+        return None
 
     def object(self, sha256: Hex) -> bytes | None:
         """Blob content (or any object) from the replay store, §21 `GET /api/v1/object`."""
@@ -431,6 +436,9 @@ class Intake:
             if self._log.seq_of(gid) is not None:
                 self.stats["duplicates"] += 1
                 return None
+            if self._log.head is not None and self._log.head.type == "handover":
+                self.stats["ignored"] += 1          # handed over (§11.6): the new host logs it
+                return None
             now = self._now()
             head = self._log.head
             assert head is not None
@@ -459,6 +467,8 @@ class Intake:
                 if event:
                     self._notify_events.add(event)
                     self._write_state()
+            if email.envelope is not None and email.envelope.kind == "checkpoint":
+                self._index_checkpoint(email.envelope)
             self._hop("logged", gid)
             self._log_cond.notify_all()
             return self._feed([entry], [email], gid)
@@ -508,7 +518,7 @@ class Intake:
     def _tick_due(self, now: Ms) -> bool:
         head = self._log.head
         assert head is not None
-        if now <= head.time:
+        if now <= head.time or head.type == "handover":
             return False
         if self.next_wakeup is not None and now >= self.next_wakeup:
             return True
@@ -522,13 +532,27 @@ class Intake:
         replay. Returns the delta, or None when no tick was due."""
         with self._lock:
             now = self._now()
-            if not (self._tick_due(now) or (force and now > self._log.head.time)):
+            if not (self._tick_due(now) or (force and now > self._log.head.time and self._log.head.type != "handover")):
                 return None
             entry = self._log.append_tick(self._key, now)
             self._persist_entry(entry)
             self.stats["ticks"] += 1
             self._log_cond.notify_all()
             return self._feed([entry], [])
+
+    def handover(self, new_public: str, *, repo: str | None = None) -> LogEntry:
+        """Planned handover (§11.6): append `handover` naming the new host key (and the repo's new
+        address, integration note 4). After it this host logs nothing; export the archive
+        (`gud.ops.archive.export_archive(intake, ...)`) for the new host."""
+        with self._lock:
+            head = self._log.head
+            if head is None or head.type == "handover":
+                raise IntakeError("the log already ends in a handover")
+            entry = self._log.handover(self._key, new_public, max(self._now(), head.time + 1), repo=repo)
+            self._persist_entry(entry)
+            self._log_cond.notify_all()
+            self._feed([entry], [])
+            return entry
 
     def next_tick_in(self) -> float:
         """Seconds until a tick can next be due (for the run loop)."""
@@ -594,13 +618,43 @@ class Intake:
                 path.write_bytes(data)
             return sha, data
 
+    def _index_checkpoint(self, env) -> None:
+        snap, log = env.get("Gud-Snapshot"), env.get("Gud-Log")
+        if not snap or not log or not E.is_hex64(snap) or snap in self._checkpoints:
+            return
+        try:
+            self._checkpoints[snap] = E.parse_seen(log).seq
+        except E.EnvelopeError:
+            return
+        self._write_state()
+
     def snapshot_bytes(self, sha256: Hex) -> bytes | None:
+        """A stored snapshot, or the snapshot a logged `checkpoint` names (§17 clone from a
+        checkpoint): computed by replaying entries <= its `Gud-Log` seq with now = that entry's
+        time, kept only when it hashes to the name."""
         if not E.is_hex64(sha256):
             return None
+        path = self.log_path.with_name("snapshots") / sha256
         try:
-            return (self.log_path.with_name("snapshots") / sha256).read_bytes()
+            return path.read_bytes()
         except FileNotFoundError:
+            pass
+        with self._lock:
+            seq = self._checkpoints.get(sha256)
+            if seq is None or seq >= len(self._log):
+                return None
+            entries = self._log.entries(0, seq + 1)
+        try:
+            data = snapshot_at(entries, self._email_from_store, seq, self._store, self._log.trusted_keys)
+        except ReplayError:
             return None
+        if E.sha256_hex(data) != sha256:
+            return None
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{sha256}.tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+        return data
 
 
 def received_now(raw: bytes, clock: Callable[[], float] = time.time, provider_id: str = "inject") -> Received:

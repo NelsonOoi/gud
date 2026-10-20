@@ -62,15 +62,6 @@ def _slug(key: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", key)[:80]
 
 
-class _MirrorShim:
-    """What `EventClient.stream` needs from a client: host_url, private_raw and http."""
-
-    def __init__(self, client: RepoClient) -> None:
-        self.host_url = client.host_url
-        self.private_raw = client._key
-        self.http = None
-
-
 class AgentRuntime:
     def __init__(self, client: RepoClient, wc: WorkingCopy, *, model: str = DEFAULT_MODEL, budget: Budget,
                  listen: str | None = None, task_budget: Budget | None = None,
@@ -238,7 +229,7 @@ class AgentRuntime:
         backoff = 1.0
         while not stop.is_set():
             try:
-                for event in self.events.stream(_MirrorShim(self.client), self.me, timeout=300):
+                for event in self.events.stream(self.client, self.me, timeout=300):
                     self._incoming.put(event)
                     backoff = 1.0
                     if stop.is_set():
@@ -453,7 +444,7 @@ class AgentRuntime:
                 break
         if drained:
             self.journal.record(drained)
-        chain = self._sync() if poll else self.chain()
+        chain = self._sync() if (poll or drained) else self.chain()      # pushed events: sync before the turn
         self._route_journal()
         n = self.manager.pump()
         if n:

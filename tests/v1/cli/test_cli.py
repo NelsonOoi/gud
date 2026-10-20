@@ -1,5 +1,6 @@
-"""`gud1` smoke tests: every command runs as a subprocess with `--json`, in local host mode over
-the fake transport (one shared mail root, one GUD_HOME per member)."""
+"""`gud1` smoke tests: every command runs as a subprocess with `--json` over the fake transport
+(one shared mail root, one GUD_HOME per member), twice: in local host mode, and against the real
+host (`gud host serve`, gud.host_v1) as a separate process."""
 
 from __future__ import annotations
 
@@ -40,15 +41,26 @@ class Repo:
     homes: dict
     dirs: dict
     host_url: str
+    mode: str = "local"
 
     def run(self, who: str, *args: str, code: int = 0, cwd: Path | None = None) -> dict:
         return gud(self.homes[who], *args, cwd=cwd or self.dirs.get(who) or self.homes[who], code=code)
 
 
-@pytest.fixture(scope="module")
-def repo(tmp_path_factory) -> Repo:
-    tmp = tmp_path_factory.mktemp("cli")
+@pytest.fixture(scope="module", params=["local", "served"])
+def repo(request, tmp_path_factory) -> Repo:
+    from tests.v1 import procs
+    tmp = tmp_path_factory.mktemp(f"cli-{request.param}")
     mail = tmp / "mail"
+    init_args: list[str] = []
+    if request.param == "served":
+        hoster = tmp / "homes" / "hoster"
+        made = gud(hoster, "host", "init", "--repo", REPO, "--transport", "fake", "--set", f"root={mail}",
+                   "--dir", str(tmp / "hostdir"), handle="@hoster")
+        server, url = procs.serve(hoster, tmp / "hostdir", tmp / "serve.log")
+        request.addfinalizer(server.stop)
+        assert made["host_key"].startswith("ed25519:")
+        init_args = ["--host-url", url]
     homes = {who: tmp / "homes" / who for who in ("nelson", "alice", "bob")}
     pubs = {}
     for who in homes:
@@ -65,15 +77,16 @@ def repo(tmp_path_factory) -> Repo:
     wn.mkdir()
     (wn / "README").write_text("hello\nworld\n")
     (wn / "app.py").write_text("x = 1\ny = 2\n")
-    out = gud(homes["nelson"], "init", "--repo", REPO, "--member-file", str(roster), cwd=wn)
-    assert out["files"] == 6 and out["dir"] == str(wn.resolve()) and out["host_url"].startswith("local:")
+    out = gud(homes["nelson"], "init", "--repo", REPO, "--member-file", str(roster), *init_args, cwd=wn)
+    assert out["files"] == 7 and out["dir"] == str(wn.resolve())      # incl. the default .gudignore
+    assert out["host_url"].startswith("local:" if request.param == "local" else "http://")
     host_url = out["host_url"]
     dirs = {"nelson": wn}
     for who in ("alice", "bob"):
         res = gud(homes[who], "clone", host_url, str(tmp / f"w{who}"))
         assert res["base"] == out["genesis"] and res["from"] == "genesis"
         dirs[who] = tmp / f"w{who}"
-    return Repo(tmp, mail, homes, dirs, host_url)
+    return Repo(tmp, mail, homes, dirs, host_url, request.param)
 
 
 def test_keys_show(repo: Repo):
@@ -111,7 +124,7 @@ def test_review_and_votes(repo: Repo):
     assert p["status"] == "window" and p["forecast"]["askers"] == ["@nelson"]
     review = repo.run("nelson", "review")
     item = next(i for i in review["items"] if i["push"] == p["push"])
-    assert item["type"] == "review" and item["why"] == ["asker"] and item["files"] == ["app.py"]
+    assert item["type"] == "review" and item["why"] == ["line"] and item["files"] == ["app.py"]
     held = repo.run("nelson", "hold", p["push"][:12], "-m", "looking")
     assert held["kind"] == "hold" and held["logged"]
     c = repo.run("nelson", "comment", p["push"][:12], "-m", "nice")
@@ -280,19 +293,25 @@ def test_import_from_git_and_mirror(repo: Repo, tmp_path: Path):
     assert imp["dir"] is None and imp["files"] == 5
 
 
-@pytest.mark.parametrize("command,module", [("agent", "gud.agent.runtime"), ("tester", "gud.tester_v1"),
-                                            ("audit", "gud.ops.audit"), ("export-archive", "gud.ops.archive"),
-                                            ("import-archive", "gud.ops.archive")])
-def test_commands_of_other_layers(repo: Repo, command: str, module: str):
-    try:
-        present = importlib.util.find_spec(module) is not None
-    except ModuleNotFoundError:
-        present = False
-    if present:
-        pytest.skip(f"{module} exists in this build")
-    args = [command] + (["out.tar"] if command == "export-archive" else [])
-    out = repo.run("alice", *args, code=2)
-    assert out["available"] is False and module in out["error"]
+@pytest.mark.parametrize("command,module", [("agent", "gud.agent.runtime"), ("mcp", "gud.mcp_v1")])
+def test_agent_and_mcp_get_the_globals(tmp_path: Path, monkeypatch, command: str, module: str):
+    """`gud agent` / `gud mcp` run the module's main with the global --home/--handle (and --wc
+    inside a working copy, --json for mcp) followed by the command's own options."""
+    from gud import cli_v1
+    seen: list = []
+    mod = importlib.import_module(module)
+    monkeypatch.setattr(mod, "main", lambda argv: seen.append(argv) or 0)
+    wc = tmp_path / "wc"
+    (wc / ".gud").mkdir(parents=True)
+    (wc / ".gud" / "BASE").write_text("0" * 64 + "\n")
+    code = cli_v1.main(["--home", str(tmp_path / "h"), "--handle", "alice", "--json", "-C", str(wc), command,
+                        "--model", "m", "--listen", ":9"])
+    assert code == 0
+    expected = ["--home", str((tmp_path / "h").resolve()), "--handle", "@alice", "--wc", str(wc.resolve())]
+    expected += (["--json"] if command == "mcp" else []) + ["--model", "m", "--listen", ":9"]
+    assert seen == [expected]
+    with pytest.raises(SystemExit):
+        cli_v1.main(["status", "--bogus"])                 # other commands still refuse unknown options
 
 
 def test_errors_are_json(repo: Repo):
@@ -311,3 +330,18 @@ def test_keys_rotate_and_promote(repo: Repo):
     prom = repo.run("bob", "keys", "promote")
     assert prom["public_key"] == rot["public_key"]
     assert repo.run("bob", "keys", "show")["matches_tip"]
+
+
+def test_tester_audit_and_export(repo: Repo):
+    """The former stubs run the real modules: tester (one pass, as a member with a transport),
+    audit (exit status 0 on an honest host) and export-archive (verifies)."""
+    t = repo.run("alice", "tester", "--once")
+    assert t["handle"] == "@alice" and t["sent"] == []            # no .gud/test command: nothing to run
+    a = repo.run("bob", "audit", "--evidence", str(repo.tmp / "audit.json"))
+    assert a["ok"] and a["exit_status"] == 0 and a["log_ok"] and a["sync_error"] is None
+    assert json.loads((repo.tmp / "audit.json").read_text())["ok"]
+    out = repo.run("bob", "export-archive", str(repo.tmp / f"archive-{repo.mode}"))
+    assert out["missing"] == [] and out["messages"] >= 1
+    from gud.ops.archive import verify_archive
+    assert verify_archive(Path(out["archive"])).ok
+
