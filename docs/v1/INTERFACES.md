@@ -1516,3 +1516,37 @@ All additions are backward compatible (new optional fields default, new keyword 
   - `resolve_unsigned_target(email, by_message_id, ids, notify_target)`: `ids` may also be a mapping from 12-hex prefixes to id lists.
   - The `ChainDelta` contract is documented in the module docstring of `gud/core/replay.py`; `ChainDelta.events` is complete for §19.2.
 - `gud.core.v0`: `V0Chain.now: float = 0.0` and `V0Chain.view() -> Chain` (the v1 `Chain` view: links and adapted proposals; no tasks, claims or log).
+
+## Addendum: events and host
+
+Public additions and changes for `gud/events/*` and `gud/host_v1.py`. Everything here is an addition unless marked **Changed**. See "Implementation notes (events)" in SPEC-v1.md.
+
+- `gud.events.model`:
+  - `DATA_FIELDS` (the §19.2 data fields for each type), `HUMAN_NOTIFY_TYPES`, `event_dict(event, repo=None)`, `event_from_dict(obj)`.
+  - `thread_key(event, roots=None)`. `THREAD_KEY` is this function; `roots` maps push ids to negotiation roots.
+  - `recipients(event, members) -> tuple[Member, ...]`: the concerned handles that are still members at the tip, never the host.
+  - **Changed:** `JournalItem` gains `handle: Handle = ""`.
+- `gud.events.dispatch`:
+  - Mirror auth lives here, so members and the host share one implementation: `format_time`, `request_bytes(method, path_with_query, time_token, body=b"")`, `sign_request`, `verify_request`. The signatures are those listed under `host_v1` above, and `host_v1` re-exports them. Also `AUTH_HANDLE`, `AUTH_TIME`, `AUTH_SIG`, `HOOK_PREFIX`, `MAX_SKEW_S`.
+  - `notify_message(events, *, members, host_private, seen, to, cc=(), sent) -> Outgoing`, `parse_sse(lines) -> Iterator[(id, data)]`.
+  - `Journal.handles()`, `Journal.has(handle, event_id)`.
+  - `Dispatcher(..., seen=None, state_path=None, email_batch_s=30.0, retry_cap_s=600.0, retry_for_s=86_400.0, hook_timeout_s=5.0, on_delivered=None)`. `publish` returns the new `JournalItem`s. Also `acked(handle)`, `wake()`, `run(stop)`, `start(stop) -> Thread` and `stats`. `notify_humans` only queues; `pump` sends.
+  - **Changed:** `Dispatcher.sse(handle, after, *, follow=True, keepalive_s=15.0, max_s=None)`.
+  - `EventClient(state_path, host_keys, *, repo=None, max_seen=100_000)`, `accept(event, cursor) -> bool`, and `rejected` / `duplicates` counters.
+  - **Changed:** `EventClient.stream(mirror, handle, *, follow=True, timeout=None, clock=time.time)`. `mirror` is any object with `host_url`, `private_raw` and optionally `http`; a `RepoClient` fits.
+  - `Debouncer(flush, *, delay_s=1.0, max_delay_s=5.0, key=thread_key, clock=time.monotonic)` with `add`, `poll`, `flush_all`, `pending` and `next_due`: agent-side burst batching (about 1 s) per session thread.
+- `gud.events.intake`:
+  - `Intake(..., state_path=None, verifiers=None, tick_idle_ms=5_000, tick_max_ms=60_000, catch_up_interval_s=30.0, save_interval_s=5.0, on_hop=None)`. When `verifiers` is None and the mailbox implements `WebhookVerifier`, the mailbox itself is registered under its transport name. `on_hop(name, gud_id, perf_counter)` reports the hops `received`, `logged`, `replayed` and `journaled`.
+  - `IntakeError`; `WebhookRejected` (a `PermissionError`). `on_webhook` raises `KeyError` for an unknown provider.
+  - Added methods: `register_verifier(provider, verifier)`, `tick(*, force=False)`, `next_tick_in()`, `repair()`, `save()`, `head()`, `seen()`, `mail_since(since, limit)`, `wait_log(since, timeout)`, `object(sha256)`, `rules()`, `members()`, `host_keys()`, `log_has_event(event_id)`, `snapshot()`, `snapshot_bytes(sha256)`.
+  - Added attributes: `log`, `stats`, `missing`, `next_wakeup`, `last_error`.
+  - `received_now(raw, clock, provider_id)` builds a `Received` for direct injection.
+- `gud.host_v1`:
+  - **Changed:** `create_app(intake, dispatcher, registry, *, repo, bugs=None, loopback_hosts=None, clock=None, sse_keepalive_s=15.0)`.
+  - `LOOPBACK_HOSTS`, `create_webhook_app(intake)`.
+  - `Host`: holds the intake, dispatcher, registry, replayer and mailbox, with `app()` and `save()`.
+  - `open_host(home, *, repo, mailbox, host_private, bugs=None, clock=time.time, http=None, store=None, persist_replay=True, dispatcher_kw=None, intake_kw=None) -> Host`. Layout: `home/host/{log.jsonl, mail/, journal/, delivery.json, intake.json, replay/, snapshots/}` plus `home/objects`.
+  - `run_host(home, *, repo, mailbox, host_private, bind="127.0.0.1:8787", webhook_bind=None, bugs=None, stop=None)`.
+  - `serve` reads `home/host/host.key` (64 hex) and `home/host/transport.toml`, falling back to `GUD_<TRANSPORT>_*` variables.
+  - `host_init` is not implemented yet; it belongs with the CLI.
+- `gud.transport.fake` (fix): `NetworkMailbox` numbers generated Message-IDs across the whole network, so two mailboxes never generate the same Message-ID in one millisecond.
