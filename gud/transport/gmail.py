@@ -714,14 +714,15 @@ class GmailMailbox:
             t = int(meta.get("internalDate") or 0)
             if after is not None and (t < after or (t == after and gid in skip)):
                 continue
-            rows.append((t, gid))
+            # historyId grows in delivery order, so it orders messages that share a millisecond.
+            rows.append((t, int(meta.get("historyId") or 0), gid))
         rows.sort()
         out: list[Received] = []
-        for i, (t, gid) in enumerate(rows[:limit]):
+        for i, (t, _hid, gid) in enumerate(rows[:limit]):
             msg = self._message(gid, "raw")
             if msg is None:
                 continue
-            same = tuple(g for tt, g in rows[:i + 1] if tt == t)
+            same = tuple(g for tt, _h, g in rows[:i + 1] if tt == t)
             if after is not None and t == after:
                 same = tuple(dict.fromkeys(skip + same))
             last = i == len(rows) - 1
