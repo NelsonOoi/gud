@@ -1241,7 +1241,8 @@ class Replayer:
         self._check_orphans(tau)
 
     def _linked_concerns(self, link: LinkState) -> set[Handle]:
-        out = {link.author}
+        # every agent: an agent with no claim and no live push still follows the tip (§19.2)
+        out = {link.author} | set(self._role_handles("agent"))
         out.update(c.holder for c in self._board.claims_overlapping(link.files, ()))
         files = set(link.files)
         for c in self._s["cands"]:
@@ -2012,10 +2013,15 @@ class Replayer:
             return
         tip = self.tip
         tip_paths = list(self._tree(tip.tree_root).paths()) if tip else []
+        task = env.get("Gud-Task") or ""
+        done = env.get("Gud-Done") == "yes"
+        live = done and any(q["author"] == holder and q["task"] == task and q["status"] not in DEAD_STATUSES
+                            and q["status"] != "linked" for q in self._s["pushes"].values())
         self._emit_all(self._board.add_claim(ClaimInput(
-            id=gid, author=holder, received=tau, task=env.get("Gud-Task") or "",
+            id=gid, author=holder, received=tau, task=task,
             files=tuple(env.get_list("Gud-Files")), revises=env.get("Gud-Revises"),
             release=env.get("Gud-Release") == "yes", after=tuple(env.get_list("Gud-After")),
+            done=done, has_live_push=live,
         ), tip_paths))
 
     def _task(self, gid: Hex, env: E.Envelope, env_key: Hex, tau: Ms) -> None:

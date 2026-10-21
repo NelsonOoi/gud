@@ -69,6 +69,7 @@ def test_lost_state_is_rebuilt_from_the_log():
     k, g = repo("command sh check.sh\non-tip links=1 time=1h\n")
     task = k.task("@alice", "flag", cmds=["test -f flag"])
     k.push("@alice", g, {"b.txt": "b2\n"}, task=task.id)
+    k.declare("@alice", task)
     k.run()
     t = make_tester(k)                                     # no state dir
     t.step()

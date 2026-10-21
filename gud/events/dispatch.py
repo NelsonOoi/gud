@@ -363,7 +363,7 @@ class Dispatcher:
                  http: httpx.Client | None = None, clock: Callable[[], float] = time.time,
                  seen: Callable[[], Seen] | None = None, state_path: Path | None = None,
                  email_batch_s: float = 30.0, retry_cap_s: float = 600.0, retry_for_s: float = 86_400.0,
-                 hook_timeout_s: float = 5.0,
+                 hook_timeout_s: float = 5.0, max_per_pass: int = 64,
                  on_delivered: Callable[[Handle, JournalItem, str], None] | None = None) -> None:
         self.journal = journal
         self.registry = registry
@@ -378,6 +378,10 @@ class Dispatcher:
         self.retry_cap_ms = int(retry_cap_s * 1000)
         self.retry_for_ms = int(retry_for_s * 1000)
         self.hook_timeout_s = hook_timeout_s
+        # every agent gets every link (§19.2): bound the webhook posts per member per pass, so one member's
+        # backlog never delays the others; `run` comes straight back for the rest
+        self.max_per_pass = max(1, int(max_per_pass))
+        self._backlog = False
         self.on_delivered = on_delivered
         self.state_path = Path(state_path) if state_path is not None else journal.root / "dispatch.json"
         self._cond = threading.Condition()
@@ -475,6 +479,7 @@ class Dispatcher:
                 return 0
             now = _ms(self.clock)
             sent = 0
+            self._backlog = False
             handles = set(self.journal.handles()) | {d.handle for d in self.registry.all()}
             for handle in sorted(handles):
                 sent += self._pump_member(handle, members, now)
@@ -499,7 +504,9 @@ class Dispatcher:
             if retry is not None and now < retry.next_at:
                 return 0
             done = 0
-            for item in pending:
+            if len(pending) > self.max_per_pass:
+                self._backlog = True
+            for item in pending[:self.max_per_pass]:
                 if self._post(delivery.url, item):
                     self._acked[handle] = item.cursor
                     self._retry.pop(handle, None)
@@ -592,6 +599,8 @@ class Dispatcher:
                 self._notified.append(event_id)
 
     def _next_due_s(self) -> float:
+        if self._backlog:
+            return 0.0
         now = _ms(self.clock)
         dues = [r.next_at for r in self._retry.values()]
         dues += [t + self.email_batch_ms for t in self._email_since.values()]
@@ -602,7 +611,9 @@ class Dispatcher:
     def run(self, stop: threading.Event) -> None:
         """Deliver until `stop`: woken at once by `publish`, else at the next retry or batch."""
         while not stop.is_set():
-            self._wake.wait(self._next_due_s())
+            due = self._next_due_s()
+            if due > 0:
+                self._wake.wait(due)
             self._wake.clear()
             if stop.is_set():
                 break

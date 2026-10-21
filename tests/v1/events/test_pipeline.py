@@ -127,19 +127,43 @@ def test_tip_red_reaches_agents_and_testers(world):
     assert chain.red.red and fix_task_id(g.id) in chain.tasks
 
 
+def test_every_agent_gets_links_and_delivery_is_bounded_per_pass(world):
+    """§19.2: `linked`, `tip.*` and `task.done` concern every agent, so an agent with no claim and no
+    live push follows the tip. The dispatcher posts at most `max_per_pass` items per member per pass
+    (fair across members) and comes straight back for the rest."""
+    w = world
+    rs = {h: w.receiver(h) for h in ("@alice", "@bob", "@carol")}
+    w.host.dispatcher.max_per_pass = 2
+    g = w.genesis({"app.py": "a = 1\n"}, author="@alice")
+    parent = g
+    for i in range(3):                                  # new files: no consent window, they link at once
+        parent = w.push("@alice", parent, {f"f{i}.py": f"x = {i}\n"})
+    w.pump()
+    assert w.host.dispatcher._backlog is True
+    assert all(r.posts <= 2 for r in rs.values()) and all(r.posts >= 1 for r in rs.values())
+    assert w.host.dispatcher._next_due_s() == 0.0
+    for _ in range(10):
+        if not w.host.dispatcher._backlog:
+            break
+        w.pump()
+    for h in ("@bob", "@carol"):                        # neither holds a claim nor wrote these files
+        assert len([e for e in rs[h].of("linked") if e.data["seq"] > 0]) == 3, h
+    assert w.host.dispatcher._backlog is False
+
+
 def test_window_close_needs_a_tick_and_links(world):
     w = world
     bob = w.receiver("@bob")
     g = w.genesis({"app.py": "a = 1\n"}, author="@alice")
     p = w.push("@bob", g, {"app.py": "a = 2\n"})
     w.pump()
-    assert not bob.of("linked")
+    assert not [e for e in bob.of("linked") if e.data["push"] == p.id]     # only genesis so far (every agent)
     wake = w.intake.next_wakeup
     assert wake is not None and wake > w.net.now_ms
     w.advance(W + G + 10)                # the clock passes the close; the host appends a tick
     w.pump()
     assert w.intake.stats["ticks"] >= 1
-    assert [e.data["push"] for e in bob.of("linked")] == [p.id]
+    assert [e.data["push"] for e in bob.of("linked") if e.data["seq"] > 0] == [p.id]
     assert w.chain().tip.push == p.id
 
 
@@ -315,7 +339,9 @@ def test_human_notifications_go_to_the_human_cc_repo_once(world):
     t = w.task("@nelson", "feature")
     c = w.claim("@alice", t, ["src/**"])
     w.push("@alice", g, {"src/b.py": "b\n"}, task=t.id)
-    w.advance(W + G + 5)                    # links; work done -> task.ready (accept) for the requester
+    w.advance(W + G + 5)                    # links
+    w.claim("@alice", t, ["src/**"], revises=c, done=True)   # declared done -> task.ready (accept) for the requester
+    w.advance(10)
     w.pump()
     ready = [e for h in ("@nelson",) for e in (i.event for i in w.dispatcher.journal.since(h, 0))
              if e.type == "task.ready"]

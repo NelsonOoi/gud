@@ -48,6 +48,8 @@ class ClaimInput:
     revises: Hex | None
     release: bool
     after: tuple[Hex, ...]
+    done: bool = False               # Gud-Done: yes, the holder declares the item's work complete (§16.6)
+    has_live_push: bool = False      # engine: the author has a live push with Gud-Task = task
 
 
 @dataclass(frozen=True)
@@ -140,9 +142,13 @@ class _Task:
     offer_until: Ms | None = None
     red_link: Hex | None = None
     scope: list[str] = field(default_factory=list)
+    declared: dict[str, Any] | None = None                         # done declaration {id, by, at}
 
     def to_json(self) -> dict:
-        return dict(self.__dict__)
+        d = dict(self.__dict__)
+        if d["declared"] is None:
+            del d["declared"]            # snapshots without a declaration keep their v1 bytes
+        return d
 
     @classmethod
     def from_json(cls, d: Mapping) -> _Task:
@@ -245,6 +251,10 @@ class TaskBoard:
             cur = self._tasks[cur].parent
         return out
 
+    def _nested(self, a: Hex, b: Hex) -> bool:
+        """One item is the other or one of its ancestors."""
+        return a in self._ancestors(b) or b in self._ancestors(a)
+
     def _descendants(self, task: Hex) -> list[Hex]:
         out, stack = [], [task]
         while stack:
@@ -278,6 +288,7 @@ class TaskBoard:
             children=tuple(t.children), work_done_at=t.work_done_at, work_done_link=t.work_done_link,
             done_at=t.done_at, done_link=t.done_link, no_change=tuple(no_change),
             cited_link=t.cited_link, offered_to=t.offered_to, offer_until=t.offer_until,
+            declared=t.declared["id"] if t.declared else None, declared_by=t.declared["by"] if t.declared else None,
         )
 
     def tasks(self) -> Mapping[Hex, TaskState]:
@@ -380,6 +391,8 @@ class TaskBoard:
         for other in self._active():
             if other.id == claim.id or other.holder == claim.holder:
                 continue
+            if self._nested(claim.task, other.task):
+                continue                 # a task's holder split it: claims on its own subtasks are the plan
             if not globs_overlap(claim.files, other.files, tip_paths):
                 continue
             pair = sorted((claim.id, other.id))
@@ -400,20 +413,22 @@ class TaskBoard:
         if c.revises is not None:
             for active in self._active():
                 if active.holder == c.author and c.revises in (active.id, active.latest):
+                    declared = self._declare(active, c)
                     if c.release:
                         active.status = "released"
                         active.latest = c.id
                         self._tasks[active.task].claim = None
                         self._touch_claim(active.id)
                         self._touch_task(active.task)
-                        return []
+                        return self._refresh(c.received) if declared else []
                     active.files = list(c.files)
                     active.after = list(c.after)
                     active.latest = c.id
                     active.last_activity = c.received
                     active.lapses_at = c.received + self._lease(c.received)
                     self._touch_claim(active.id)
-                    return self._overlap_events(active, c.received, paths)
+                    events = self._overlap_events(active, c.received, paths)
+                    return events + (self._refresh(c.received) if declared else [])
             if c.release:
                 return []
         task = self._tasks.get(c.task)
@@ -450,6 +465,18 @@ class TaskBoard:
             "claim": c.id, "task": c.task, "holder": c.author, "files": list(c.files),
         })]
         return events + self._overlap_events(claim, c.received, paths)
+
+    def _declare(self, claim: _Claim, c: ClaimInput) -> bool:
+        """§16.6 done declaration: a claim update (or release) from the holder with `Gud-Done: yes`,
+        sent while the holder has no live push for the item, on an item without valid subtasks."""
+        task = self._tasks[claim.task]
+        if not c.done or c.has_live_push or task.children or task.kind == "fix" or task.done_at is not None:
+            return False
+        if task.declared is not None:
+            return False
+        task.declared = {"id": c.id, "by": c.author, "at": c.received}
+        self._touch_task(task.id)
+        return True
 
     def add_activity(self, a: Activity) -> None:
         """§16.3 lease renewal by a push or comment from the holder on the item or a descendant."""
@@ -506,6 +533,8 @@ class TaskBoard:
         for claim in self._active():
             if claim.holder == link.author:
                 continue
+            if link.task is not None and claim.task in self._ancestors(link.task):
+                continue                 # work on a subtask of the claimed item is inside the plan
             inside = [p for p in touched if scope_matches(claim.files, p)]
             if inside:
                 events.append(self._event("scope.exceeded", at, (link.author, claim.holder), {
@@ -643,7 +672,8 @@ class TaskBoard:
                 sub.claim = None
                 self._touch_claim(claim.id)
         state = self._state(t)
-        return [self._event("task.done", at, [t.requester] + holders, {
+        # every agent follows the board: a done item can unblock work that is `after` it (§19.2)
+        return [self._event("task.done", at, [t.requester] + holders + self._agents(at), {
             "task": t.id, "alias": t.alias, "link": t.done_link,
             "no_change": [[sid, reason] for sid, reason in state.no_change],
         })]
@@ -653,7 +683,11 @@ class TaskBoard:
             return False
         if t.children:
             return all(self._tasks[c].done_at is not None for c in t.children)
-        return bool(t.links) or t.no_change is not None
+        if t.no_change is not None or t.declared is not None:
+            return True
+        # a subtask is small by construction: a link carrying its id is its work; a root task's work is
+        # done only when its holder says so (claim update with Gud-Done, or no-change), §16.6
+        return t.parent is not None and bool(t.links)
 
     def _refresh(self, at: Ms) -> list[Event]:
         """Re-derive work-done and done for every open item, children before parents."""
@@ -665,7 +699,7 @@ class TaskBoard:
             if self._work_done(t):
                 if t.work_done_at is None:
                     t.work_done_at = at
-                    if not t.children and t.links:
+                    if not t.children and t.links and t.declared is None and t.parent is not None:
                         t.work_done_link = t.links[0][0]
                     else:
                         t.work_done_link = self._tip[0] if self._tip else None

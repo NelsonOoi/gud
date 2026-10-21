@@ -254,11 +254,12 @@ def test_auto_revert_only_for_first_bad():
 def test_no_task_done_on_red_tip():
     k, g, l1, l2, l3 = red_setup()
     task = k.task("@carol", "do the thing")                  # requester: @carol's sponsor @nelson
-    k.claim("@carol", task, ["new2.txt"])
+    c = k.claim("@carol", task, ["new2.txt"])
     k.test_tip(l3.id, l3.tree, "fail")
     p = k.push("@carol", l3, {"new2.txt": "n\n"}, task=task.id)
     chain, _ = k.run()
     assert status(chain, p) == "linked" and chain.red.red
+    k.claim("@carol", task, ["new2.txt"], revises=c, done=True)     # the holder declares the work complete
     k.unsigned("@nelson", "accept, looks good", reply_to=task)
     chain, _ = k.run()
     t = chain.tasks[task.id]

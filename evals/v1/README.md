@@ -263,3 +263,12 @@ this N. The context check passed in every arm. gud1-ref runs were one agent clai
 whole task. gud1-cc agents coordinated in comments around a single claim, never with subtasks or claim
 updates. Their wall time was inflated by `wait` calls that no event ever ends. Objections, escalations and
 red tips never occurred. The report lists the gud issues found, with repros.
+
+### Coordination fixes re-run (2026-10-20)
+
+[runs/20261020-v1-fixes-report.md](runs/20261020-v1-fixes-report.md) covers the gud1 arms after the three fixes:
+done is declared (SPEC-v1 §16.6), every agent follows the tip (§19.2), and claimants split before they build. The
+re-run used acme-site-shared and todo-stack (2 trials each) and refactor-guard (1 trial), and spent $7.91 of a $12
+batch cap. On todo-stack, both gud1 arms split T1 into three subtasks in every run, and four authors landed work.
+No `wait` stalled. gud1-cc wall time fell from 247–482 s to 67–94 s. T1 never became done before its subtask work
+had landed. One new gap is open: unsplit tasks were often never declared done.

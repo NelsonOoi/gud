@@ -5,9 +5,8 @@ it concerns. Concerns follow §19.2 with no lead anywhere: open work (`task.open
 `subtask.posted`, `claim.lapsed`, `fix.opened`) goes to every agent so anyone can claim it;
 work in progress goes to the **claim holders** (`push.received` to holders of claims on the
 push's task and of claims whose scope it touches, `objected` to the holder of the push's task
-claim, `linked` to holders whose scope overlaps the files, `claim.overlap` and
-`scope.exceeded` to both holders, `task.done` to the requester and every holder on the task's
-tree). This module adds what the host and members need on top: the §19.1 wire body, schema
+claim, `claim.overlap` and `scope.exceeded` to both holders); the tip is followed by every agent
+(`linked`, `task.done`, `tip.red`, `tip.green`), so an agent with no claim still sees work land. This module adds what the host and members need on top: the §19.1 wire body, schema
 checks, routing keys for warm agent sessions, and delivery records.
 """
 

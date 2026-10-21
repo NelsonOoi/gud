@@ -210,6 +210,18 @@ def test_tasks_and_claims(repo: Repo):
     assert rel["Gud-Release"] == "yes"
     shown = repo.run("bob", "show", claim["id"])
     assert shown["type"] == "claim"
+    # §16.6 done declarations: `claim update --done` and `release --done`
+    t2 = repo.run("alice", "task", "new", "Add a header", "-m", "on every page")
+    t3 = repo.run("alice", "task", "new", "Add a sidebar", "-m", "on every page")
+    a2 = next(x["alias"] for x in repo.run("bob", "tasks")["tasks"] if x["id"] == t2["id"])
+    a3 = next(x["alias"] for x in repo.run("bob", "tasks")["tasks"] if x["id"] == t3["id"])
+    repo.run("bob", "claim", a2, "--files", "site/header/**")
+    done = repo.run("bob", "claim", "update", a2, "--done")
+    assert done["Gud-Done"] == "yes" and done["Gud-Files"] == "site/header/**"
+    assert repo.run("bob", "task", "show", a2)["task"]["status"] == "work_done"     # requester @nelson accepts
+    repo.run("bob", "claim", a3, "--files", "site/side/**")
+    rd = repo.run("bob", "release", a3, "--done")
+    assert rd["Gud-Release"] == "yes" and rd["Gud-Done"] == "yes"
 
 
 def test_verify_cli(repo: Repo):

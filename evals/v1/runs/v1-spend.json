@@ -1,7 +1,135 @@
 {
- "cap_usd": 30.0,
+ "cap_usd": 26.0,
  "reserved": {},
  "runs": {
+  "20261020-v1-fixes-grid/gud1-cc-acme-site-shared-n4-t1": {
+   "arm": "gud1-cc",
+   "at": 1792540032.826095,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.6686,
+   "trial": 1
+  },
+  "20261020-v1-fixes-grid/gud1-cc-acme-site-shared-n4-t1#2": {
+   "arm": "gud1-cc",
+   "at": 1792548459.484321,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.7122,
+   "trial": 1
+  },
+  "20261020-v1-fixes-grid/gud1-cc-acme-site-shared-n4-t2": {
+   "arm": "gud1-cc",
+   "at": 1792544388.169884,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.0,
+   "trial": 2
+  },
+  "20261020-v1-fixes-grid/gud1-cc-acme-site-shared-n4-t2#2": {
+   "arm": "gud1-cc",
+   "at": 1792548109.847695,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.6693,
+   "trial": 2
+  },
+  "20261020-v1-fixes-grid/gud1-cc-refactor-guard-n4-t1": {
+   "arm": "gud1-cc",
+   "at": 1792540111.6424088,
+   "n": 4,
+   "spec": "refactor-guard",
+   "spent_usd": 0.5105,
+   "trial": 1
+  },
+  "20261020-v1-fixes-grid/gud1-cc-todo-stack-n4-t1": {
+   "arm": "gud1-cc",
+   "at": 1792541410.9805021,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.7741,
+   "trial": 1
+  },
+  "20261020-v1-fixes-grid/gud1-cc-todo-stack-n4-t1#2": {
+   "arm": "gud1-cc",
+   "at": 1792548068.3417149,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.7996,
+   "trial": 1
+  },
+  "20261020-v1-fixes-grid/gud1-cc-todo-stack-n4-t2": {
+   "arm": "gud1-cc",
+   "at": 1792544388.130071,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.0,
+   "trial": 2
+  },
+  "20261020-v1-fixes-grid/gud1-cc-todo-stack-n4-t2#2": {
+   "arm": "gud1-cc",
+   "at": 1792548183.654232,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.7354,
+   "trial": 2
+  },
+  "20261020-v1-fixes-grid/gud1-ref-acme-site-shared-n4-t1": {
+   "arm": "gud1-ref",
+   "at": 1792540051.055269,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.6201,
+   "trial": 1
+  },
+  "20261020-v1-fixes-grid/gud1-ref-acme-site-shared-n4-t2": {
+   "arm": "gud1-ref",
+   "at": 1792544389.300554,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.0,
+   "trial": 2
+  },
+  "20261020-v1-fixes-grid/gud1-ref-acme-site-shared-n4-t2#2": {
+   "arm": "gud1-ref",
+   "at": 1792548103.2422998,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.1427,
+   "trial": 2
+  },
+  "20261020-v1-fixes-grid/gud1-ref-refactor-guard-n4-t1": {
+   "arm": "gud1-ref",
+   "at": 1792540184.088107,
+   "n": 4,
+   "spec": "refactor-guard",
+   "spent_usd": 0.4746,
+   "trial": 1
+  },
+  "20261020-v1-fixes-grid/gud1-ref-todo-stack-n4-t1": {
+   "arm": "gud1-ref",
+   "at": 1792539193.194999,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.9529,
+   "trial": 1
+  },
+  "20261020-v1-fixes-grid/gud1-ref-todo-stack-n4-t2": {
+   "arm": "gud1-ref",
+   "at": 1792546423.6646771,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.0,
+   "trial": 2
+  },
+  "20261020-v1-fixes-grid/gud1-ref-todo-stack-n4-t2#2": {
+   "arm": "gud1-ref",
+   "at": 1792548233.048725,
+   "n": 4,
+   "spec": "todo-stack",
+   "spent_usd": 0.8457,
+   "trial": 2
+  },
   "20261020-v1-grid/git-acme-site-shared-n4-t1": {
    "arm": "git",
    "at": 1792520019.1759412,

@@ -1156,13 +1156,16 @@ def cmd_claim(args: argparse.Namespace) -> int:
     items = list(args.items)
     if items and items[0] == "update":
         if len(items) != 2:
-            raise CliError("usage: gud claim update CLAIM --files GLOBS", 2)
-        claim_id = ctx.resolve(items[1])
-        claim = next((c for c in ctx.client().chain().claims.values() if claim_id in (c.id, c.latest)), None)
-        if claim is None:
-            raise CliError(f"{items[1]} is not a claim")
-        headers = {"Gud-Task": claim.task, "Gud-Files": E.render_list(args.files.split(",")), "Gud-Revises": claim.latest}
-        return _send(ctx, "claim", headers, _text(args.message), f"update {_short(claim.id)}")
+            raise CliError("usage: gud claim update CLAIM (--files GLOBS | --done)", 2)
+        claim = _my_claim(ctx, items[1])
+        if not args.files and not args.done:
+            raise CliError("gud claim update needs --files GLOBS or --done", 2)
+        files = [f for f in args.files.split(",") if f] if args.files else list(claim.files)
+        headers = {"Gud-Task": claim.task, "Gud-Files": E.render_list(files), "Gud-Revises": claim.latest}
+        if args.done:
+            _no_live_push(ctx, claim)
+            headers["Gud-Done"] = "yes"
+        return _send(ctx, "claim", headers, _text(args.message), f"{'done' if args.done else 'update'} {_short(claim.id)}")
     if len(items) != 1:
         raise CliError("usage: gud claim TASK --files GLOBS", 2)
     if not args.files:
@@ -1174,16 +1177,39 @@ def cmd_claim(args: argparse.Namespace) -> int:
     return _send(ctx, "claim", headers, _text(args.message), f"claim {_short(task)}")  # type: ignore[arg-type]
 
 
+def _my_claim(ctx: "Ctx", ref: str):
+    """A claim by id, latest update id, or its task's alias/id (the active claim on it)."""
+    gid = ctx.resolve(ref)
+    chain = ctx.client().chain()
+    claim = next((c for c in chain.claims.values() if gid in (c.id, c.latest)), None)
+    if claim is None and gid in chain.tasks and chain.tasks[gid].claim:
+        claim = chain.claims.get(chain.tasks[gid].claim)
+    if claim is None:
+        raise CliError(f"{ref} is not a claim")
+    return claim
+
+
+def _no_live_push(ctx: "Ctx", claim) -> None:
+    """§16.6: a done declaration counts only when the holder has no live push for the item."""
+    from gud.core.types import LIVE_STATUSES
+    chain = ctx.client().chain()
+    live = [p for p in chain.proposals.values()
+            if p.author == claim.holder and p.task == claim.task and p.status in LIVE_STATUSES]
+    if live:
+        raise CliError(f"push {_short(live[0].push)} for this task is still {live[0].status}: wait for it to link, "
+                       f"then declare done")
+
+
 def cmd_release(args: argparse.Namespace) -> int:
     ctx = Ctx(args)
     ctx.synced()
-    claim_id = ctx.resolve(args.claim)
-    claim = next((c for c in ctx.client().chain().claims.values() if claim_id in (c.id, c.latest)), None)
-    if claim is None:
-        raise CliError(f"{args.claim} is not a claim")
+    claim = _my_claim(ctx, args.claim)
     headers = {"Gud-Task": claim.task, "Gud-Files": E.render_list(list(claim.files) or ["**"]),
                "Gud-Revises": claim.latest, "Gud-Release": "yes"}
-    return _send(ctx, "claim", headers, (), f"release {_short(claim.id)}")
+    if args.done:
+        _no_live_push(ctx, claim)
+        headers["Gud-Done"] = "yes"
+    return _send(ctx, "claim", headers, _text(args.message), f"release {_short(claim.id)}")
 
 
 def cmd_subtask(args: argparse.Namespace) -> int:
@@ -1554,13 +1580,16 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("tasks", cmd_tasks, "list tasks")
     p.add_argument("--all", action="store_true")
 
-    p = add("claim", cmd_claim, "claim a task (`claim TASK --files G`, `claim update CLAIM --files G`)")
+    p = add("claim", cmd_claim, "claim a task (`claim TASK --files G`, `claim update CLAIM --files G | --done`)")
     p.add_argument("items", nargs="+", metavar="TASK")
     p.add_argument("--files", help="globs, comma separated")
     p.add_argument("--after")
+    p.add_argument("--done", action="store_true", help="with `update`: declare the item's work complete (§16.6)")
     p.add_argument("-m", "--message")
-    p = add("release", cmd_release, "release a claim")
+    p = add("release", cmd_release, "release a claim (--done: release it as finished)")
     p.add_argument("claim")
+    p.add_argument("--done", action="store_true", help="declare the item's work complete as you release it")
+    p.add_argument("-m", "--message")
     p = add("subtask", cmd_subtask, "post a subtask under a task I hold")
     p.add_argument("parent")
     task_args(p)
