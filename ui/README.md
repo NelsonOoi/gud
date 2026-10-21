@@ -1,44 +1,44 @@
 # gud ui
 
-Web UI for [gud](../README.md): the email chain is the repo. Pending proposals sit above the link timeline. Blame, tasks, members, and the live mail feed read the HTTP API in `../api_contract.md`.
+The dashboard of a gud v1 host. `gud host serve` serves it at `/` on the host's own port and the page
+reads the host's UI view API (`/api/v1/view/*`, `gud/host_view.py`, documented in
+`docs/INTERFACES.md` under "gud/host_view.py"). Everything on it is derived from the host's
+replay of its log: the chain with carried links and tip verdicts, proposals with their consent plan,
+window and grace countdowns, holds, objections (reason or evidence, confirmed or refuted) and
+negotiation rounds, escalations with their deadline and default, the red tip with `first_bad` and its
+fix task, tasks with claims, leases and overlaps, members and join requests, blame with live and
+expired ownership, the host log and its self-audit, and every §19 event live over SSE.
 
 ## Run
 
-Build the page once, then start the viewer. It serves `ui/dist` at [http://localhost:8787](http://localhost:8787). No `GUD_REPO_ADDRESS`.
-
 ```bash
 cd ui
-npm install
-npm run build
+npm ci
+npm run build              # tsc + vite build into ui/dist
 cd ..
-.venv/bin/python -m gud.api
+gud host serve --dir <host dir> --ui-home <a human member's GUD_HOME>
+# or: python -m gud.cli host serve ...
 ```
 
-`GUD_MAILBOX=fake` is the default, so the command above reads the local mailbox. A local mailbox with no genesis shows **no repos** in the sidebar. To read the Primitive account instead, stop the viewer and start it with the flag:
+Open the URL it prints (default [http://127.0.0.1:8787](http://127.0.0.1:8787)). `--ui-home` (repeatable,
+default: the serving GUD_HOME) names member homes whose keys the page may sign with. With a human's
+key there the page can open tasks, approve, hold, object, veto, comment, accept tasks and admit join
+requests as that human; those actions are loopback-only and are signed v1 messages logged like any
+mail. Without one the page is read-only. `--no-ui` serves no page, `--ui-dist DIR` (or
+`GUD_UI_DIST`) serves another build.
 
-```bash
-GUD_MAILBOX=primitive .venv/bin/python -m gud.api
-```
+From loopback the view API needs no signature. From anywhere else every request is a signed member
+request (§21), which a browser cannot make by itself, so remote viewers go through a signing proxy.
 
-That uses `PRIMITIVE_API_KEY` from `.env`. The page asks you to paste a token only when that variable is unset. The token is stored under `GUD_HOME` and reused on the next launch.
+`npm run dev` serves [http://localhost:5173](http://localhost:5173) with hot reload and proxies `/api`
+to a host on port 8787.
 
-The sidebar lists repo addresses in that mailbox: a `[gud] genesis` whose local-part is `repo` or `repo-<id>`. Contributor addresses on the same mail are left out. Pick one. The next launch reopens it. If you have never picked one, the newest repo is selected.
+## Offline
 
-`npm run dev` is only for working on the UI. It serves [http://localhost:5173](http://localhost:5173) with hot reload and proxies `/api` to the viewer on port 8787. Rebuild with `npm run build` when you want the page at port 8787 to include those edits.
-
-[http://localhost:5173/?mock=1](http://localhost:5173/?mock=1) (or the same query on port 8787) shows the in-memory story and does not use a mailbox. The header shows a **mock data** badge. If the viewer is not running, the dev server falls back to that same story.
-
-## Mock story
-
-Repo `repo@gud.primitive.email`. Members include `@lead`, the service agents, `@sub-1`, `@tester`, `@console`, and `@nelson`. `@sub-2` was removed; their lines are orphaned at the tip.
-
-Task **T3** (“Add per-user rate limiting to login and bill overage”) is done and the requester was notified. Over about 90 seconds the mock also delivers a new push, an approval, an objection, a passing test, a completed task, and a link landing.
-
-Join requests sit on Members: `@claude-agent` (`claude-agent@acme.primitive.email`, sponsored by `@nelson`) is pending and valid, `@codex-agent` is already proposed and waiting on a human, and `@stranger` has an invalid signature. About 20 seconds in, `@gemini-agent` requests to join; about 25 seconds later that request lands and `@gemini-agent` appears on the roster.
-
-## Check
-
-```bash
-npm run build
-npx tsc --noEmit
-```
+[`?mock=1`](http://localhost:5173/?mock=1), or no host answering, shows an in-memory v1 story
+(`src/mock/`) with a **mock data** badge: a red tip whose fix task is offered to `@api-agent`, a
+carried push, a negotiation escalated after two rounds, an evidence objection the tester confirmed,
+two claims overlapping on `app/auth.py`, a pending join request and genesis lines whose ownership
+has expired. Over about 30 seconds an approval links the windowed push, the tester passes the new
+tip (green again, the fix task is done) and a new push opens a window. Actions apply to the story as
+`@nelson`.

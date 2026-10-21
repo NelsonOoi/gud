@@ -1,0 +1,799 @@
+{
+  "arm": "gud1-cc",
+  "spec": "refactor-guard",
+  "agents_n": 4,
+  "trial": 1,
+  "requested_model": "claude-sonnet-5-5",
+  "budget_usd": 1.2,
+  "agent_budget_usd": 0.3,
+  "timeout_s": 1200.0,
+  "window_s": 20.0,
+  "test_policy": "tip",
+  "agent_cmd": "/Users/nelson/.local/bin/claude",
+  "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-gud1-cc-y1x7wu7t",
+  "fairness": {
+    "agent": "Claude Code headless",
+    "tools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "mcp__gud__*"
+    ],
+    "test_command": "python -m pytest -q -x",
+    "same_prompt_preamble": true
+  },
+  "outcome": "completed",
+  "harness_errors": [],
+  "killed": {},
+  "model": "claude-sonnet-5-5",
+  "wall_s": 67.0,
+  "drain_s": 0.1,
+  "cost_usd": 0.5105,
+  "tokens": {
+    "input": 9362,
+    "output": 14949,
+    "cache_read": 568932,
+    "cache_creation": 59554
+  },
+  "tokens_total": 652797,
+  "turns": 45,
+  "hidden": {
+    "passed": 23,
+    "failed": 0,
+    "total": 23,
+    "pass_rate": 1.0
+  },
+  "spec_checks": {
+    "test_slugify[Caf\\xe9 au lait-caf\\xe9-au-lait]": true,
+    "test_slugify[Stra\\xdfe 5-stra\\xdfe-5]": true,
+    "test_slugify[\\u6771\\u4eac \\u30e1\\u30e2-\\u6771\\u4eac-\\u30e1\\u30e2]": true,
+    "test_slugify[\\xdcn\\xefc\\xf6d\\xe9 \\u2014 notes!-\\xfcn\\xefc\\xf6d\\xe9-notes]": true,
+    "test_slugify[Hello, World!-hello-world]": true,
+    "test_slugify[  Release 2.0 plan  -release-2-0-plan]": true,
+    "test_slugify[!!!-untitled]": true,
+    "test_slugify[Cafe\\u0301-caf\\xe9]": true,
+    "test_unicode_note_round_trip": true,
+    "test_ascii_slugs_unchanged": true,
+    "test_gc_keeps_unicode_notes": true,
+    "test_gc_keeps_renamed_unicode_note": true,
+    "test_gc_still_removes_debris": true,
+    "test_tags_stored_and_listed": true,
+    "test_tag_command": true,
+    "test_rename": true,
+    "test_rename_collision": true,
+    "test_search": true,
+    "test_unknown_slug[args0]": true,
+    "test_unknown_slug[args1]": true,
+    "test_unknown_slug[args2]": true,
+    "test_unknown_slug[args3]": true,
+    "test_existing_commands_still_work": true
+  },
+  "final_tests_pass": true,
+  "final_files": [
+    ".gitignore",
+    ".gudignore",
+    "README.md",
+    "cli.py",
+    "conftest.py",
+    "notes/__init__.py",
+    "notes/cleanup.py",
+    "notes/slug.py",
+    "notes/store.py",
+    "tests/test_notes.py"
+  ],
+  "escalations": 0,
+  "local_test_runs": 5,
+  "hidden_access": [],
+  "integrations": 1,
+  "integrations_per_min": 0.895,
+  "test_runs": 2,
+  "test_runs_per_integration": 2.0,
+  "conflicts_total": 1,
+  "conflicts_resolved": 0,
+  "gud1": {
+    "links": 1,
+    "links_per_min": 0.895,
+    "first_link_s": 55.4,
+    "pushes": 2,
+    "pushes_by_end": {
+      "linked": 1,
+      "superseded": 1
+    },
+    "carried_links": 0,
+    "carried_events": 0,
+    "superseded": 1,
+    "colliding_pushes": 2,
+    "emails": 7,
+    "emails_by_kind": {
+      "claim": 1,
+      "comment": 1,
+      "push": 2,
+      "task": 1,
+      "test": 2
+    },
+    "emails_per_link": 7.0,
+    "test_runs": 2,
+    "test_runs_by_scope": {
+      "tip": 2
+    },
+    "test_failures": 0,
+    "test_runs_per_link": 2.0,
+    "claims": {
+      "won": 1,
+      "lost": 0,
+      "updates": 0,
+      "releases": 0,
+      "lapsed": 0,
+      "scopes": [
+        {
+          "holder": "@a2",
+          "task": "T1",
+          "files": [
+            "**"
+          ],
+          "status": "active"
+        }
+      ],
+      "scope_exceeded": 0
+    },
+    "overlaps": {
+      "total": 0,
+      "by_settlement": {},
+      "list": []
+    },
+    "comments": {
+      "total": 1,
+      "by_target": {
+        "task": 1
+      },
+      "escalation_comments": 0
+    },
+    "objections": {
+      "total": 0,
+      "reason": 0,
+      "evidence": 0,
+      "answered": {},
+      "list": []
+    },
+    "approvals": 0,
+    "holds": 0,
+    "escalations": {
+      "consent": [],
+      "task": [],
+      "resolved_by": {}
+    },
+    "red_tip": {
+      "episodes": 0,
+      "closed": 0,
+      "median_to_green_s": null,
+      "red_at_end": false,
+      "fix_tasks": 0,
+      "list": []
+    },
+    "task": {
+      "alias": "T1",
+      "status": "claimed",
+      "subtasks": 0,
+      "subtask_status": {},
+      "work_done_s": null,
+      "done_s": null,
+      "opened_s": 0.3,
+      "opened_to_done_s": null,
+      "declared_by": null,
+      "last_agent_link_s": 55.4,
+      "agent_links_after_done": 0,
+      "done_after_all_work": null,
+      "subtask_holders": []
+    },
+    "landed_authors": [
+      "@a1"
+    ],
+    "events": {
+      "claim.won": 1,
+      "commented": 1,
+      "linked": 2,
+      "push.received": 2,
+      "review.requested": 2,
+      "superseded": 1,
+      "task.opened": 1,
+      "test.passed": 2,
+      "window.closing": 2
+    },
+    "per_agent": {
+      "@a1": {
+        "pushes": 1,
+        "links": 1,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 1,
+        "claims_won": 0,
+        "claim_msgs": 0,
+        "comments": 1,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [],
+        "claim_scopes_all": []
+      },
+      "@a2": {
+        "pushes": 1,
+        "links": 0,
+        "carried_links": 0,
+        "superseded": 1,
+        "colliding_pushes": 1,
+        "claims_won": 1,
+        "claim_msgs": 1,
+        "comments": 0,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [
+          [
+            "**"
+          ]
+        ],
+        "claim_scopes_all": [
+          [
+            "**"
+          ]
+        ]
+      },
+      "@a3": {
+        "pushes": 0,
+        "links": 0,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 0,
+        "claim_msgs": 0,
+        "comments": 0,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [],
+        "claim_scopes_all": []
+      },
+      "@a4": {
+        "pushes": 0,
+        "links": 0,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 0,
+        "claim_msgs": 0,
+        "comments": 0,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [],
+        "claim_scopes_all": []
+      }
+    },
+    "link_list": [
+      {
+        "seq": 1,
+        "author": "@a1",
+        "carried": false,
+        "files": [
+          "cli.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "at_s": 55.4,
+        "intent": "Implement unicode slugs, tags, rename, search (+ gc regex fix for unicode notes) with tests"
+      }
+    ],
+    "push_list": [
+      {
+        "id": "ccff31167e6a",
+        "author": "@a1",
+        "t": 30.4,
+        "files": [
+          "cli.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "base_seq": 0,
+        "end": "linked",
+        "end_t": 55.4,
+        "carried": false,
+        "link_seq": 1,
+        "task": "f0162f5d0285de26e8e20fc2177cc239799f3e49448ba0516508b0d9e3b413be",
+        "revises": null,
+        "intent": "Implement unicode slugs, tags, rename, search (+ gc regex fix for unicode notes) with tests",
+        "collides_with": [
+          "03b03bb407e0"
+        ]
+      },
+      {
+        "id": "03b03bb407e0",
+        "author": "@a2",
+        "t": 34.7,
+        "files": [
+          "cli.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "base_seq": 0,
+        "end": "superseded",
+        "end_t": 55.4,
+        "carried": false,
+        "link_seq": null,
+        "task": "f0162f5d0285de26e8e20fc2177cc239799f3e49448ba0516508b0d9e3b413be",
+        "revises": null,
+        "intent": "Unicode slugs, tags, rename, search + tests",
+        "collides_with": [
+          "ccff31167e6a"
+        ]
+      }
+    ],
+    "conflicts": [
+      {
+        "push": "03b03bb407e0",
+        "author": "@a2",
+        "end": "superseded",
+        "files": [
+          "cli.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "resolved": false,
+        "resolution": "not resolved"
+      }
+    ]
+  },
+  "agents": [
+    {
+      "handle": "@a1",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 59.8,
+      "turns": 11,
+      "tokens": {
+        "input": 2340,
+        "output": 4112,
+        "cache_read": 139000,
+        "cache_creation": 12996
+      },
+      "cost_usd": 0.123168,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 10,
+      "tool_counts": {
+        "Bash": 2,
+        "mcp__gud__claim": 1,
+        "mcp__gud__comment": 1,
+        "mcp__gud__inbox": 1,
+        "mcp__gud__inflight": 1,
+        "mcp__gud__push": 1,
+        "mcp__gud__tasks": 1,
+        "mcp__gud__wait": 2
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "All four features are implemented and pushed. The push linked as seq 1. `python -m pytest -q` passes locally with 7 tests. I haven't seen the tester's result on the tip.\n\n- **Unicode titles:** `slugify` now NFC-normalises, lowercases, and keeps letters and digits from any script. I also changed the filename pattern that `gc` uses to recognise note files. It only matched ASCII, so `gc` would have deleted every non-ASCII note.\n- **Tags, rename and search:** `new --tag`, `tag`, `list --tag`, `rename` and `search` are in `cli.py` and `notes/store.py`. `show` now prints the note file exactly as stored.\n- **Tests:** I added tests under `tests/` for each feature, including the unknown-slug error on `rename` and `tag`. They run through the CLI.\n\nI tried to claim T1 but @a2 already held it, so I pushed the work anyway and commented on T1 asking @a2 to sync rather than redo it. @a2 may still need to finish or declare T1 done. Nobody was waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 1
+    },
+    {
+      "handle": "@a2",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 65.3,
+      "turns": 16,
+      "tokens": {
+        "input": 2346,
+        "output": 5272,
+        "cache_read": 217557,
+        "cache_creation": 18576
+      },
+      "cost_usd": 0.172811,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 15,
+      "tool_counts": {
+        "Bash": 4,
+        "mcp__gud__claim": 1,
+        "mcp__gud__log": 1,
+        "mcp__gud__push": 1,
+        "mcp__gud__read": 3,
+        "mcp__gud__sync": 1,
+        "mcp__gud__tasks": 1,
+        "mcp__gud__wait": 3
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "@a1's push (`ccff3116`) landed the whole of T1 before mine could link, so mine was superseded and I'm not re-pushing it. I read the tip's `cli.py`, `notes/slug.py` and `notes/store.py` and they implement all four features the same way mine did. I did not run the tests on the tip.\n\n- **Local state:** my working copy still holds my unpushed edits, which conflict with the tip.\n- **Tests:** my four feature tests are unpushed, and I haven't checked whether @a1's tests cover the same ground. My version passed 8/8 locally before the supersede.\n- **`show`:** it prints the note re-rendered rather than the raw file. That only differs for a file with non-canonical formatting.\n- **Review and claim:** no review is waiting on me. I did not declare T1 done, so the claim is still open.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 1
+    },
+    {
+      "handle": "@a3",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 66.3,
+      "turns": 9,
+      "tokens": {
+        "input": 2340,
+        "output": 1263,
+        "cache_read": 124230,
+        "cache_creation": 10051
+      },
+      "cost_usd": 0.079944,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 8,
+      "tool_counts": {
+        "Bash": 2,
+        "mcp__gud__claim": 1,
+        "mcp__gud__inbox": 1,
+        "mcp__gud__inflight": 1,
+        "mcp__gud__sync": 1,
+        "mcp__gud__tasks": 1,
+        "mcp__gud__wait": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The notes app now has all four features: unicode slugs, tags, rename and search. They landed in one push from @a1, so I made no changes of my own.\n\nI synced to that push and ran `python -m pytest -q`, which gives 7 passed. I also tried the CLI by hand on a temporary notes directory:\n- **Create and tag:** `new` with repeated `--tag` values dropped the duplicate and kept the first occurrence. `tag` printed `Tagged caf\u00e9-au-lait: home, b, x`.\n- **Rename and show:** `rename caf\u00e9-au-lait Stra\u00dfe 5` moved the note to `stra\u00dfe-5`, and `show` printed the stored file with its `tags:` line.\n- **Search and list:** searching `5` found the renamed note, and `list --tag x` listed it.\n- **Unknown slug:** `rename zz a` printed `Error: no note 'zz'` and exited 1.\n- **`gc`:** it removed 0 files, so it leaves unicode-named notes alone.\n\nI did not run a few cases: the `-2` suffix when a rename collides, a `search` with a match in the body rather than the title, or the unknown-slug error on `tag`, `show` and `delete`.\n\nI did not declare T1 done, because @a2 holds the claim on it.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 1
+    },
+    {
+      "handle": "@a4",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 38.5,
+      "turns": 9,
+      "tokens": {
+        "input": 2336,
+        "output": 4302,
+        "cache_read": 88145,
+        "cache_creation": 17931
+      },
+      "cost_usd": 0.134624,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 8,
+      "tool_counts": {
+        "Bash": 3,
+        "mcp__gud__claim": 1,
+        "mcp__gud__inbox": 1,
+        "mcp__gud__inflight": 2,
+        "mcp__gud__tasks": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "@a1 already has a full implementation of all four features in flight (push ccff3116, about to link), so I'm dropping my local copy rather than pushing a duplicate. Their diff covers every part of the task, and I reviewed it against the spec and found no problems.\n\nI haven't run their version's tests. My own parallel implementation passed 8/8 tests locally, and it behaves like theirs except for one rename edge case. In mine, renaming a note to a title that slugifies to a different slug than its own doesn't count the note's own slug as \"taken\". In a1's, `rename taken-2 \"Taken\"` would give `taken-3` rather than keeping `taken-2`. The spec doesn't pin this down, so I didn't object.\n\nNothing is waiting on me for review. @a2 holds the T1 claim, so they should declare it done once the push links and `python -m pytest -q` passes on the tip.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 2
+    }
+  ],
+  "analysis": {
+    "summary": {
+      "files_read_per_agent": 6.25,
+      "reads_outside_own_changes_per_agent": 3.75,
+      "reads_outside_claims_per_agent": 4.25,
+      "agents_with_claims": 1,
+      "colliding_pushes": 2,
+      "colliding_with_inflight_before": 1,
+      "colliding_with_comment_before": 0,
+      "colliding_with_inflight_since_last_push": 1,
+      "push_refusals": 0,
+      "stale_base_refusals": 0,
+      "inflight_calls": 4,
+      "comment_calls": 1,
+      "claim_calls": 4,
+      "claim_update_calls": 0,
+      "subtask_calls": 0,
+      "release_calls": 0,
+      "wait_calls": 6,
+      "wait_timeouts": 0,
+      "wait_timeout_s": [],
+      "guard_read_by": [
+        "@a1",
+        "@a2",
+        "@a3",
+        "@a4"
+      ],
+      "guard_changed_by": [
+        "@a1",
+        "@a2"
+      ]
+    },
+    "agents": {
+      "@a1": {
+        "files_read": [
+          "cli.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "files_changed": [
+          "cli.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "reads_outside_own_changes": [
+          "notes/__init__.py"
+        ],
+        "gud_tools": {
+          "inflight": 1,
+          "comment": 1,
+          "claim": 1,
+          "tasks": 1,
+          "inbox": 1,
+          "wait": 2,
+          "push": 1
+        },
+        "claim_scopes": [],
+        "reads_outside_claims": [
+          "cli.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "changes_outside_claims": [
+          "cli.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "pushes": 1,
+        "colliding_pushes": [
+          {
+            "push": "ccff31167e6a",
+            "files": [
+              "cli.py",
+              "notes/cleanup.py",
+              "notes/slug.py",
+              "notes/store.py",
+              "tests/test_notes.py"
+            ],
+            "end": "linked",
+            "found_in_transcript": true,
+            "inflight_before": true,
+            "comment_before": false,
+            "inflight_since_last_push": true,
+            "comment_since_last_push": false
+          }
+        ],
+        "push_refusals": [],
+        "guard_files_read": [
+          "notes/cleanup.py"
+        ],
+        "guard_files_changed": [
+          "notes/cleanup.py"
+        ]
+      },
+      "@a2": {
+        "files_read": [
+          "README.md",
+          "cli.py",
+          "conftest.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "files_changed": [
+          "cli.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "reads_outside_own_changes": [
+          "README.md",
+          "conftest.py",
+          "notes/__init__.py"
+        ],
+        "gud_tools": {
+          "claim": 1,
+          "tasks": 1,
+          "wait": 3,
+          "sync": 1,
+          "push": 1,
+          "read": 3,
+          "log": 1
+        },
+        "claim_scopes": [
+          [
+            "**"
+          ]
+        ],
+        "reads_outside_claims": [],
+        "changes_outside_claims": [],
+        "pushes": 1,
+        "colliding_pushes": [
+          {
+            "push": "03b03bb407e0",
+            "files": [
+              "cli.py",
+              "notes/cleanup.py",
+              "notes/slug.py",
+              "notes/store.py",
+              "tests/test_notes.py"
+            ],
+            "end": "superseded",
+            "found_in_transcript": true,
+            "inflight_before": false,
+            "comment_before": false,
+            "inflight_since_last_push": false,
+            "comment_since_last_push": false
+          }
+        ],
+        "push_refusals": [],
+        "guard_files_read": [
+          "notes/cleanup.py"
+        ],
+        "guard_files_changed": [
+          "notes/cleanup.py"
+        ]
+      },
+      "@a3": {
+        "files_read": [
+          "cli.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py"
+        ],
+        "files_changed": [],
+        "reads_outside_own_changes": [
+          "cli.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py"
+        ],
+        "gud_tools": {
+          "inflight": 1,
+          "claim": 1,
+          "tasks": 1,
+          "inbox": 1,
+          "wait": 1,
+          "sync": 1
+        },
+        "claim_scopes": [],
+        "reads_outside_claims": [
+          "cli.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py"
+        ],
+        "changes_outside_claims": [],
+        "pushes": 0,
+        "colliding_pushes": [],
+        "push_refusals": [],
+        "guard_files_read": [
+          "notes/cleanup.py"
+        ],
+        "guard_files_changed": []
+      },
+      "@a4": {
+        "files_read": [
+          "cli.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "files_changed": [],
+        "reads_outside_own_changes": [
+          "cli.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "gud_tools": {
+          "inflight": 2,
+          "claim": 1,
+          "tasks": 1,
+          "inbox": 1
+        },
+        "claim_scopes": [],
+        "reads_outside_claims": [
+          "cli.py",
+          "notes/__init__.py",
+          "notes/cleanup.py",
+          "notes/slug.py",
+          "notes/store.py",
+          "tests/test_notes.py"
+        ],
+        "changes_outside_claims": [],
+        "pushes": 0,
+        "colliding_pushes": [],
+        "push_refusals": [],
+        "guard_files_read": [
+          "notes/cleanup.py"
+        ],
+        "guard_files_changed": []
+      }
+    }
+  },
+  "context_check": {
+    "guard_files": [
+      "notes/cleanup.py"
+    ],
+    "guard_changed_in_final_tree": {
+      "notes/cleanup.py": true
+    },
+    "guard_tests_passed": {
+      "test_gc_keeps_unicode_notes": true,
+      "test_gc_keeps_renamed_unicode_note": true,
+      "test_gc_still_removes_debris": true
+    },
+    "read_by": [
+      "@a1",
+      "@a2",
+      "@a3",
+      "@a4"
+    ]
+  },
+  "requested_budget_usd": 1.2,
+  "cap": {
+    "cap_usd": 26.0,
+    "spent_usd": 16.2501,
+    "reserved_usd": 3.6,
+    "remaining_usd": 6.1499
+  }
+}

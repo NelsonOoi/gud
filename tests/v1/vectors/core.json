@@ -1,0 +1,150 @@
+{
+  "description": "gud v1 golden vectors (SPEC sections 3, 5, 11). Bytes are base64. Keys are Ed25519 seeds.",
+  "keys": {
+    "alice_seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "alice_public": "ed25519:A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=",
+    "host_seed_hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+    "host_public": "ed25519:Kay64UG8yvCyLhqU000LxzYeUm0L/hLIl5S8kyKWbdc="
+  },
+  "envelopes": [
+    {
+      "name": "genesis push",
+      "bytes": "R3VkLUF1dGhvcjogQGFsaWNlCkd1ZC1LaW5kOiBwdXNoCkd1ZC1QYXJlbnQ6IDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAKR3VkLVNlZW46IDA6NTNjNDIzMTQxNWE5MzExZjA1YWIxYWFhNzQ1ODljZDcxNWNjN2FkMzRkMWY3YWUxZWVmYjlhNDYwZDMyMGQwYgpHdWQtU2VudDogMTc2MDAwMDAwMApHdWQtVHJlZTogYjFiYTRjZDkxMmJjNjdiODg2YTdhYThiODVlOTc5NjBkMTE3OGY1NmZmODY1ZTZiYmRjY2ExNDY3NjI5MjViYgpHdWQtVmVyc2lvbjogMQpHdWQtU2lnOiBlZDI1NTE5OlF1RlNMRmhHOTUzckVuTXExckwrQW1ITXlQT05PeXQ3Uk5GTWdFeEJVdEJqSGxrRzRNMDhzVnhQOFJvd045TmRPR2xJNXhaRWpaamd1cmZSMlBFa0R3PT0KCnRleHQgNwpnZW5lc2lzCnB1dCAyMTAgLmd1ZC9tZW1iZXJzIDEwMDY0NCA2OWU3YmVmYjQ1ZTRiYTA0OTNhMWMwMmUxYTY1Nzg3MjI0MzEzOGYzZTlmMDEyNjQzMjIwZDE3ZWQ4ZDZlOGFkIDIxMAojIGhhbmRsZSByb2xlIGFkZHJlc3MgcHVibGljX2tleSBzcG9uc29yCkBhbGljZSBodW1hbiBhbGljZUBleGFtcGxlLm9yZyBlZDI1NTE5OkE2RUh2L1BPRUw0ZGNOMFk1MHZBbVdmazFqQ2JwUTFmSGR5R1pCSlZNYmc9IC0KQGhvc3QgaG9zdCByZXBvQGV4YW1wbGUub3JnIGVkMjU1MTk6S2F5NjRVRzh5dkN5TGhxVTAwMEx4elllVW0wTC9oTElsNVM4a3lLV2JkYz0gLQoKcHV0IDEyIFJFQURNRS5tZCAxMDA2NDQgNGExZTY3ZjJmZTFkMWNjN2IzMWQwY2EyZWM0NDFkYTQ3NzgyMDNhMDM2YTc3ZGExMDM0NGM4NWUyNGZmMGY5MiAxMgpoZWxsbwp3b3JsZAoK",
+      "signing_bytes": "R3VkLUF1dGhvcjogQGFsaWNlCkd1ZC1LaW5kOiBwdXNoCkd1ZC1QYXJlbnQ6IDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAKR3VkLVNlZW46IDA6NTNjNDIzMTQxNWE5MzExZjA1YWIxYWFhNzQ1ODljZDcxNWNjN2FkMzRkMWY3YWUxZWVmYjlhNDYwZDMyMGQwYgpHdWQtU2VudDogMTc2MDAwMDAwMApHdWQtVHJlZTogYjFiYTRjZDkxMmJjNjdiODg2YTdhYThiODVlOTc5NjBkMTE3OGY1NmZmODY1ZTZiYmRjY2ExNDY3NjI5MjViYgpHdWQtVmVyc2lvbjogMQoKdGV4dCA3CmdlbmVzaXMKcHV0IDIxMCAuZ3VkL21lbWJlcnMgMTAwNjQ0IDY5ZTdiZWZiNDVlNGJhMDQ5M2ExYzAyZTFhNjU3ODcyMjQzMTM4ZjNlOWYwMTI2NDMyMjBkMTdlZDhkNmU4YWQgMjEwCiMgaGFuZGxlIHJvbGUgYWRkcmVzcyBwdWJsaWNfa2V5IHNwb25zb3IKQGFsaWNlIGh1bWFuIGFsaWNlQGV4YW1wbGUub3JnIGVkMjU1MTk6QTZFSHYvUE9FTDRkY04wWTUwdkFtV2ZrMWpDYnBRMWZIZHlHWkJKVk1iZz0gLQpAaG9zdCBob3N0IHJlcG9AZXhhbXBsZS5vcmcgZWQyNTUxOTpLYXk2NFVHOHl2Q3lMaHFVMDAwTHh6WWVVbTBML2hMSWw1UzhreUtXYmRjPSAtCgpwdXQgMTIgUkVBRE1FLm1kIDEwMDY0NCA0YTFlNjdmMmZlMWQxY2M3YjMxZDBjYTJlYzQ0MWRhNDc3ODIwM2EwMzZhNzdkYTEwMzQ0Yzg1ZTI0ZmYwZjkyIDEyCmhlbGxvCndvcmxkCgo=",
+      "gud_id": "3131998e1fea37f15589ff48bc7a4024ed77455a2c73cfea828300faca438395",
+      "signed_by": "alice_public",
+      "parent": "0000000000000000000000000000000000000000000000000000000000000000",
+      "tree_hash": "b1ba4cd912bc67b886a7aa8b85e97960d1178f56ff865e6bbdcca146762925bb"
+    },
+    {
+      "name": "child push (patch + binary put, percent-encoded path)",
+      "bytes": "R3VkLUF1dGhvcjogQGFsaWNlCkd1ZC1LaW5kOiBwdXNoCkd1ZC1QYXJlbnQ6IDMxMzE5OThlMWZlYTM3ZjE1NTg5ZmY0OGJjN2E0MDI0ZWQ3NzQ1NWEyYzczY2ZlYTgyODMwMGZhY2E0MzgzOTUKR3VkLVNlZW46IDE6YjdkYzYzODFjZmM1NmRjNGQ4M2EyYTM5ZjcyYzA2Mzc2MzQyZGJkODc4N2JjYzkxYzc1OThjNmJiM2I5N2Y1NApHdWQtU2VudDogMTc2MDAwMDAwMgpHdWQtVHJlZTogM2MzNWIwMjdjZjZiNDM4OTNmNmY1Yjg4ODg4NDZhMzY2MDJmNzdhNzI4MjBlMDEyZmZiZDU4NjNlMDFjMjg2ZApHdWQtVmVyc2lvbjogMQpHdWQtU2lnOiBlZDI1NTE5OmFzSm5HKzhJMnRWVkp6VnJQcm5tOEZQdmR0Q3RyL1dmMXpKeDhMTFk1OFRvYWZSSHlGcHI3WnFzUzVvMHUyM1VNSXBjSzgwWm40eWNPdGZNb0x4WEFBPT0KCnRleHQgMjkKc2Vjb25kIOKAlCB3aXRoIGEgYmluYXJ5IGZpbGUKcGF0Y2ggMzUgUkVBRE1FLm1kCkBAIC0yICsyLDIgQEAKLXdvcmxkCit3b3JsZAorYWdhaW4KCnB1dCAxOCBkaXIlMjB3aXRoJTIwc3BhY2UvY2FmJUMzJUE5JTI1LmJpbiAxMDA3NTUgMjgxMTRkODZiNDUxMzI5ODZlNWEzNzljOTQwZmJkMzFhNjdlODY2NDk1NzQ0NDYyYTE5MzA5YzgyMWI2NWI2MSAxOAoADQr/Ckd1ZC1TaWc6IG5vCgoK",
+      "signing_bytes": "R3VkLUF1dGhvcjogQGFsaWNlCkd1ZC1LaW5kOiBwdXNoCkd1ZC1QYXJlbnQ6IDMxMzE5OThlMWZlYTM3ZjE1NTg5ZmY0OGJjN2E0MDI0ZWQ3NzQ1NWEyYzczY2ZlYTgyODMwMGZhY2E0MzgzOTUKR3VkLVNlZW46IDE6YjdkYzYzODFjZmM1NmRjNGQ4M2EyYTM5ZjcyYzA2Mzc2MzQyZGJkODc4N2JjYzkxYzc1OThjNmJiM2I5N2Y1NApHdWQtU2VudDogMTc2MDAwMDAwMgpHdWQtVHJlZTogM2MzNWIwMjdjZjZiNDM4OTNmNmY1Yjg4ODg4NDZhMzY2MDJmNzdhNzI4MjBlMDEyZmZiZDU4NjNlMDFjMjg2ZApHdWQtVmVyc2lvbjogMQoKdGV4dCAyOQpzZWNvbmQg4oCUIHdpdGggYSBiaW5hcnkgZmlsZQpwYXRjaCAzNSBSRUFETUUubWQKQEAgLTIgKzIsMiBAQAotd29ybGQKK3dvcmxkCithZ2FpbgoKcHV0IDE4IGRpciUyMHdpdGglMjBzcGFjZS9jYWYlQzMlQTklMjUuYmluIDEwMDc1NSAyODExNGQ4NmI0NTEzMjk4NmU1YTM3OWM5NDBmYmQzMWE2N2U4NjY0OTU3NDQ0NjJhMTkzMDljODIxYjY1YjYxIDE4CgANCv8KR3VkLVNpZzogbm8KCgo=",
+      "gud_id": "33f51f2c019600d30bad40d4fada69450addddac2524da2b312f43e3bf4167f6",
+      "signed_by": "alice_public",
+      "parent": "3131998e1fea37f15589ff48bc7a4024ed77455a2c73cfea828300faca438395",
+      "tree_hash": "3c35b027cf6b43893f6f5b8888846a36602f77a72820e012ffbd5863e01c286d",
+      "decoded_put_path": "dir with space/café%.bin"
+    },
+    {
+      "name": "unsigned blob chunk",
+      "bytes": "R3VkLUJsb2I6IDg0ZDg5ODc3ZjBkNDA0MWVmYjZiZjkxYTE2ZjAyNDhmMmZkNTczZTZhZjA1YzE5Zjk2YmVkYjlmODgyZjc4ODIKR3VkLUNodW5rOiAxLzIKR3VkLUNodW5rLVNpemU6IDYKR3VkLUtpbmQ6IGJsb2IKR3VkLVNpemU6IDEwCkd1ZC1WZXJzaW9uOiAxCgpkYXRhIDQKNjc4OQo=",
+      "signing_bytes": "R3VkLUJsb2I6IDg0ZDg5ODc3ZjBkNDA0MWVmYjZiZjkxYTE2ZjAyNDhmMmZkNTczZTZhZjA1YzE5Zjk2YmVkYjlmODgyZjc4ODIKR3VkLUNodW5rOiAxLzIKR3VkLUNodW5rLVNpemU6IDYKR3VkLUtpbmQ6IGJsb2IKR3VkLVNpemU6IDEwCkd1ZC1WZXJzaW9uOiAxCgpkYXRhIDQKNjc4OQo=",
+      "gud_id": "12339da81ed1d331f6335adc48fa864269c92daee0c9cf7a54f7913cb3a4849a",
+      "signed_by": null
+    }
+  ],
+  "trees": [
+    {
+      "name": "empty",
+      "files": [],
+      "tree_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "ordering",
+      "files": [
+        {
+          "path": "a-b",
+          "mode": "100755",
+          "data": ""
+        },
+        {
+          "path": "a.txt",
+          "mode": "100644",
+          "data": "eA=="
+        },
+        {
+          "path": "a/b",
+          "mode": "100644",
+          "data": "eQ=="
+        },
+        {
+          "path": "b",
+          "mode": "120000",
+          "data": "YS9i"
+        },
+        {
+          "path": "é",
+          "mode": "100644",
+          "data": "AA=="
+        }
+      ],
+      "tree_hash": "976a98be109fa71c4f091470a8387973af9bcbc1fc25dca61e8b9464b5a8f3ef"
+    },
+    {
+      "name": "genesis",
+      "files": [
+        {
+          "path": ".gud/members",
+          "mode": "100644",
+          "data": "IyBoYW5kbGUgcm9sZSBhZGRyZXNzIHB1YmxpY19rZXkgc3BvbnNvcgpAYWxpY2UgaHVtYW4gYWxpY2VAZXhhbXBsZS5vcmcgZWQyNTUxOTpBNkVIdi9QT0VMNGRjTjBZNTB2QW1XZmsxakNicFExZkhkeUdaQkpWTWJnPSAtCkBob3N0IGhvc3QgcmVwb0BleGFtcGxlLm9yZyBlZDI1NTE5OktheTY0VUc4eXZDeUxocVUwMDBMeHpZZVVtMEwvaExJbDVTOGt5S1diZGM9IC0K"
+        },
+        {
+          "path": "README.md",
+          "mode": "100644",
+          "data": "aGVsbG8Kd29ybGQK"
+        }
+      ],
+      "tree_hash": "b1ba4cd912bc67b886a7aa8b85e97960d1178f56ff865e6bbdcca146762925bb"
+    },
+    {
+      "name": "child",
+      "files": [
+        {
+          "path": ".gud/members",
+          "mode": "100644",
+          "data": "IyBoYW5kbGUgcm9sZSBhZGRyZXNzIHB1YmxpY19rZXkgc3BvbnNvcgpAYWxpY2UgaHVtYW4gYWxpY2VAZXhhbXBsZS5vcmcgZWQyNTUxOTpBNkVIdi9QT0VMNGRjTjBZNTB2QW1XZmsxakNicFExZkhkeUdaQkpWTWJnPSAtCkBob3N0IGhvc3QgcmVwb0BleGFtcGxlLm9yZyBlZDI1NTE5OktheTY0VUc4eXZDeUxocVUwMDBMeHpZZVVtMEwvaExJbDVTOGt5S1diZGM9IC0K"
+        },
+        {
+          "path": "README.md",
+          "mode": "100644",
+          "data": "aGVsbG8Kd29ybGQKYWdhaW4K"
+        },
+        {
+          "path": "dir with space/café%.bin",
+          "mode": "100755",
+          "data": "AA0K/wpHdWQtU2lnOiBubwoK"
+        }
+      ],
+      "tree_hash": "3c35b027cf6b43893f6f5b8888846a36602f77a72820e012ffbd5863e01c286d"
+    }
+  ],
+  "state_chain": [
+    {
+      "seq": 0,
+      "state": "3131998e1fea37f15589ff48bc7a4024ed77455a2c73cfea828300faca438395",
+      "tree_hash": "b1ba4cd912bc67b886a7aa8b85e97960d1178f56ff865e6bbdcca146762925bb"
+    },
+    {
+      "seq": 1,
+      "state": "33f51f2c019600d30bad40d4fada69450addddac2524da2b312f43e3bf4167f6",
+      "tree_hash": "3c35b027cf6b43893f6f5b8888846a36602f77a72820e012ffbd5863e01c286d"
+    }
+  ],
+  "log": [
+    {
+      "text": "gud-log 1\nseq 0\nprev 0000000000000000000000000000000000000000000000000000000000000000\ntime 1760000000000\ntype open\nrepo repo@example.org\nkey ed25519:Kay64UG8yvCyLhqU000LxzYeUm0L/hLIl5S8kyKWbdc=\nsig ed25519:JFBSkQHAUv4APf8oLylkLG+IHrtoOcBSWgBTYWRXbaoujQyAe16mnNy0XsAZQCr1VjidPpilhAObkigEJjjVCQ==\n",
+      "hash": "53c4231415a9311f05ab1aaa74589cd715cc7ad34d1f7ae1eefb9a460d320d0b"
+    },
+    {
+      "text": "gud-log 1\nseq 1\nprev 53c4231415a9311f05ab1aaa74589cd715cc7ad34d1f7ae1eefb9a460d320d0b\ntime 1760000001000\ntype mail\nid 3131998e1fea37f15589ff48bc7a4024ed77455a2c73cfea828300faca438395\nsig ed25519:7axqzt9uMArCjCYrHKbkLeYDSxI/jFhkATEY66NivaZa3SYie71VSenPdooJf4rAxJ5bQDC9apa17We0B9TKBw==\n",
+      "hash": "b7dc6381cfc56dc4d83a2a39f72c06376342dbd8787bcc91c7598c6bb3b97f54"
+    },
+    {
+      "text": "gud-log 1\nseq 2\nprev b7dc6381cfc56dc4d83a2a39f72c06376342dbd8787bcc91c7598c6bb3b97f54\ntime 1760000003000\ntype mail\nid 33f51f2c019600d30bad40d4fada69450addddac2524da2b312f43e3bf4167f6\nsig ed25519:uLSQ/ep3UKjcBkGq4efd/MJ9rumixr/JdNY6N/EeX5etnX2Lnx7jDMW2CSBPvaEanyjCcL5BSgcvzUXilDbTBQ==\n",
+      "hash": "b85ba9db15ccaec44d87960e814138dd8c32a74632d376cad8b46fed1471ab91"
+    }
+  ],
+  "patches": [
+    {
+      "old": "aGVsbG8Kd29ybGQK",
+      "hunks": "QEAgLTIgKzIsMiBAQAotd29ybGQKK3dvcmxkCithZ2Fpbgo=",
+      "new": "aGVsbG8Kd29ybGQKYWdhaW4K"
+    },
+    {
+      "old": "YQ0KYg==",
+      "hunks": "QEAgLTIgKzIgQEAKLWIKXCBObyBuZXdsaW5lIGF0IGVuZCBvZiBmaWxlCitiCg==",
+      "new": "YQ0KYgo="
+    }
+  ]
+}

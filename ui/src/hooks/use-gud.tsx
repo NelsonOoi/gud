@@ -2,115 +2,140 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { toast } from "sonner"
 import {
   bootApi,
-  getActivity,
-  getBugs,
-  getJoins,
-  getRepos,
+  getChain,
+  getEscalations,
+  getEvents,
+  getHost,
+  getMembers,
+  getNeeds,
+  getProposals,
   getState,
   getTasks,
-  selectRepo as postRepo,
-  signInMailbox,
   subscribe,
   type ApiMode,
 } from "@/lib/api"
-import { serverNow, setServerNow } from "@/lib/format"
-import type { Activity, BugReport, JoinRequest, RepoState, Task } from "@/lib/types"
+import { serverNow, setServerNow, shortHash } from "@/lib/format"
+import type {
+  Escalation,
+  GudEvent,
+  HostView,
+  Link,
+  MembersResponse,
+  NeedsResponse,
+  Proposal,
+  TasksResponse,
+  ViewState,
+} from "@/lib/types"
 
 type GudContextValue = {
   mode: ApiMode
   loading: boolean
-  state: RepoState | null
-  tasks: Task[]
-  bugs: BugReport[]
-  activity: Activity[]
-  joins: JoinRequest[]
+  connected: boolean
+  state: ViewState | null
+  links: Link[]
+  proposals: Proposal[]
+  tasks: TasksResponse
+  escalations: Escalation[]
+  members: MembersResponse
+  host: HostView | null
+  needs: NeedsResponse
+  events: GudEvent[]
   now: number
   refresh: () => Promise<void>
   openId: string | null
   setOpenId: (id: string | null) => void
-  repos: string[]
-  activeRepo: string | null
-  needsToken: boolean
-  refreshRepos: () => Promise<void>
-  chooseRepo: (address: string) => Promise<void>
-  openCreated: (catalog: { repos: string[]; active: string | null; needs_token: boolean }) => Promise<void>
-  signIn: (token: string) => Promise<void>
 }
 
+const EMPTY_TASKS: TasksResponse = { tasks: [], claims: [], overlaps: [], bugs: [] }
+const EMPTY_MEMBERS: MembersResponse = { members: [], removed: [], joins: [] }
+const MAX_EVENTS = 2000
+
 const GudContext = createContext<GudContextValue | null>(null)
+
+function toastFor(event: GudEvent) {
+  const d = event.data
+  const s = (key: string) => (typeof d[key] === "string" ? (d[key] as string) : "")
+  switch (event.type) {
+    case "linked":
+      toast.success(`Linked #${String(d.seq ?? "?")}`, {
+        description: `${s("author")} · ${shortHash(s("link"))}${d.carried_from ? " · carried" : ""}`,
+      })
+      break
+    case "objected":
+      toast.error(`Objection by ${s("by")}`, { description: s("reason") })
+      break
+    case "escalated":
+      toast.warning("Escalated", { description: `${s("reason")} · deciders ${(d.deciders as string[] | undefined)?.join(", ") ?? ""}` })
+      break
+    case "tip.red":
+      toast.error("Tip is red", { description: `red link ${shortHash(s("red_link"))}` })
+      break
+    case "tip.green":
+      toast.success("Tip is green again")
+      break
+    case "task.done":
+      toast.success("Task done", { description: s("task").slice(0, 12) })
+      break
+    case "host.fork":
+      toast.error("Host fork suspected", { description: s("message").slice(0, 12) })
+      break
+    default:
+      break
+  }
+}
 
 export function GudProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<ApiMode>("mock")
   const [loading, setLoading] = useState(true)
-  const [state, setState] = useState<RepoState | null>(null)
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [bugs, setBugs] = useState<BugReport[]>([])
-  const [activity, setActivity] = useState<Activity[]>([])
-  const [joins, setJoins] = useState<JoinRequest[]>([])
-  const [now, setNow] = useState(() => Date.now() / 1000)
+  const [connected, setConnected] = useState(false)
+  const [state, setState] = useState<ViewState | null>(null)
+  const [links, setLinks] = useState<Link[]>([])
+  const [proposals, setProposals] = useState<Proposal[]>([])
+  const [tasks, setTasks] = useState<TasksResponse>(EMPTY_TASKS)
+  const [escalations, setEscalations] = useState<Escalation[]>([])
+  const [members, setMembers] = useState<MembersResponse>(EMPTY_MEMBERS)
+  const [host, setHost] = useState<HostView | null>(null)
+  const [needs, setNeeds] = useState<NeedsResponse>({ member: null, items: [] })
+  const [events, setEvents] = useState<GudEvent[]>([])
+  const [now, setNow] = useState(() => Date.now())
   const [openId, setOpenId] = useState<string | null>(null)
-  const [repos, setRepos] = useState<string[]>([])
-  const [activeRepo, setActiveRepo] = useState<string | null>(null)
-  const [needsToken, setNeedsToken] = useState(false)
   const refreshRef = useRef<() => Promise<void>>(async () => {})
-  const activeRepoRef = useRef<string | null>(null)
+  const seen = useRef(new Set<string>())
+
+  const addEvents = useCallback((items: GudEvent[]) => {
+    const fresh = items.filter((e) => !seen.current.has(e.id))
+    if (fresh.length === 0) return false
+    for (const e of fresh) seen.current.add(e.id)
+    setEvents((current) => [...current, ...fresh].slice(-MAX_EVENTS))
+    return true
+  }, [])
 
   const refresh = useCallback(async () => {
-    const [nextState, nextTasks, nextBugs, nextActivity, nextJoins] = await Promise.all([
+    const [nextState, chain, props, nextTasks, escs, nextMembers, nextHost, nextNeeds] = await Promise.all([
       getState(),
+      getChain(),
+      getProposals(),
       getTasks(),
-      getBugs(),
-      getActivity(200),
-      getJoins(),
+      getEscalations(),
+      getMembers(),
+      getHost(),
+      getNeeds(),
     ])
     setServerNow(nextState.now)
     setState(nextState)
+    setLinks(chain.links)
+    setProposals(props.proposals)
     setTasks(nextTasks)
-    setBugs(nextBugs)
-    setActivity(nextActivity)
-    setJoins(nextJoins)
+    setEscalations(escs.escalations)
+    setMembers(nextMembers)
+    setHost(nextHost)
+    setNeeds(nextNeeds)
     setNow(serverNow())
   }, [])
 
   useEffect(() => {
     refreshRef.current = refresh
   }, [refresh])
-
-  useEffect(() => {
-    activeRepoRef.current = activeRepo
-  }, [activeRepo])
-
-  const applyCatalog = useCallback((catalog: { repos: string[]; active: string | null; needs_token: boolean }) => {
-    setRepos(catalog.repos)
-    setActiveRepo(catalog.active)
-    setNeedsToken(catalog.needs_token)
-  }, [])
-
-  const refreshRepos = useCallback(async () => {
-    const catalog = await getRepos()
-    const changed = catalog.active !== activeRepoRef.current
-    applyCatalog(catalog)
-    if (changed && catalog.active && !catalog.needs_token) await refreshRef.current()
-  }, [applyCatalog])
-
-  const chooseRepo = useCallback(async (address: string) => {
-    setActiveRepo(address)
-    setOpenId(null)
-    applyCatalog(await postRepo(address))
-    await refreshRef.current()
-  }, [applyCatalog])
-
-  const openCreated = useCallback(async (catalog: { repos: string[]; active: string | null; needs_token: boolean }) => {
-    activeRepoRef.current = catalog.active
-    setOpenId(null)
-    applyCatalog(catalog)
-    if (catalog.active && !catalog.needs_token) await refreshRef.current()
-  }, [applyCatalog])
-
-  const signIn = useCallback(async (token: string) => {
-    applyCatalog(await signInMailbox(token))
-    await refreshRef.current()
-  }, [applyCatalog])
 
   useEffect(() => {
     const clock = window.setInterval(() => setNow(serverNow()), 500)
@@ -121,58 +146,56 @@ export function GudProvider({ children }: { children: ReactNode }) {
     let unsubscribe = () => {}
     let cancelled = false
     let timer = 0
-    const schedule = () => {
-      window.clearTimeout(timer)
+    let pending = false
+    const schedule = (delay: number) => {
+      if (pending) return
+      pending = true
       timer = window.setTimeout(() => {
-        void refreshRef.current()
-      }, 250)
+        pending = false
+        void refreshRef.current().catch(() => {})
+      }, delay)
     }
     void (async () => {
       const nextMode = await bootApi()
       if (cancelled) return
       setMode(nextMode)
-      let skipRefresh = false
-      if (nextMode === "live") {
-        const catalog = await getRepos()
-        if (cancelled) return
-        applyCatalog(catalog)
-        skipRefresh = catalog.needs_token
-      }
-      unsubscribe = subscribe((event) => {
-        if (event.event === "chain") {
-          toast.success("Link landed", { description: event.data.tip.subject })
-        } else if (event.event === "proposal" && event.data.status === "objected") {
-          toast.error("Objection", { description: `${event.data.subject} — ${event.data.reason}` })
-        } else if (event.event === "task" && event.data.status === "done") {
-          toast.success("Task done", { description: event.data.title })
-        } else if (event.event === "join") {
-          toast(`Join request from ${event.data.handle}`)
-        } else if (event.event === "bug" && event.data.status === "pending" && !event.data.review_by) {
-          toast(`Bug report: ${event.data.subject}`, { description: event.data.from })
-        }
-        schedule()
-      })
       try {
-        if (!skipRefresh) await refreshRef.current()
+        await refreshRef.current()
+        const backlog = await getEvents(0, 5000)
+        if (!cancelled) addEvents(backlog.events)
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Could not load gud")
       } finally {
         if (!cancelled) setLoading(false)
       }
+      unsubscribe = subscribe((message) => {
+        if (message.type === "open") {
+          setConnected(true)
+          schedule(100)
+          return
+        }
+        if (message.type === "head") {
+          schedule(1500)
+          return
+        }
+        if (addEvents([message.event])) toastFor(message.event)
+        schedule(300)
+      })
     })()
     return () => {
       cancelled = true
       unsubscribe()
       window.clearTimeout(timer)
     }
-  }, [applyCatalog])
+  }, [addEvents])
 
   const value = useMemo(
     () => ({
-      mode, loading, state, tasks, bugs, activity, joins, now, refresh, openId, setOpenId,
-      repos, activeRepo, needsToken, refreshRepos, chooseRepo, openCreated, signIn,
+      mode, loading, connected, state, links, proposals, tasks, escalations, members, host, needs, events, now,
+      refresh, openId, setOpenId,
     }),
-    [mode, loading, state, tasks, bugs, activity, joins, now, refresh, openId, repos, activeRepo, needsToken, refreshRepos, chooseRepo, openCreated, signIn],
+    [mode, loading, connected, state, links, proposals, tasks, escalations, members, host, needs, events, now,
+      refresh, openId],
   )
 
   return <GudContext.Provider value={value}>{children}</GudContext.Provider>
@@ -182,4 +205,11 @@ export function useGud(): GudContextValue {
   const value = useContext(GudContext)
   if (!value) throw new Error("useGud must be used inside GudProvider")
   return value
+}
+
+/** The member the UI acts as for votes (the configured human), and for tasks (human, else console). */
+export function useActor(): { human: string | null; taskAs: string | null; enabled: boolean } {
+  const { state } = useGud()
+  const human = state?.ui.human ?? null
+  return { human, taskAs: human ?? state?.ui.console ?? null, enabled: Boolean(state?.ui.actions) }
 }

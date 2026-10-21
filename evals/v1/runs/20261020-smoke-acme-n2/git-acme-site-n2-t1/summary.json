@@ -1,0 +1,190 @@
+{
+  "arm": "git",
+  "spec": "acme-site",
+  "agents_n": 2,
+  "trial": 1,
+  "requested_model": "claude-sonnet-5-5",
+  "budget_usd": 4.0,
+  "agent_budget_usd": 2.0,
+  "timeout_s": 1500.0,
+  "window_s": null,
+  "agent_cmd": "/Users/nelson/.local/bin/claude",
+  "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-git-7pel5_cs",
+  "fairness": {
+    "tools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep"
+    ],
+    "test_command": "python -m pytest -q -x",
+    "same_prompt_preamble": true
+  },
+  "outcome": "completed",
+  "harness_errors": [],
+  "killed": {},
+  "model": "claude-sonnet-5-5",
+  "wall_s": 59.7,
+  "cost_usd": 0.1682,
+  "tokens": {
+    "input": 3502,
+    "output": 5540,
+    "cache_read": 156069,
+    "cache_creation": 19555
+  },
+  "tokens_total": 184666,
+  "turns": 16,
+  "hidden": {
+    "passed": 21,
+    "failed": 0,
+    "total": 21,
+    "pass_rate": 1.0
+  },
+  "spec_checks": {
+    "test_file_exists[index.html]": true,
+    "test_file_exists[pricing.html]": true,
+    "test_file_exists[about.html]": true,
+    "test_file_exists[styles.css]": true,
+    "test_page_basics[index.html]": true,
+    "test_page_basics[pricing.html]": true,
+    "test_page_basics[about.html]": true,
+    "test_nav_links_every_page[index.html]": true,
+    "test_nav_links_every_page[pricing.html]": true,
+    "test_nav_links_every_page[about.html]": true,
+    "test_nav_shared": true,
+    "test_index_hero": true,
+    "test_index_three_feature_cards": true,
+    "test_index_cta_links_pricing": true,
+    "test_pricing_is_a_real_table": true,
+    "test_pricing_plans_and_prices": true,
+    "test_about_mailto": true,
+    "test_about_story": true,
+    "test_styles_cover_components": true,
+    "test_styles_responsive_under_700px": true,
+    "test_local_links_resolve": true
+  },
+  "final_tests_pass": true,
+  "final_files": [
+    "README.md",
+    "about.html",
+    "index.html",
+    "pricing.html",
+    "styles.css",
+    "tests/test_pages.py",
+    "tests/test_smoke.py"
+  ],
+  "escalations": 0,
+  "local_test_runs": 3,
+  "hidden_access": [],
+  "integrations": 1,
+  "integrations_per_min": 1.005,
+  "test_runs": 1,
+  "test_runs_per_integration": 1.0,
+  "conflicts_total": 0,
+  "conflicts_resolved": 0,
+  "git": {
+    "merges": 1,
+    "merges_per_min": 1.005,
+    "prs_opened": 2,
+    "prs_closed": 0,
+    "approvals": 2,
+    "comments": 2,
+    "merge_attempts": 1,
+    "merge_rejections": {},
+    "gate_test_runs": 1,
+    "gate_test_failures": 0,
+    "test_runs_per_merge": 1.0,
+    "rebased_merges": 1,
+    "local_conflicts": {},
+    "push_rejections": {},
+    "direct_main_push_rejected": 0,
+    "first_merge_s": 48.9,
+    "prs": [
+      {
+        "id": "PR1",
+        "author": "@a2",
+        "status": "merged",
+        "title": "a2: pricing.html, about.html, tests/test_pages.py (a1: index.html + styles.css)",
+        "approvals": [
+          "@a1"
+        ],
+        "comments": 1,
+        "merge_attempts": 1
+      },
+      {
+        "id": "PR2",
+        "author": "@a1",
+        "status": "open",
+        "title": "a1: index.html + styles.css + tests/test_pages.py (a2: please take pricing.html + about.html)",
+        "approvals": [
+          "@a2"
+        ],
+        "comments": 1,
+        "merge_attempts": 0
+      }
+    ],
+    "conflicts": []
+  },
+  "agents": [
+    {
+      "handle": "@a1",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 59.7,
+      "turns": 7,
+      "tokens": {
+        "input": 1750,
+        "output": 2761,
+        "cache_read": 72552,
+        "cache_creation": 9900
+      },
+      "cost_usd": 0.083414,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 6,
+      "tool_counts": {
+        "Bash": 6
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The Acme Notes site is on main, and `python -m pytest -q` passes there: 8 tests, which I ran on a2's branch before merging.\n\n- **My part:** I wrote `index.html`, `styles.css` and the page checks in `tests/test_pages.py`.\n- **a2's part:** a2 wrote `pricing.html` and `about.html`, then rebased onto my branch. That made their PR1 contain my commits as well as theirs.\n- **Merge:** I approved and merged PR1. My PR2 was redundant, so I left a comment on it saying so. It's still open, and I didn't close it.\n\nI didn't check that the pages look right in a browser, including the layout under 700px.\n\nNo other agent is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 2
+    },
+    {
+      "handle": "@a2",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 58.7,
+      "turns": 9,
+      "tokens": {
+        "input": 1752,
+        "output": 2779,
+        "cache_read": 83517,
+        "cache_creation": 9655
+      },
+      "cost_usd": 0.084811,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 8,
+      "tool_counts": {
+        "Bash": 8
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The Acme Notes site is now on main, and `python -m pytest -q` passes with 8 tests.\n\n- **Pages:** `index.html`, `pricing.html`, `about.html` and `styles.css` are all in. `tests/test_pages.py` checks the pages.\n- **What landed:** PR1 (merged) carries a1's index and styles commits plus my `pricing.html` and `about.html`. I rebased it onto a1's branch so the tests could pass, and copied a1's nav into my pages so all three share the same nav.\n- **PR2:** it is still open, but I approved it and its content is already on main through PR1, so a1 can close it.\n\nI have no review pending from a1.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 1
+    }
+  ]
+}

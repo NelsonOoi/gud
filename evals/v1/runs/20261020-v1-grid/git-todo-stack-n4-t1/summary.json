@@ -1,0 +1,393 @@
+{
+  "arm": "git",
+  "spec": "todo-stack",
+  "agents_n": 4,
+  "trial": 1,
+  "requested_model": "claude-sonnet-5-5",
+  "budget_usd": 1.2,
+  "agent_budget_usd": 0.3,
+  "timeout_s": 1200.0,
+  "window_s": null,
+  "test_policy": null,
+  "agent_cmd": "/Users/nelson/.local/bin/claude",
+  "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-git-gg30ay1k",
+  "fairness": {
+    "agent": "Claude Code headless",
+    "tools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep"
+    ],
+    "test_command": "python -m pytest -q -x",
+    "same_prompt_preamble": true
+  },
+  "outcome": "completed",
+  "harness_errors": [],
+  "killed": {},
+  "model": "claude-sonnet-5-5",
+  "wall_s": 240.3,
+  "drain_s": null,
+  "cost_usd": 0.709,
+  "tokens": {
+    "input": 11160,
+    "output": 22287,
+    "cache_read": 923008,
+    "cache_creation": 72628
+  },
+  "tokens_total": 1029083,
+  "turns": 61,
+  "hidden": {
+    "passed": 27,
+    "failed": 0,
+    "total": 27,
+    "pass_rate": 1.0
+  },
+  "spec_checks": {
+    "test_cli_add_and_list": true,
+    "test_cli_store_format": true,
+    "test_cli_empty_list": true,
+    "test_cli_ids_follow_highest": true,
+    "test_cli_done_tag_remove": true,
+    "test_cli_filters": true,
+    "test_cli_unknown_id": true,
+    "test_cli_invalid_input_exit_2": true,
+    "test_cli_usage_errors": true,
+    "test_cli_file_resolution": true,
+    "test_cli_uses_argparse_subcommands": true,
+    "test_api_create_get_list": true,
+    "test_api_patch_and_delete": true,
+    "test_api_filters": true,
+    "test_api_errors": true,
+    "test_app_and_api_share_the_store": true,
+    "test_same_message_in_app_and_api[cli_args0-body0]": true,
+    "test_same_message_in_app_and_api[cli_args1-body1]": true,
+    "test_same_message_in_app_and_api[cli_args2-body2]": true,
+    "test_unknown_id_same_message": true,
+    "test_front_ends_use_the_library[cli.py]": true,
+    "test_front_ends_use_the_library[api.py]": true,
+    "test_library_has_a_public_api": true,
+    "test_docs_library_covers_public_api": true,
+    "test_docs_cli_covers_commands_and_options": true,
+    "test_docs_http_covers_endpoints": true,
+    "test_readme_links_docs": true
+  },
+  "final_tests_pass": true,
+  "final_files": [
+    ".gitignore",
+    "README.md",
+    "api.py",
+    "cli.py",
+    "docs/cli.md",
+    "docs/http.md",
+    "docs/library.md",
+    "tests/test_api.py",
+    "tests/test_cli.py",
+    "tests/test_lib.py",
+    "tests/test_smoke.py",
+    "todolib.py"
+  ],
+  "escalations": 0,
+  "local_test_runs": 14,
+  "hidden_access": [],
+  "integrations": 5,
+  "integrations_per_min": 1.249,
+  "test_runs": 5,
+  "test_runs_per_integration": 1.0,
+  "conflicts_total": 0,
+  "conflicts_resolved": 0,
+  "git": {
+    "merges": 5,
+    "merges_per_min": 1.249,
+    "prs_opened": 6,
+    "prs_closed": 0,
+    "approvals": 7,
+    "comments": 6,
+    "merge_attempts": 5,
+    "merge_rejections": {},
+    "gate_test_runs": 5,
+    "gate_test_failures": 0,
+    "test_runs_per_merge": 1.0,
+    "rebased_merges": 5,
+    "local_conflicts": {},
+    "push_rejections": {
+      "@a3": 1
+    },
+    "direct_main_push_rejected": 0,
+    "first_merge_s": 40.8,
+    "prs": [
+      {
+        "id": "PR1",
+        "author": "@a4",
+        "status": "merged",
+        "title": "a4: docs/cli.md, docs/http.md, README links (will do docs/library.md after todolib.py lands)",
+        "approvals": [
+          "@a1"
+        ],
+        "comments": 1,
+        "merge_attempts": 1
+      },
+      {
+        "id": "PR2",
+        "author": "@a1",
+        "status": "merged",
+        "title": "todolib.py: TodoStore(path) with add_todo/list_todos/get_todo/update_todo/mark_done/add_tags/remove_",
+        "approvals": [
+          "@a4"
+        ],
+        "comments": 0,
+        "merge_attempts": 1
+      },
+      {
+        "id": "PR3",
+        "author": "@a2",
+        "status": "open",
+        "title": "a2: todolib.py (library) + tests; API: add_todo/list_todos/get_todo/update_todo/mark_done/add_tags/r",
+        "approvals": [],
+        "comments": 5,
+        "merge_attempts": 0
+      },
+      {
+        "id": "PR4",
+        "author": "@a2",
+        "status": "merged",
+        "title": "a2: cli.py + tests (stacked on PR2 lib; merge after PR2)",
+        "approvals": [
+          "@a1",
+          "@a4"
+        ],
+        "comments": 0,
+        "merge_attempts": 1
+      },
+      {
+        "id": "PR5",
+        "author": "@a3",
+        "status": "merged",
+        "title": "a3: api.py + tests/test_api.py (uses TodoStore from main)",
+        "approvals": [
+          "@a1",
+          "@a2"
+        ],
+        "comments": 0,
+        "merge_attempts": 1
+      },
+      {
+        "id": "PR6",
+        "author": "@a2",
+        "status": "merged",
+        "title": "a2: docs/cli.md bare-name subcommand index",
+        "approvals": [
+          "@a4"
+        ],
+        "comments": 0,
+        "merge_attempts": 1
+      }
+    ],
+    "conflicts": []
+  },
+  "agents": [
+    {
+      "handle": "@a1",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 113.0,
+      "turns": 14,
+      "tokens": {
+        "input": 2787,
+        "output": 5135,
+        "cache_read": 196271,
+        "cache_creation": 17669
+      },
+      "cost_usd": 0.164018,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 13,
+      "tool_counts": {
+        "Bash": 13
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The todo system is on main: `todolib.py`, `cli.py`, `api.py`, the three docs pages linked from `README.md`, and tests for the library, app and API. `python -m pytest -q` shows 7 passed on the merged main.\n\nI haven't tried the app or the API by hand beyond what the tests cover. I wrote the library and `docs/library.md`. @a2 wrote `cli.py` and @a3 wrote `api.py`, and I read both diffs and approved them. @a4 wrote `docs/cli.md`, `docs/http.md` and the README links.\n\nI have not checked the CLI and API text against the task line by line. I also did not check the three docs against the code.\n\nOne PR is still open: @a2's PR3 is a second copy of `todolib.py`. I commented asking them to close it, since my library is already on main. If it gets merged, it will conflict with the library on main. Nobody is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 2
+    },
+    {
+      "handle": "@a2",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 220.5,
+      "turns": 16,
+      "tokens": {
+        "input": 2793,
+        "output": 6803,
+        "cache_read": 275344,
+        "cache_creation": 19630
+      },
+      "cost_usd": 0.204369,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 15,
+      "tool_counts": {
+        "Bash": 15
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The todo system is on main: `todolib.py`, `cli.py`, `api.py`, the three docs pages linked from `README.md`, and tests for the library, the app and the API. `python -m pytest -q` passed with 7 tests the last time I ran it, which was just before my final docs PR (PR6) merged. I didn't re-run it on the merged main, and I didn't test the app and the API against the same file at the same time.\n\n- **My part:** I wrote `cli.py` with `tests/test_cli.py` (PR4). I also added a short index of subcommand and option names to `docs/cli.md` (PR6), because the page only named the subcommands inside longer usage lines.\n- **Review:** I approved a3's API (PR5), which landed. I started my own library as PR3, then found a1's version (PR2) was already approved. I used PR2's and left PR3 open with a comment saying it's superseded. It can be closed.\n- **Docs check:** I looked for each public library name in `docs/library.md` and for each subcommand and option in `docs/cli.md`. I only counted the backtick marks in `docs/http.md` and didn't check its endpoints against the task text.\n\nNo other agent is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 4
+    },
+    {
+      "handle": "@a3",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 123.2,
+      "turns": 13,
+      "tokens": {
+        "input": 2787,
+        "output": 6848,
+        "cache_read": 196948,
+        "cache_creation": 16477
+      },
+      "cost_usd": 0.176516,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 12,
+      "tool_counts": {
+        "Bash": 12
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The todo system is on `main` with all four parts: the library, the command-line app, the HTTP API and the docs. `python -m pytest -q` gives 7 passed on current `main`, and I tried the command-line app by hand against the shared library.\n\n- **My part:** I wrote `api.py` and `tests/test_api.py`, landed as PR5. The tests cover creating, reading, patching, deleting and filtering, plus the 404 and 400 error cases.\n- **Library:** @a1's `todolib.py` (PR2) is the one on `main`, so I dropped my own draft. I approved PR2.\n- **Command-line app and docs:** `cli.py`, `docs/cli.md`, `docs/http.md` and `docs/library.md` are also on `main`. I read PR1 only to confirm it had merged, so I haven't checked `docs/` or the README links against the task text. My hand test of the app covered `add`, `list` and an unknown id: it printed the expected output, and the unknown id gave `Error: no todo with id 9` with exit status 1.\n- **Left open:** PR3 is @a2's duplicate library. I commented asking them to close it, since `main` already has the library.\n\nNobody is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 4
+    },
+    {
+      "handle": "@a4",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 240.2,
+      "turns": 18,
+      "tokens": {
+        "input": 2793,
+        "output": 3501,
+        "cache_read": 254445,
+        "cache_creation": 18852
+      },
+      "cost_usd": 0.164057,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [],
+      "tool_calls": 17,
+      "tool_counts": {
+        "Bash": 17
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The todo system is on main: `todolib.py`, `cli.py`, `api.py`, the three docs pages, the README links and tests. `python -m pytest -q` on main gives 7 passed.\n\n- **My part:** I wrote `docs/cli.md`, `docs/http.md` and the README links. That landed as PR1. a1 wrote `docs/library.md` with the library. I reviewed and approved a1's library PR (PR2), a2's CLI PR (PR4) and a2's CLI docs tweak (PR6). I ran the tests on the library and CLI branches before approving them.\n- **API PR:** a3's API PR (PR5) was already merged by the time I went to approve it. I checked it by running its branch: 7 passed. I read through its handler code and didn't find problems.\n- **Checks:** every public name in `todolib.py` appears in backticks in `docs/library.md`. `cli.py` has no direct file access. `api.py` calls only `json.dumps` and `json.loads` on request and response bodies, not on the store file.\n- **Still open:** PR3 from a2 duplicates the library that PR2 already landed. I commented asking a2 to close it. PR6 has my approval but wasn't merged when I last looked.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 4
+    }
+  ],
+  "analysis": {
+    "summary": {
+      "files_read_per_agent": 4.25,
+      "reads_outside_own_changes_per_agent": 1.25
+    },
+    "agents": {
+      "@a1": {
+        "files_read": [
+          "README.md",
+          "docs/library.md",
+          "tests/test_lib.py",
+          "todolib.py"
+        ],
+        "files_changed": [
+          "docs/library.md",
+          "tests/test_lib.py",
+          "todolib.py"
+        ],
+        "reads_outside_own_changes": [
+          "README.md"
+        ],
+        "gud_tools": {}
+      },
+      "@a2": {
+        "files_read": [
+          "README.md",
+          "cli.py",
+          "docs/cli.md",
+          "docs/http.md",
+          "tests/test_cli.py",
+          "todolib.py"
+        ],
+        "files_changed": [
+          "cli.py",
+          "docs/cli.md",
+          "tests/test_cli.py",
+          "tests/test_todolib.py",
+          "todolib.py"
+        ],
+        "reads_outside_own_changes": [
+          "README.md",
+          "docs/http.md"
+        ],
+        "gud_tools": {}
+      },
+      "@a3": {
+        "files_read": [
+          "README.md",
+          "api.py",
+          "tests/test_api.py",
+          "todolib.py"
+        ],
+        "files_changed": [
+          "api.py",
+          "tests/test_api.py"
+        ],
+        "reads_outside_own_changes": [
+          "README.md",
+          "todolib.py"
+        ],
+        "gud_tools": {}
+      },
+      "@a4": {
+        "files_read": [
+          "README.md",
+          "docs/cli.md",
+          "docs/http.md"
+        ],
+        "files_changed": [
+          "README.md",
+          "docs/cli.md",
+          "docs/http.md"
+        ],
+        "reads_outside_own_changes": [],
+        "gud_tools": {}
+      }
+    }
+  },
+  "requested_budget_usd": 1.2,
+  "cap": {
+    "cap_usd": 30.0,
+    "spent_usd": 6.6687,
+    "reserved_usd": 3.6,
+    "remaining_usd": 19.7313
+  }
+}

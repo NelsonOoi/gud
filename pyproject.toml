@@ -1,6 +1,6 @@
 [project]
 name = "gud"
-version = "0.1.0"
+version = "1.0.0"
 description = "Source control where the email chain is the repo"
 requires-python = ">=3.11"
 dependencies = [
@@ -8,15 +8,12 @@ dependencies = [
   "httpx>=0.27",
   "fastapi>=0.110",
   "uvicorn>=0.29",
-  "sse-starlette>=2.0",
   "mcp>=1.0",
-  "armature-mcp-analytics>=0.1.42",
   "pytest>=8",
 ]
 
 [project.optional-dependencies]
-app = ["mcp-use>=1.7.1"]
-qa = ["browser-use==0.13.11"]
+agent = ["claude-agent-sdk>=0.2.168"]
 
 [project.scripts]
 gud = "gud.cli:main"
@@ -26,3 +23,5 @@ include = ["gud*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: long-running benchmarks, deselected by default (run with -m slow)"]
+addopts = "-m 'not slow'"

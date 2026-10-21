@@ -1,0 +1,452 @@
+{
+ "arm": "gud1-ref",
+ "spec": "todo-stack",
+ "agents_n": 4,
+ "trial": 2,
+ "requested_model": "claude-sonnet-5-5",
+ "budget_usd": 1.2,
+ "agent_budget_usd": 0.3,
+ "timeout_s": 1200.0,
+ "window_s": 20.0,
+ "test_policy": "tip",
+ "agent_cmd": "gud.agent.runtime",
+ "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-gud1-ref-2628tq30",
+ "fairness": {
+  "agent": "reference agent (Claude Agent SDK)",
+  "tools": [
+   "Bash",
+   "Read",
+   "Edit",
+   "Write",
+   "Glob",
+   "Grep",
+   "mcp__gud__*"
+  ],
+  "test_command": "python -m pytest -q -x",
+  "same_prompt_preamble": false
+ },
+ "ref_stop": "timeout",
+ "outcome": "harness_error",
+ "harness_errors": [
+  "API unreachable (ENOTFOUND): no agent turn completed, $0 spent"
+ ],
+ "killed": {
+  "@a1": "timeout",
+  "@a2": "timeout",
+  "@a3": "timeout",
+  "@a4": "timeout"
+ },
+ "model": "claude-sonnet-5-5",
+ "wall_s": 2028.1,
+ "drain_s": 0.0,
+ "cost_usd": 0.0,
+ "tokens": {
+  "input": 0,
+  "output": 0,
+  "cache_read": 0,
+  "cache_creation": 0
+ },
+ "tokens_total": 0,
+ "turns": 4,
+ "hidden": {
+  "passed": 0,
+  "failed": 27,
+  "total": 27,
+  "pass_rate": 0.0
+ },
+ "spec_checks": {
+  "test_cli_add_and_list": false,
+  "test_cli_store_format": false,
+  "test_cli_empty_list": false,
+  "test_cli_ids_follow_highest": false,
+  "test_cli_done_tag_remove": false,
+  "test_cli_filters": false,
+  "test_cli_unknown_id": false,
+  "test_cli_invalid_input_exit_2": false,
+  "test_cli_usage_errors": false,
+  "test_cli_file_resolution": false,
+  "test_cli_uses_argparse_subcommands": false,
+  "test_api_create_get_list": false,
+  "test_api_patch_and_delete": false,
+  "test_api_filters": false,
+  "test_api_errors": false,
+  "test_app_and_api_share_the_store": false,
+  "test_same_message_in_app_and_api[cli_args0-body0]": false,
+  "test_same_message_in_app_and_api[cli_args1-body1]": false,
+  "test_same_message_in_app_and_api[cli_args2-body2]": false,
+  "test_unknown_id_same_message": false,
+  "test_front_ends_use_the_library[cli.py]": false,
+  "test_front_ends_use_the_library[api.py]": false,
+  "test_library_has_a_public_api": false,
+  "test_docs_library_covers_public_api": false,
+  "test_docs_cli_covers_commands_and_options": false,
+  "test_docs_http_covers_endpoints": false,
+  "test_readme_links_docs": false
+ },
+ "final_tests_pass": true,
+ "final_files": [
+  ".gitignore",
+  ".gudignore",
+  "README.md",
+  "tests/test_smoke.py"
+ ],
+ "escalations": 0,
+ "local_test_runs": 0,
+ "hidden_access": [],
+ "integrations": 0,
+ "integrations_per_min": 0.0,
+ "test_runs": 1,
+ "test_runs_per_integration": null,
+ "conflicts_total": 0,
+ "conflicts_resolved": 0,
+ "gud1": {
+  "links": 0,
+  "links_per_min": 0.0,
+  "first_link_s": null,
+  "pushes": 0,
+  "pushes_by_end": {},
+  "carried_links": 0,
+  "carried_events": 0,
+  "superseded": 0,
+  "colliding_pushes": 0,
+  "emails": 2,
+  "emails_by_kind": {
+   "task": 1,
+   "test": 1
+  },
+  "emails_per_link": null,
+  "test_runs": 1,
+  "test_runs_by_scope": {
+   "tip": 1
+  },
+  "test_failures": 0,
+  "test_runs_per_link": null,
+  "claims": {
+   "won": 0,
+   "lost": 0,
+   "updates": 0,
+   "releases": 0,
+   "lapsed": 0,
+   "scopes": [],
+   "scope_exceeded": 0
+  },
+  "overlaps": {
+   "total": 0,
+   "by_settlement": {},
+   "list": []
+  },
+  "comments": {
+   "total": 0,
+   "by_target": {},
+   "escalation_comments": 0
+  },
+  "objections": {
+   "total": 0,
+   "reason": 0,
+   "evidence": 0,
+   "answered": {},
+   "list": []
+  },
+  "approvals": 0,
+  "holds": 0,
+  "escalations": {
+   "consent": [],
+   "task": [],
+   "resolved_by": {}
+  },
+  "red_tip": {
+   "episodes": 0,
+   "closed": 0,
+   "median_to_green_s": null,
+   "red_at_end": false,
+   "fix_tasks": 0,
+   "list": []
+  },
+  "task": {
+   "alias": "T1",
+   "status": "open",
+   "subtasks": 0,
+   "subtask_status": {},
+   "work_done_s": null,
+   "done_s": null,
+   "opened_s": 0.3,
+   "opened_to_done_s": null,
+   "declared_by": null,
+   "last_agent_link_s": null,
+   "agent_links_after_done": 0,
+   "done_after_all_work": null,
+   "subtask_holders": []
+  },
+  "landed_authors": [],
+  "events": {
+   "linked": 1,
+   "task.opened": 1,
+   "test.passed": 1
+  },
+  "per_agent": {
+   "@a1": {
+    "pushes": 0,
+    "links": 0,
+    "carried_links": 0,
+    "superseded": 0,
+    "colliding_pushes": 0,
+    "claims_won": 0,
+    "claim_msgs": 0,
+    "comments": 0,
+    "objections": 0,
+    "approvals": 0,
+    "claim_scopes": [],
+    "claim_scopes_all": []
+   },
+   "@a2": {
+    "pushes": 0,
+    "links": 0,
+    "carried_links": 0,
+    "superseded": 0,
+    "colliding_pushes": 0,
+    "claims_won": 0,
+    "claim_msgs": 0,
+    "comments": 0,
+    "objections": 0,
+    "approvals": 0,
+    "claim_scopes": [],
+    "claim_scopes_all": []
+   },
+   "@a3": {
+    "pushes": 0,
+    "links": 0,
+    "carried_links": 0,
+    "superseded": 0,
+    "colliding_pushes": 0,
+    "claims_won": 0,
+    "claim_msgs": 0,
+    "comments": 0,
+    "objections": 0,
+    "approvals": 0,
+    "claim_scopes": [],
+    "claim_scopes_all": []
+   },
+   "@a4": {
+    "pushes": 0,
+    "links": 0,
+    "carried_links": 0,
+    "superseded": 0,
+    "colliding_pushes": 0,
+    "claims_won": 0,
+    "claim_msgs": 0,
+    "comments": 0,
+    "objections": 0,
+    "approvals": 0,
+    "claim_scopes": [],
+    "claim_scopes_all": []
+   }
+  },
+  "link_list": [],
+  "push_list": [],
+  "conflicts": []
+ },
+ "agents": [
+  {
+   "handle": "@a1",
+   "exit_code": 0,
+   "killed": "timeout",
+   "wall_s": 2027.5,
+   "turns": 1,
+   "wakeups": 1,
+   "tokens": {
+    "ledger": 0
+   },
+   "cost_usd": 0.0,
+   "cost_source": "ledger",
+   "model": "claude-sonnet-5-5",
+   "result_is_error": true,
+   "terminal_reason": null,
+   "mcp_servers": null,
+   "tool_calls": 0,
+   "tool_counts": {},
+   "escalated": false,
+   "escalation": null,
+   "final_text": "",
+   "api_errors": [
+    "ProcessError: Command failed with exit code 143 (exit code: 143)\nError output: Check stderr output for details"
+   ],
+   "stderr_tail": "",
+   "turn_keys": [
+    "task:466b25fafc230a5f5fc"
+   ],
+   "local_test_runs": 0
+  },
+  {
+   "handle": "@a2",
+   "exit_code": 0,
+   "killed": "timeout",
+   "wall_s": 2027.5,
+   "turns": 1,
+   "wakeups": 1,
+   "tokens": {
+    "ledger": 0
+   },
+   "cost_usd": 0.0,
+   "cost_source": "ledger",
+   "model": "claude-sonnet-5-5",
+   "result_is_error": true,
+   "terminal_reason": null,
+   "mcp_servers": null,
+   "tool_calls": 0,
+   "tool_counts": {},
+   "escalated": false,
+   "escalation": null,
+   "final_text": "",
+   "api_errors": [
+    "ProcessError: Command failed with exit code 143 (exit code: 143)\nError output: Check stderr output for details"
+   ],
+   "stderr_tail": "",
+   "turn_keys": [
+    "task:466b25fafc230a5f5fc"
+   ],
+   "local_test_runs": 0
+  },
+  {
+   "handle": "@a3",
+   "exit_code": 0,
+   "killed": "timeout",
+   "wall_s": 2027.5,
+   "turns": 1,
+   "wakeups": 1,
+   "tokens": {
+    "ledger": 0
+   },
+   "cost_usd": 0.0,
+   "cost_source": "ledger",
+   "model": "claude-sonnet-5-5",
+   "result_is_error": true,
+   "terminal_reason": null,
+   "mcp_servers": null,
+   "tool_calls": 0,
+   "tool_counts": {},
+   "escalated": false,
+   "escalation": null,
+   "final_text": "",
+   "api_errors": [
+    "ProcessError: Command failed with exit code 143 (exit code: 143)\nError output: Check stderr output for details"
+   ],
+   "stderr_tail": "",
+   "turn_keys": [
+    "task:466b25fafc230a5f5fc"
+   ],
+   "local_test_runs": 0
+  },
+  {
+   "handle": "@a4",
+   "exit_code": 0,
+   "killed": "timeout",
+   "wall_s": 2027.5,
+   "turns": 1,
+   "wakeups": 1,
+   "tokens": {
+    "ledger": 0
+   },
+   "cost_usd": 0.0,
+   "cost_source": "ledger",
+   "model": "claude-sonnet-5-5",
+   "result_is_error": true,
+   "terminal_reason": null,
+   "mcp_servers": null,
+   "tool_calls": 0,
+   "tool_counts": {},
+   "escalated": false,
+   "escalation": null,
+   "final_text": "",
+   "api_errors": [
+    "ProcessError: Command failed with exit code 143 (exit code: 143)\nError output: Check stderr output for details"
+   ],
+   "stderr_tail": "",
+   "turn_keys": [
+    "task:466b25fafc230a5f5fc"
+   ],
+   "local_test_runs": 0
+  }
+ ],
+ "tokens_ledger": 0,
+ "analysis": {
+  "summary": {
+   "files_read_per_agent": 0.0,
+   "reads_outside_own_changes_per_agent": 0.0,
+   "reads_outside_claims_per_agent": 0.0,
+   "agents_with_claims": 0,
+   "colliding_pushes": 0,
+   "colliding_with_inflight_before": 0,
+   "colliding_with_comment_before": 0,
+   "colliding_with_inflight_since_last_push": 0,
+   "push_refusals": 0,
+   "stale_base_refusals": 0,
+   "inflight_calls": 0,
+   "comment_calls": 0,
+   "claim_calls": 0,
+   "claim_update_calls": 0,
+   "subtask_calls": 0,
+   "release_calls": 0,
+   "wait_calls": 0,
+   "wait_timeouts": 0,
+   "wait_timeout_s": []
+  },
+  "agents": {
+   "@a1": {
+    "files_read": [],
+    "files_changed": [],
+    "reads_outside_own_changes": [],
+    "gud_tools": {},
+    "claim_scopes": [],
+    "reads_outside_claims": [],
+    "changes_outside_claims": [],
+    "pushes": 0,
+    "colliding_pushes": [],
+    "push_refusals": []
+   },
+   "@a2": {
+    "files_read": [],
+    "files_changed": [],
+    "reads_outside_own_changes": [],
+    "gud_tools": {},
+    "claim_scopes": [],
+    "reads_outside_claims": [],
+    "changes_outside_claims": [],
+    "pushes": 0,
+    "colliding_pushes": [],
+    "push_refusals": []
+   },
+   "@a3": {
+    "files_read": [],
+    "files_changed": [],
+    "reads_outside_own_changes": [],
+    "gud_tools": {},
+    "claim_scopes": [],
+    "reads_outside_claims": [],
+    "changes_outside_claims": [],
+    "pushes": 0,
+    "colliding_pushes": [],
+    "push_refusals": []
+   },
+   "@a4": {
+    "files_read": [],
+    "files_changed": [],
+    "reads_outside_own_changes": [],
+    "gud_tools": {},
+    "claim_scopes": [],
+    "reads_outside_claims": [],
+    "changes_outside_claims": [],
+    "pushes": 0,
+    "colliding_pushes": [],
+    "push_refusals": []
+   }
+  }
+ },
+ "requested_budget_usd": 1.2,
+ "cap": {
+  "cap_usd": 26.0,
+  "spent_usd": 18.0093,
+  "reserved_usd": 1.2,
+  "remaining_usd": 6.7907
+ },
+ "outcome_recorded": "timeout"
+}

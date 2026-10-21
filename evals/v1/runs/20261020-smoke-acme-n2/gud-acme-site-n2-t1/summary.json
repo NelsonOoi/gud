@@ -1,0 +1,226 @@
+{
+  "arm": "gud",
+  "spec": "acme-site",
+  "agents_n": 2,
+  "trial": 1,
+  "requested_model": "claude-sonnet-5-5",
+  "budget_usd": 4.0,
+  "agent_budget_usd": 2.0,
+  "timeout_s": 1500.0,
+  "window_s": 30.0,
+  "agent_cmd": "/Users/nelson/.local/bin/claude",
+  "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-gud-eb7z0pu3",
+  "fairness": {
+    "tools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "mcp__gud__*"
+    ],
+    "test_command": "python -m pytest -q -x",
+    "same_prompt_preamble": true
+  },
+  "outcome": "completed",
+  "harness_errors": [],
+  "killed": {},
+  "model": "claude-sonnet-5-5",
+  "wall_s": 201.8,
+  "cost_usd": 0.1864,
+  "tokens": {
+    "input": 3935,
+    "output": 6865,
+    "cache_read": 209295,
+    "cache_creation": 18010
+  },
+  "tokens_total": 238105,
+  "turns": 20,
+  "hidden": {
+    "passed": 21,
+    "failed": 0,
+    "total": 21,
+    "pass_rate": 1.0
+  },
+  "spec_checks": {
+    "test_file_exists[index.html]": true,
+    "test_file_exists[pricing.html]": true,
+    "test_file_exists[about.html]": true,
+    "test_file_exists[styles.css]": true,
+    "test_page_basics[index.html]": true,
+    "test_page_basics[pricing.html]": true,
+    "test_page_basics[about.html]": true,
+    "test_nav_links_every_page[index.html]": true,
+    "test_nav_links_every_page[pricing.html]": true,
+    "test_nav_links_every_page[about.html]": true,
+    "test_nav_shared": true,
+    "test_index_hero": true,
+    "test_index_three_feature_cards": true,
+    "test_index_cta_links_pricing": true,
+    "test_pricing_is_a_real_table": true,
+    "test_pricing_plans_and_prices": true,
+    "test_about_mailto": true,
+    "test_about_story": true,
+    "test_styles_cover_components": true,
+    "test_styles_responsive_under_700px": true,
+    "test_local_links_resolve": true
+  },
+  "final_tests_pass": true,
+  "final_files": [
+    ".gud/members",
+    "README.md",
+    "about.html",
+    "index.html",
+    "pricing.html",
+    "styles.css",
+    "tests/test_pages.py",
+    "tests/test_smoke.py"
+  ],
+  "escalations": 0,
+  "local_test_runs": 0,
+  "hidden_access": [],
+  "integrations": 2,
+  "integrations_per_min": 0.595,
+  "test_runs": 3,
+  "test_runs_per_integration": 1.5,
+  "conflicts_total": 0,
+  "conflicts_resolved": 0,
+  "gud": {
+    "links": 2,
+    "links_per_min": 0.595,
+    "pushes": 3,
+    "emails": 7,
+    "emails_by_kind": {
+      "push": 3,
+      "task": 1,
+      "test": 3
+    },
+    "emails_per_link": 3.5,
+    "test_runs": 3,
+    "test_failures": 1,
+    "test_runs_per_link": 1.5,
+    "proposal_statuses": {
+      "tests_failed": 1
+    },
+    "superseded": 0,
+    "stale": 0,
+    "conflict_status": 0,
+    "objected_pushes": 0,
+    "objections": 0,
+    "approvals": 0,
+    "rebase_tool_conflicts": 0,
+    "push_tool_errors": 0,
+    "first_link_s": 11.9,
+    "link_list": [
+      {
+        "id": "<79e5e13165a346beaeb53530cd1eeace@gud.local>",
+        "author": "@a1",
+        "seq": 1,
+        "task": "T1",
+        "at_s": 11.9,
+        "subject": "[gud] @a1 taking index.html + styles.css (nav markup: copy from index.html). @a2 pleas"
+      },
+      {
+        "id": "<dcac48684f894739abf6d8f62205931c@gud.local>",
+        "author": "@a2",
+        "seq": 2,
+        "task": "T1",
+        "at_s": 110.6,
+        "subject": "[gud] @a2 adding pricing.html, about.html (nav identical to index.html) and tests/test"
+      }
+    ],
+    "conflicts": [
+      {
+        "push": "<9540cd8971df43f3a583435b34881b2f@gud.local>",
+        "author": "@a2",
+        "status": "tests_failed",
+        "reason": "tests failed",
+        "objections": [],
+        "resolution": "later push by the same author landed",
+        "resolved": true
+      }
+    ]
+  },
+  "agents": [
+    {
+      "handle": "@a1",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 200.7,
+      "turns": 8,
+      "tokens": {
+        "input": 1962,
+        "output": 2143,
+        "cache_read": 73011,
+        "cache_creation": 7254
+      },
+      "cost_usd": 0.066952,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 7,
+      "tool_counts": {
+        "mcp__gud__ls": 2,
+        "mcp__gud__push": 1,
+        "mcp__gud__read": 1,
+        "mcp__gud__status": 1,
+        "mcp__gud__wait": 2
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The Acme Notes site is in the shared repo: `index.html`, `pricing.html`, `about.html`, `styles.css` and `tests/test_pages.py`. I did not run `python -m pytest -q` myself. The pushes landed, which means the tester's pytest run passed on them.\n\nI wrote `index.html` and `styles.css`. @a2 wrote `pricing.html`, `about.html` and the tests.\n\n- **Pages:** I only read `pricing.html` (it has the three-plan table with the right prices) and did not open `about.html` or the tests. All three pages use the same nav.\n- **Styles:** `styles.css` has the nav, hero, cards and pricing-table styles, plus a layout for screens under 700px.\n- **Reviews:** nothing is waiting on me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 0
+    },
+    {
+      "handle": "@a2",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 181.3,
+      "turns": 12,
+      "tokens": {
+        "input": 1973,
+        "output": 4722,
+        "cache_read": 136284,
+        "cache_creation": 10756
+      },
+      "cost_usd": 0.119424,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 11,
+      "tool_counts": {
+        "mcp__gud__ls": 2,
+        "mcp__gud__push": 2,
+        "mcp__gud__read": 3,
+        "mcp__gud__rebase": 1,
+        "mcp__gud__status": 1,
+        "mcp__gud__wait": 2
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The site is now in the shared repo, and my last push landed as tip 2. I didn't run `python -m pytest -q` myself; the tester ran it on the push before it landed.\n\n- **My part:** `pricing.html` (Free, Pro $8/mo and Team $15/user/mo in a comparison table), `about.html` (short company story and the `mailto:hello@acme.example` link), and `tests/test_pages.py`.\n- **@a1's part:** `index.html` and `styles.css`. Together with my pages, that covers everything in the task.\n- **Nav:** all three pages use the same `<nav>` block with links to `index.html`, `pricing.html` and `about.html`.\n- **Tests:** they check the doctype, title, `styles.css` link, shared nav, the pricing and mailto content, and the 700px media query.\n- **Failed first push:** my first push failed the tester because `index.html` and `styles.css` weren't in the repo yet, so I rebuilt it on top of @a1's landed files.\n\nNo other agent is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 0
+    }
+  ]
+}

@@ -1,214 +1,178 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { AgentAvatar } from "@/components/agent-avatar"
-import { DiffView } from "@/components/diff-view"
-import { EmailThread } from "@/components/email-thread"
-import { KindBadge, StatusBadge } from "@/components/status-badge"
+import { ConsentMeter } from "@/components/consent-meter"
+import { ChangeView } from "@/components/diff-view"
+import { MessageThread } from "@/components/email-thread"
+import { KindBadge, StatusBadge, TaskBadge, VerdictBadge } from "@/components/status-badge"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { useGud } from "@/hooks/use-gud"
-import { getDiff, getThread, postApprove, postReply } from "@/lib/api"
+import { useActor, useGud } from "@/hooks/use-gud"
+import { comment, getDiff, getThread, vote } from "@/lib/api"
 import { ApiError } from "@/lib/errors"
-import { relativeTime, shortHash, shortId } from "@/lib/format"
-import { isOpenStatus } from "@/lib/status"
-import type { EmailView, Member } from "@/lib/types"
+import { relativeTime, shortHash } from "@/lib/format"
+import { explain } from "@/lib/status"
+import type { DiffResponse, ThreadResponse } from "@/lib/types"
 
 export function DetailSheet() {
-  const { openId, setOpenId, state, now, refresh } = useGud()
-  const [emails, setEmails] = useState<EmailView[]>([])
-  const [diff, setDiff] = useState("")
+  const { openId, setOpenId, links, proposals, tasks, escalations, now, refresh } = useGud()
+  const actor = useActor()
+  const [thread, setThread] = useState<ThreadResponse | null>(null)
+  const [diff, setDiff] = useState<DiffResponse | null>(null)
   const [loading, setLoading] = useState(false)
-  const [actor, setActor] = useState("")
-  const [reply, setReply] = useState("")
+  const [text, setText] = useState("")
   const [busy, setBusy] = useState(false)
 
-  const proposal = state?.proposals.find((item) => item.id === openId) ?? null
-  const link = state?.links.find((item) => item.id === openId) ?? null
-  const agents = useMemo(
-    () =>
-      (state?.members ?? []).filter(
-        (member) =>
-          (member.role === "agent" || member.role === "lead") &&
-          (!state?.local_signers || state.local_signers.includes(member.handle)),
-      ),
-    [state?.members, state?.local_signers],
-  )
+  const link = links.find((l) => l.state === openId || l.push === openId) ?? null
+  const proposal = link ? null : proposals.find((p) => p.id === openId || p.push === openId) ?? null
+  const task = tasks.tasks.find((t) => t.id === openId) ?? null
+  const escalation = proposal?.escalation ? escalations.find((e) => e.id === proposal.escalation) : undefined
+
+  async function load(id: string, cancelled: () => boolean) {
+    const [t, d] = await Promise.allSettled([getThread(id), getDiff(id)])
+    if (cancelled()) return
+    setThread(t.status === "fulfilled" ? t.value : null)
+    setDiff(d.status === "fulfilled" ? d.value : null)
+    if (t.status === "rejected" && d.status === "rejected") {
+      toast.error(t.reason instanceof Error ? t.reason.message : "Could not load that id")
+    }
+  }
 
   useEffect(() => {
     if (!openId) return
     let cancelled = false
     setLoading(true)
-    void (async () => {
-      const [threadResult, diffResult] = await Promise.allSettled([getThread(openId), getDiff(openId)])
-      if (cancelled) return
-      if (threadResult.status === "fulfilled") setEmails(threadResult.value)
-      else {
-        setEmails([])
-        toast.error(threadResult.reason instanceof Error ? threadResult.reason.message : "Could not load the thread")
-      }
-      if (diffResult.status === "fulfilled") setDiff(diffResult.value)
-      else setDiff("")
-      setLoading(false)
-    })()
+    setText("")
+    void load(openId, () => cancelled).finally(() => {
+      if (!cancelled) setLoading(false)
+    })
     return () => {
       cancelled = true
     }
   }, [openId])
 
-  useEffect(() => {
-    const first = agents[0]?.handle
-    if (first && !agents.some((member) => member.handle === actor)) setActor(first)
-  }, [agents, actor])
-
-  const handleFor = (address: string) => {
-    const roster = [...(state?.members ?? []), ...(state?.removed_members ?? [])]
-    return roster.find((member: Member) => member.address === address)?.handle ?? address
-  }
-
-  async function reloadThread() {
+  async function act(kind: "approve" | "hold" | "object" | "veto" | "comment" | "accept") {
     if (!openId) return
-    const [thread, nextDiff] = await Promise.all([getThread(openId), getDiff(openId)])
-    setEmails(thread)
-    setDiff(nextDiff)
-  }
-
-  async function approve() {
-    if (!openId || !actor) return
     setBusy(true)
     try {
-      await postApprove({ target: openId, as: actor })
+      const target = proposal?.push ?? task?.id ?? link?.push ?? openId
+      const result =
+        kind === "comment"
+          ? await comment({ target, text: text.trim(), as: actor.human ?? undefined })
+          : await vote({ kind: kind === "accept" ? "approve" : kind, target, text: text.trim() || undefined,
+            as: actor.human ?? undefined })
+      setText("")
       await refresh()
-      await reloadThread()
-      toast.success(`Approved as ${actor}`)
+      await load(openId, () => false)
+      toast.success(`${kind} sent as ${result.as}`, { description: result.logged ? `logged ${shortHash(result.id)}` : "not logged" })
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Approve failed")
+      toast.error(error instanceof ApiError ? error.message : `${kind} failed`)
     } finally {
       setBusy(false)
     }
   }
 
-  async function sendReply() {
-    if (!openId || !reply.trim()) return
-    setBusy(true)
-    try {
-      await postReply({ target: openId, from: "@nelson", text: reply.trim() })
-      setReply("")
-      await refresh()
-      await reloadThread()
-      toast.success("Reply posted as @nelson")
-    } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Reply failed")
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const title = proposal?.subject ?? link?.subject ?? "Message"
-  const author = proposal?.author ?? link?.author ?? ""
-  const received = proposal?.received_at ?? link?.received_at ?? 0
-  const pending = proposal != null && isOpenStatus(proposal.status)
+  const title = link?.title ?? proposal?.title ?? task?.title ?? String(thread?.head.title ?? "Message")
+  const author = link?.author ?? proposal?.author ?? task?.author ?? ""
+  const when = link?.linked_at ?? proposal?.received_at ?? task?.opened_at ?? null
+  const live = Boolean(proposal?.live)
+  const acceptable = task != null && task.waiting === "acceptance" && task.requester === actor.human
 
   return (
     <Sheet open={openId != null} onOpenChange={(open) => { if (!open) setOpenId(null) }}>
-      <SheetContent
-        side="right"
-        className="w-full gap-0 overflow-hidden p-0 sm:max-w-none"
-        style={{ width: "min(760px, 100vw)" }}
-      >
+      <SheetContent side="right" className="w-full gap-0 overflow-hidden p-0 sm:max-w-none" style={{ width: "min(780px, 100vw)" }}>
         <SheetHeader className="border-b border-border pr-10">
           <div className="flex items-center gap-2">
             {author ? <AgentAvatar handle={author} /> : null}
             <div className="min-w-0">
               <SheetTitle className="truncate text-left">{title}</SheetTitle>
               <SheetDescription className="truncate text-left">
-                {author} · {received ? relativeTime(received, now) : ""}
-                {link ? ` · #${link.seq} · ${shortHash(link.state)}` : ` · ${shortId(openId ?? "")}`}
+                {author || "—"}
+                {when ? ` · ${relativeTime(when, now)}` : ""}
+                {link ? ` · #${link.seq} · ${shortHash(link.state)}` : ` · ${shortHash(openId)}`}
               </SheetDescription>
             </div>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {proposal ? <StatusBadge status={proposal.status} /> : <KindBadge kind="link" />}
-            {link?.task ? <KindBadge kind={link.task} /> : null}
-            {proposal?.task ? <KindBadge kind={proposal.task} /> : null}
+            {link ? <KindBadge kind="link" /> : null}
+            {proposal ? <StatusBadge status={proposal.status} /> : null}
+            {task ? <TaskBadge status={task.status} /> : null}
+            {link ? <VerdictBadge verdict={link.verdict} /> : null}
+            {link?.carried_from ? (
+              <Badge variant="outline" className="border-teal-400/40 text-[10px] text-teal-200">
+                carried from #{link.carried_from_seq}
+              </Badge>
+            ) : null}
+            {proposal?.carried ? (
+              <Badge variant="outline" className="border-teal-400/40 text-[10px] text-teal-200">
+                carried #{proposal.named_parent_seq} → #{proposal.parent_seq}
+              </Badge>
+            ) : null}
+            {link?.task_alias || proposal?.task_alias ? (
+              <Badge variant="outline" className="font-mono text-[10px]">{link?.task_alias ?? proposal?.task_alias}</Badge>
+            ) : null}
             {link ? (
               <span className="font-mono text-[11px] text-muted-foreground">
-                +{link.diffstat.added} −{link.diffstat.removed}
+                +{link.diffstat.added} −{link.diffstat.removed} · tree {shortHash(link.tree_hash)}
               </span>
             ) : null}
           </div>
-          {proposal?.reason ? (
-            <p className="mt-2 text-xs text-muted-foreground">{proposal.reason}</p>
+          {proposal ? <p className="mt-2 text-xs text-muted-foreground">{explain(proposal.status) || proposal.reason}</p> : null}
+          {proposal?.live ? (
+            <div className="mt-2">
+              <ConsentMeter proposal={proposal} now={now} escalation={escalation} />
+            </div>
           ) : null}
-          {link?.intent ? <p className="mt-2 text-xs text-muted-foreground">{link.intent}</p> : null}
+          {link?.intent && link.intent !== link.title ? <p className="mt-2 text-xs whitespace-pre-wrap text-muted-foreground">{link.intent}</p> : null}
+          {task?.description ? <p className="mt-2 text-xs whitespace-pre-wrap text-muted-foreground">{task.description}</p> : null}
         </SheetHeader>
 
         <Tabs defaultValue="thread" className="min-h-0 flex-1 gap-0">
           <div className="border-b border-border px-4 py-2">
             <TabsList>
               <TabsTrigger value="thread">Thread</TabsTrigger>
-              <TabsTrigger value="diff">Diff</TabsTrigger>
+              <TabsTrigger value="diff" disabled={!diff}>Change</TabsTrigger>
             </TabsList>
           </div>
           <TabsContent value="thread" className="min-h-0 overflow-auto">
-            {loading ? <SheetSkeleton /> : <EmailThread emails={emails} now={now} handleFor={handleFor} />}
+            {loading ? <SheetSkeleton /> : <MessageThread messages={thread?.messages ?? []} now={now} onOpen={setOpenId} />}
           </TabsContent>
           <TabsContent value="diff" className="min-h-0 overflow-auto">
-            {loading ? <SheetSkeleton /> : <DiffView diff={diff} />}
+            {loading ? <SheetSkeleton /> : <ChangeView diff={diff} />}
           </TabsContent>
         </Tabs>
 
-        {pending ? (
-          <div className="space-y-3 border-t border-border p-4">
-            <div className="flex items-center gap-2">
-              <Select value={actor} onValueChange={(value) => setActor(value ?? "")}>
-                <SelectTrigger className="w-48" size="sm">
-                  <SelectValue placeholder="Approve as…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {agents.map((member) => (
-                    <SelectItem key={member.handle} value={member.handle}>
-                      {member.handle}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button size="sm" disabled={!actor || busy} onClick={() => void approve()}>
-                Approve
-              </Button>
-            </div>
+        {actor.enabled && actor.human ? (
+          <div className="space-y-2 border-t border-border p-4">
             <Textarea
-              value={reply}
-              onChange={(event) => setReply(event.target.value)}
-              placeholder="approve, object &lt;reason&gt;, or veto &lt;reason&gt;"
-              rows={3}
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              placeholder={live ? "reason (object / veto), or a comment" : "comment"}
+              rows={2}
             />
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[11px] text-muted-foreground">
-                Reply as @nelson. veto blocks the push. A membership change needs this approve.
-                On any other push, approve counts toward quorum or owner consent.
-              </p>
-              <Button size="sm" variant="secondary" disabled={busy || !reply.trim()} onClick={() => void sendReply()}>
-                Reply as @nelson
-              </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {live ? (
+                <>
+                  <Button size="sm" disabled={busy} onClick={() => void act("approve")}>Approve</Button>
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void act("hold")}>Hold</Button>
+                  <Button size="sm" variant="outline" disabled={busy || !text.trim()} onClick={() => void act("object")}>Object</Button>
+                  <Button size="sm" variant="destructive" disabled={busy} onClick={() => void act("veto")}>Veto</Button>
+                </>
+              ) : null}
+              {acceptable ? <Button size="sm" disabled={busy} onClick={() => void act("accept")}>Accept task</Button> : null}
+              <Button size="sm" variant="secondary" disabled={busy || !text.trim()} onClick={() => void act("comment")}>Comment</Button>
+              <span className="ml-auto text-[11px] text-muted-foreground">signed as {actor.human}</span>
             </div>
           </div>
-        ) : null}
+        ) : (
+          <p className="border-t border-border px-4 py-3 text-[11px] text-muted-foreground">
+            Read-only. Start <code>gud host serve --ui-home &lt;a human&apos;s GUD_HOME&gt;</code> to vote from here.
+          </p>
+        )}
       </SheetContent>
     </Sheet>
   )

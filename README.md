@@ -1,131 +1,107 @@
 # gud
 
-**Git is too slow for a swarm, so in gud an email thread does the job of source control.** An agent emails a diff. Whoever owns the lines it changes gets a minute to object. The tests reply on the same thread, and then the change is in.
+**Source control where the repo is an email address.** Every push, vote, test result, task and claim is a signed email to the repo address. The host appends each one it accepts to a signed, hash-chained log. Every member replays the same mail and log and gets the same chain, the same tip and the same blame. There are no branches and no merges: a push names its parent, and if another push lands first, gud carries it forward onto the new tip when the files don't collide.
 
-A swarm doing real work spends a lot of its time on git: clone, pull, rebase, merge conflicts, pull requests, review, the CI queue. gud rebuilds source control for that case. The repo is the email chain, and a push is one signed diff. A push that only adds code lands as soon as the tester replies. A push that rewrites another agent's lines gives that agent a minute to object on the thread, and the revised diff lands as soon as they approve. There are no branches and no merges.
+gud is built for swarms of coding agents, with humans as members too:
 
-## Results
+- **Consent from blame.** A push that rewrites lines someone else owns opens a short window for them to object. A push that touches nobody's lines links on its own. Ownership fades with time and links. `.gud/owners` adds lazy, explicit or quorum rules per path, and humans can always veto.
+- **Tests from a tester member.** A tester replies to pushes and to the tip with signed results, under the repo's `.gud/test` policy: gate pushes, or test the tip, bisect a red tip, and open a fix task for whoever broke it.
+- **Leaderless tasks.** Anyone opens a task. Agents claim it with a file scope and a lease, split it into subtasks, and declare it done. Replay derives done-ness, and a quiet, landed task becomes done by itself.
+- **Any mail provider.** The protocol needs only what IMAP+SMTP, JMAP, API providers and the Gmail API all offer: raw MIME, a delivery time, a cursor. The envelope travels as a `gud.env` attachment, so providers can rewrite Message-IDs and bodies without breaking anything.
 
-Every number below comes from a scripted run, not a model call. Tokens are counted with GPT-5's `o200k_base` tokenizer. Method and traces are in [RESULTS.md](RESULTS.md).
+The contract is [SPEC.md](SPEC.md). The Python interfaces are in [docs/INTERFACES.md](docs/INTERFACES.md), provider setup in [docs/TRANSPORTS.md](docs/TRANSPORTS.md), and the design record in [docs/PLAN.md](docs/PLAN.md).
 
-**One negotiation.** `@billing-agent` adds rate limiting to `login` by making it raise an error. `@auth-agent` owns that function and objects. The author revises, the owner approves, and the change lands.
-
-| | Pull request | gud email |
-| --- | ---: | ---: |
-| Turns | 16 | 10 |
-| Total tokens | 48,870 | ~24,400 |
-| Output tokens | 2,450 | ~400 |
-
-The author accounts for the whole gap. On the pull request, the author rewrites all of `auth.py` twice. In gud, the author pushes two small old/new edits. The reviewer takes 4 turns either way.
-
-**The full scripted swarm** ran on a real Primitive mailbox: 8 beats, 68 emails, all passing. Here it is against the same edits sent as git pull requests:
-
-| | Pull requests | gud email |
-| --- | ---: | ---: |
-| Turns | 89 | 41 |
-| Total tokens | 270,215 | 110,361 |
-
-**Cost.** Primitive charges $1 per 43,000 emails. GitHub Enterprise for 100 agents costs $2,100 a month in seats before anyone pushes.
-
-**Why now.** AgenticFlict (2026) found that 27.7% of agent pull requests conflict on merge. Pairs of different agents conflict about twice as often as pairs of the same agent (41.7% against 19.8%). Swarm tools like SwarmGit and SwarmForge give each agent a worktree on one machine and merge through a local queue. That only works for agents you launched yourself on a shared disk.
-
-## Sponsor tracks
-
-| Sponsor | What it does in gud | What breaks without it |
-| --- | --- | --- |
-| **Primitive** | The mailbox is the repo. Every push, objection, approval, test result, task and bug report is an email to the repo address, with agents in CC. Long-polling `listEmails?wait=` replaces `git pull`, and `sender_verified` is how humans are trusted. | Storage, transport, and human identity |
-| **InsForge** (InstaBox) | Every push is tested in an InstaBox VM, up to 5 at a time, and the tester agent replies to the push with a signed pass or fail. After a task is done, a browser agent in an InstaBox clicks through the site and emails any defects to `bugs@`. | The "tested" link rule, and browser QA |
-| **Armature** | Analytics on the gud MCP server, plus evals that run the same multi-agent tasks against gud and against a git-backed MCP server. | The before-and-after numbers |
-
-## How it works
-
-### The repo is rebuilt from the mailbox
-
-The mailbox is the only record. A local copy is a cache, and `gud rebuild` can recreate it from genesis.
-
-1. Every push email carries a unified diff against its parent push (`Gud-Parent`), along with the parent's state hash, the new state hash, and the new tree hash.
-2. A push becomes a **link** when all four of these rules hold:
-   1. **Authorship.** It is signed (Ed25519) by a member listed in `.gud/members` at the parent, and sent from that member's address.
-   2. **Applies.** The diff applies cleanly to the parent's tree, and the hashes match.
-   3. **Consent.** See below.
-   4. **Tested.** A tester member has replied that the tests pass on that exact tree.
-3. Among a link's children, the earliest-received push that qualifies becomes the next link. If an earlier child is still pending, the chain waits for it.
-4. Every decision uses the time the mailbox received each email, so replaying the rules gives the same chain on any machine.
-
-There are no branches. When two agents push on the same parent, both pushes are evaluated. The one that loses is marked superseded, and its agent either pushes again on the new tip or argues on the thread.
-
-### Consent
-
-Consent is worked out from blame at the parent:
-
-- **Affected owners** are the agents who own the lines a push removes or rewrites. If a push inserts into a Python function or class, that function's owner counts too.
-- **Lazy consensus** is the default. A push lands after a 60-second window unless an affected owner objects on the thread. If every affected owner approves, it lands right away.
-- **Explicit** consent applies to files listed in `.gud/protected`, such as `api/interfaces.py`. Every affected owner must approve.
-- **Quorum** applies to `.gud/members` and `.gud/protected`. More than half of the voters must approve.
-- **Veto.** If a human member replies `veto`, the push never lands.
-
-### Members and joining
-
-`.gud/members` is a file in the tree, so membership has a history like any other file. Adding or removing a member is a push, and it needs quorum. Once a removal lands, that member's key stops verifying, so any later pushes from them are rejected. Their old lines stay in blame, marked orphaned.
-
-Nobody shares the host's API key. A member proves who they are with their own Ed25519 signature, not with a mail account. An outside agent runs `gud join <host> --handle @x --address x@their.primitive.email`. That creates a key locally and emails a signed join request. A current member proposes the membership push, and it lands by quorum. The new member then gets a welcome email with the host URL and a checkpoint (tip, state hash, tree hash) to verify by replaying the mailbox.
-
-The host serves a read-only mirror of the mailbox, and only current members can read it, by signing their requests. The host can't forge pushes, approvals, or test results, because every member checks the signatures. `gud audit` compares the mirror with the member's own inbox, which catches mail that was withheld or retimed.
-
-### Tasks and bugs
-
-A human sends a task through the console. The lead agent splits it into subtasks (`T7.1`, `T7.2`, and so on), each assigned to a subagent by email. A subtask is done when a link carries its id. The whole task is done when the lead sends `task-done`, and the person who asked gets one email.
-
-After that, browser QA serves the tip and mails each defect it finds to `bugs@`. A voter other than the reporter accepts or rejects each report on its thread, and an accepted report becomes a new task.
-
-## Isn't this just `git send-email`?
-
-The Linux kernel does take patches by email, and that is where the idea came from. The difference is what decides whether a patch lands:
-
-- **Kernel:** a maintainer reads the patch and runs `git am`. The maintainer's tree is the truth, and the email is only a proposal.
-- **gud:** nobody applies anything by hand. The rules above decide, and anyone can replay them. Consent comes from the owners of the lines being changed, not from one maintainer, and the test result is part of the thread.
-
-gud also works between agents that share nothing. A Cursor agent, a Claude agent, and a stranger's agent can all push to the same repo without accounts on each other's git host.
-
-## Architecture
-
-| Component | What it does | Code |
-| --- | --- | --- |
-| Wire format | Body text, `Gud-*` trailers, and one fenced diff, plus hashes and signing bytes | `gud/wire.py`, `gud/sig.py` |
-| Replay | Applies the link rules to the mailbox to produce links, blame, and pending proposals | `gud/replay.py`, `gud/blame.py`, `gud/rules.py` |
-| Mailbox | Primitive in production, a JSONL file locally | `gud/mail_primitive.py`, `gud/mail_fake.py` |
-| Tester | Watches for pushes, runs the tests, and replies with a signed result | `gud/tester.py`, `gud/build.py` (local or InstaBox) |
-| Browser QA and bugs | Clicks through each finished tip and reviews bug reports on their threads | `gud/qa.py`, `gud/bugs.py` |
-| Agent MCP server | `status`, `read`, `ls`, `blame`, `push`, `wait`, `rebase`, `reply`, `log`, `thread`, `tasks` | `gud/mcp_server.py`, with Armature analytics |
-| Live-feed MCP app | A widget in Claude showing the chain, tasks, and bugs, plus one-click approve, object, or veto | `gud/mcp_app.py`, [docs/mcp-app.md](docs/mcp-app.md) |
-| Git baseline | The same tasks done through pull, commit, and push | `gud/mcp_baseline.py`, `evals/` |
-| Swarm | A lead plus subagents driven by an LLM, with a scripted demo mode | `gud/swarm.py`, `gud/worker.py`, `gud/lead.py` |
-| API and UI | REST and server-sent events covering the chain, blame, tasks, members, and activity | `gud/api.py`, `ui/` (Vite, React, Tailwind, shadcn) |
-
-## Run it
+## Install
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e .
-.venv/bin/pytest -q
-
-# the scripted swarm on a local mailbox (add --llm to have a model drive the agents)
-.venv/bin/python scripts/demo.py --fast
-
-# the pull-request vs email comparison
-.venv/bin/python -m evals.pr_vs_thread
+python3.11 -m venv .venv            # Python 3.11 or later
+.venv/bin/pip install -e .          # the `gud` command
+.venv/bin/pip install -e '.[agent]' # plus the reference agent (Claude Agent SDK)
 ```
 
-By default it runs fully locally, with `GUD_MAILBOX=fake` and `GUD_RUNNER=local`. To use the real services, put `PRIMITIVE_API_KEY`, `INSTABOX_API_KEY`, and `ARMATURE_API_KEY` in `.env`.
+## Quickstart
 
-## More
+This runs a whole repo on one machine over the `fake` transport, an on-disk mail system, so nothing leaves the machine. Swap `--transport fake --set root=...` for a real provider ([docs/TRANSPORTS.md](docs/TRANSPORTS.md)) to run it over email. Each member has its own `GUD_HOME` (`--home`) and handle (`--handle`, or `GUD_HANDLE`); `--json` makes any command print one JSON object.
 
-- [DEMO.md](DEMO.md): the three-minute judge demo, beat by beat, with the cost card.
-- [RESULTS.md](RESULTS.md): how every number above was measured.
-- [SPEC.md](SPEC.md): wire format, link rules, consent.
-- [api_contract.md](api_contract.md): the Python core API and the HTTP API.
-- [docs/mcp-app.md](docs/mcp-app.md): running the live-feed MCP app in Claude, Codex, and Cursor.
+```bash
+MAIL=$PWD/mail; REPO=repo@example.org
 
-## Known limitations
+# 1. A host for the repo address, served over HTTP (the mirror, intake, events and the dashboard).
+gud --home homes/host --handle @host host init --repo $REPO --transport fake --set root=$MAIL --dir hostdir
+gud --home homes/host --handle @host host serve --dir hostdir --bind 127.0.0.1:8787 &
 
-- **The coder sees only the files the lead names.** A subtask passes the coder at most 8 files, each cut off at 12,000 characters. The worker already holds the whole tip from replay, but the model can't ask for another file or for the rest of a cut one.
-- **Inkbox (iMessage notifications and a key vault) is not wired in yet.** The notifier has a place for it to plug in (`gud/notify.py`).
+# 2. A key and a mail account for every member.
+for who in nelson alice tester; do
+  gud --home homes/$who --handle @$who keys new --address $who@example.org --transport fake --set root=$MAIL
+done
+gud --home homes/alice --handle @alice keys show          # prints the public key for the roster
+
+# 3. Genesis from a directory and a roster: handle role address [public key] [sponsor].
+cat > roster <<EOF
+@nelson human  nelson@example.org
+@alice  agent  alice@example.org   ed25519:<alice's key>  @nelson
+@tester tester tester@example.org  ed25519:<tester's key> @nelson
+@host   host   $REPO
+EOF
+mkdir -p myproject/.gud && echo 'command python -m pytest -q' > myproject/.gud/test
+cd myproject && gud --home ../homes/nelson --handle @nelson init --repo $REPO --member-file ../roster \
+    --host-url http://127.0.0.1:8787 -m "first commit" && cd ..
+
+# 4. An agent clones, edits and pushes. A push that touches nobody's lines links on its own.
+gud --home homes/alice --handle @alice clone http://127.0.0.1:8787 alice-wc
+cd alice-wc && echo 'def mul(a, b): return a * b' > mul.py
+gud --home ../homes/alice --handle @alice push -m "add mul"     # push ... on <base>: 1 ops; linked
+gud --home ../homes/alice --handle @alice log
+gud --home ../homes/alice --handle @alice sync                  # three-way merge of the tip; never auto-resolves
+cd ..
+
+# 5. The tester runs the repo's test policy and signs results.
+gud --home homes/tester --handle @tester clone http://127.0.0.1:8787 tester-wc
+cd tester-wc && gud --home ../homes/tester --handle @tester tester --runner local &   # or docker, instabox
+cd ..
+
+# 6. Agents: the reference agent, or any MCP client (Claude Code, Codex, Cursor) on the gud MCP server.
+cd alice-wc
+gud --home ../homes/alice --handle @alice agent --budget-usd 2       # needs the [agent] extra and Claude auth
+gud --home ../homes/alice --handle @alice mcp                        # stdio MCP server bound to @alice and this working copy
+```
+
+Other commands: `task new|list|show`, `claim`, `release`, `subtask`, `approve`, `object` (with `--test FILE` for an evidence objection), `veto`, `hold`, `comment`, `review`, `blame`, `verify --from-genesis`, `join` / `admit`, `delivery --webhook|--sse|--email`, `mirror git`, `import` (genesis from a git commit), `audit`, `export-archive` / `import-archive` and `host handover`. `gud --help` lists them all; `gud init` without `--host-url` makes a local host instead (`local:<dir>`), with no server at all.
+
+**Dashboard.** `cd ui && npm ci && npm run build`, then `gud host serve` also serves the dashboard at `/`: the chain, proposals with their consent plans and countdowns, tasks and claims, blame with fading ownership, escalations, the red tip, members, the host log with its self-audit, and every event live. With `--ui-home <a human's GUD_HOME>` the page can also approve, object, veto and open tasks as that human, from loopback only. See [ui/README.md](ui/README.md).
+
+## Transports
+
+| Transport | Verified |
+| --- | --- |
+| `fake` (on-disk) | the conformance suite in CI, plus fault injection (`FakeNetwork`: delay, duplicate, drop, reorder) |
+| `imap_smtp` | against a local GreenMail 2.1.3 (IMAP IDLE, SMTP), including the full end-to-end scenario. Not yet against a hosted IMAP provider. |
+| `primitive` | **live** on 2026-10-20: all 11 conformance checks (`wait` 0.60 s after delivery, a 9.9 MB message through), and the end-to-end smoke (18 emails, 72 s; a new file linked 2.9 s after `gud push`). Live intake used long-poll; the webhook path is covered by the mock. |
+| `jmap`, `ses`, `postmark`, `gmail` | **against local mocks of their public APIs only**, never against a live account. Each passes the 11 checks against its mock. |
+
+Details, per-adapter caveats and the live harnesses are in [docs/TRANSPORTS.md](docs/TRANSPORTS.md). Postmark exposes no DMARC verdict, so on a Postmark repo humans must sign their replies.
+
+## Evals
+
+`evals/v1/` runs real Claude Code agents (`claude-sonnet-5-5`) on the same task with git or gud as the coordination layer. The git arm uses a protected `main`, a local PR tool, one approval and a pytest merge gate. The gud arms use a real host and tester over the fake transport: `gud-cc` is headless Claude Code on the gud MCP server with the git arm's exact prompt preamble, and `gud-ref` is the reference agent. Hidden acceptance tests that no agent sees score the final tree. See [evals/v1/README.md](evals/v1/README.md).
+
+What the runs show (2026-10-20, N=4 agents, $1.20 per run, three specs built to force collisions):
+
+- **Correctness doesn't separate the arms.** Every run in every arm passed every hidden test (28/28, 27/27, 23/23), including the refactor whose obvious fix breaks an unnamed guard.
+- **The first grid found three gud coordination bugs** ([report](evals/v1/runs/20261020-v1-report.md)): T1 was "done" after its first link, agents with no claim were never woken by others' links, and N reference agents acted as one.
+- **After the fixes** ([report](evals/v1/runs/20261020-v1-fixes-report.md)), on the library + CLI + API + docs spec, both gud arms split T1 into three subtasks in every run and four authors landed work. `gud-cc` wall time fell from 466 s (369–562) to 78 s (58–98); git took 184 s (128–240) in the first grid. On the two specs with an unsplit task, `gud-cc` runs often ended with all the work linked and T1 never declared done.
+- **Done by quiescence** then closed that gap: re-running those three cells, T1 became done in all three (124–150 s, `evals/v1/runs/20261020-v1-quiet/`; no written report).
+
+Read these as smoke results, not a benchmark: one or two trials per cell at N=4; the git arm was not re-run after the gud fixes; everything ran over local transports with no email latency; cost is Claude Code's list-price figure. The reports were written before the v1 rename and call the arms `gud1-cc` / `gud1-ref`, and the milestone-0 smoke report's `gud` arm is the deleted v0.
+
+## Tests
+
+```bash
+.venv/bin/python -m pytest -q                 # the suite (tests/v1); GreenMail tests skip without java + .tools/
+.venv/bin/python -m pytest -q evals/v1/tests  # the eval harness, with fake agents (no model calls)
+.venv/bin/python -m pytest -q tests/v1/e2e/test_fake.py   # the end-to-end scenario, every member a separate process
+```
+
+## Coming from v0
+
+v0 (the hackathon prototype: `Gud-*` trailers in the mail body, a lead agent, the MCP-app widget, the scripted evals) is deprecated and deleted. Its last commit is tagged `v0-final`. There is no migration path: v1 does not read v0 mailboxes, and there is no mixed-version repo. To carry a v0 project over, start a v1 repo from its files (`gud init`) or from a git commit (`gud init --from-git`). [docs/CLEAN-BREAK.md](docs/CLEAN-BREAK.md) lists what was removed and why; [CHANGELOG.md](CHANGELOG.md) has the summary.
