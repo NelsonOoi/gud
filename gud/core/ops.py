@@ -487,7 +487,7 @@ def _fmt_ops(ops: Sequence[tuple[int, int, object]]) -> str:
 def merge_file(base: bytes | None, mine: bytes | None, theirs: bytes | None) -> bytes | None:
     """Three-way merge of one file's bytes; None = absent. Raises OpError on overlap.
 
-    Byte-wise port of v0 `mcp_server.three_way` (difflib opcodes, autojunk off); an edit made
+    Byte-wise, with difflib opcodes (autojunk off); an edit made
     identically on both sides is applied once instead of conflicting."""
     if mine == base:
         return theirs

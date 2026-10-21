@@ -261,7 +261,7 @@ def test_admin_endpoints_are_loopback_only(world):
     raw = mime.build(Outgoing(from_addr=w.kit.address("@nelson"), to=(REPO,), subject="x", envelope=E.encode(env)))
     r = local.post("/api/v1/admin/inject", content=raw).json()
     assert r["logged"] and "task.opened" in r["events"] and w.intake.log.seq_of(gid) is not None
-    assert local.get("/api/v1/log").status_code == 200          # loopback reads are trusted, as in v0
+    assert local.get("/api/v1/log").status_code == 200          # loopback reads are trusted
 
 
 # ---------------------------------------------------------------- provider webhooks

@@ -1,8 +1,8 @@
 """A webhook-fed local store of received mail, for providers whose inbound path is a push.
 
 SES (SNS -> HTTPS) and Postmark (inbound webhook) deliver mail by calling us; neither has an
-API that lists a mailbox the way IMAP, JMAP or the Gmail API do. Their adapters follow the v0
-`HostedMailbox` pattern: the webhook handler (and a periodic catch-up from the provider's own
+API that lists a mailbox the way IMAP, JMAP or the Gmail API do. Their adapters keep a local
+cache of delivered mail: the webhook handler (and a periodic catch-up from the provider's own
 store, S3 or Postmark's message search) writes into a `Spool`, and `list`/`wait`/`subscribe`
 read the spool. The spool is the adapter's mailbox; it is safe across processes, so the webhook
 server and the intake may run in different processes.

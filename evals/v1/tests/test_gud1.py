@@ -120,6 +120,8 @@ def _check_preamble(git_arm, cc, spec, handles):
     git = run.prompt_for(git_arm, spec, "@a1", handles, 1.5)
     gud1 = run.prompt_for(cc, spec, "@a1", handles, 1.5)
     assert head(git) == head(gud1)
+    assert spec.text in head(git)
+    assert "test_hidden" not in git + gud1
     assert "subtask" in gud1 and "inflight" in gud1 and "@a2" in gud1
     assert "todolib.py" not in cc.instructions("@a1"), "nothing pre-splits the work"
     mcp = json.loads(cc.mcp_config("@a1").read_text())["mcpServers"]["gud"]

@@ -1,6 +1,6 @@
-"""Primitive (primitive.dev) mailbox: the v1 port of `gud/mail_primitive.py`.
+"""Primitive (primitive.dev) mailbox.
 
-What changed from v0: mail is read as **raw MIME** (`GET /emails/{id}/raw`), never from the
+Mail is read as **raw MIME** (`GET /emails/{id}/raw`), never from the
 parsed `body_text`, so the base64 `gud.env` attachment arrives byte-exactly; sends carry the
 envelope as an inline attachment; the cursor is Primitive's forward-tail cursor.
 

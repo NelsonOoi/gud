@@ -20,7 +20,7 @@ Endpoints (`create_app`):
 
 "Member" is mirror auth v1 (§21): `X-Gud-Handle`, `X-Gud-Time`, `X-Gud-Sig` over
 `"{METHOD} {path_with_query} {time} {sha256(body)}"`, verified against `.gud/members` at the tip,
-±300 s. Requests from loopback are trusted, as in v0 (`loopback_hosts`); a loopback caller may
+±300 s. Requests from loopback are trusted (`loopback_hosts`); a loopback caller may
 name the member with `X-Gud-Handle` (or `handle` in a delivery body). Admin/demo mutations are
 loopback only. Provider webhooks have their own route table (`Intake.verifiers`, keyed by
 transport name), so a new adapter's `WebhookVerifier` plugs in with `register_verifier`; put

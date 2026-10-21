@@ -23,7 +23,7 @@ account can create a topic whose messages AWS signs, so the signature alone prov
 about who sent it). A `SubscriptionConfirmation` from an allowed topic is confirmed by fetching
 its `SubscribeURL` (same host rule).
 
-Accepted messages go into a local `Spool` (the v0 HostedMailbox pattern); `list`/`wait`/
+Accepted messages go into a local `Spool` (a cache of delivered mail); `list`/`wait`/
 `subscribe` read it. `catch_up()` lists the S3 prefix and ingests any object the webhook missed.
 Received time is `receipt.timestamp` (ms), or the S3 object's `LastModified` for catch-up.
 

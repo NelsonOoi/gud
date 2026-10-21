@@ -97,12 +97,6 @@ ROWS = [
     ("conflicts", lambda rows: span([r.get("conflicts_total") for r in rows], _count)),
     ("conflicts resolved", lambda rows: span([r.get("conflicts_resolved") for r in rows], _count)),
     ("escalations", lambda rows: span([r.get("escalations") for r in rows], _count)),
-    ("emails per link (gud)", lambda rows: span([(r.get("gud") or {}).get("emails_per_link") for r in rows],
-                                                lambda v: f"{v:.1f}")),
-    ("superseded / stale (gud)", lambda rows: span([((r.get("gud") or {}).get("superseded") or 0)
-                                                    + ((r.get("gud") or {}).get("stale") or 0)
-                                                    for r in rows if r.get("gud")], _count)),
-    ("objections (gud)", lambda rows: span([(r.get("gud") or {}).get("objections") for r in rows], _count)),
     ("PRs opened (git)", lambda rows: span([(r.get("git") or {}).get("prs_opened") for r in rows], _count)),
     ("merge rejections (git)", lambda rows: span([sum(((r.get("git") or {}).get("merge_rejections") or {}).values())
                                                   for r in rows if r.get("git")], _count)),

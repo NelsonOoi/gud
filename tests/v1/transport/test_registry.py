@@ -61,12 +61,19 @@ def test_member_config(tmp_path: Path, monkeypatch) -> None:
         registry.member_config(tmp_path, "@nobody")
 
 
-def test_v1_transport_does_not_import_v0() -> None:
+def test_transport_imports_only_core_and_transport() -> None:
     code = ("import sys, gud.transport.registry, gud.transport.fake, gud.transport.imap_smtp, "
             "gud.transport.primitive, gud.transport.auth, gud.transport.mime, gud.transport.jmap, "
             "gud.transport.ses, gud.transport.postmark, gud.transport.gmail, gud.transport.spool\n"
-            "v0 = {'gud.types','gud.wire','gud.replay','gud.mail_primitive','gud.mail_fake','gud.webhook',"
-            "'gud.mail_hosted','gud.mail_remote','gud.mailbox','gud.config'}\n"
-            "bad = sorted(v0 & set(sys.modules)); assert not bad, bad\n"
-            "assert not any(m.startswith(('gud.events', 'gud.wc')) for m in sys.modules)")
+            "bad = sorted(m for m in sys.modules if m.startswith('gud.') "
+            "and not m.startswith(('gud.core', 'gud.transport')))\n"
+            "assert not bad, bad")
+    subprocess.run([sys.executable, "-c", code], check=True, cwd=Path(__file__).resolve().parents[3])
+
+
+def test_core_imports_only_core() -> None:
+    code = ("import sys, pkgutil, importlib, gud.core\n"
+            "for m in pkgutil.iter_modules(gud.core.__path__): importlib.import_module('gud.core.' + m.name)\n"
+            "bad = sorted(m for m in sys.modules if m.startswith('gud.') and not m.startswith('gud.core'))\n"
+            "assert not bad, bad")
     subprocess.run([sys.executable, "-c", code], check=True, cwd=Path(__file__).resolve().parents[3])

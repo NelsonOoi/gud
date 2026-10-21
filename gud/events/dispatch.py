@@ -125,7 +125,7 @@ def verify_hook(headers: Mapping[str, str], body: bytes, host_keys: Sequence[str
 # ---------------------------------------------------------------- mirror request auth v1 (§21)
 
 def format_time(now: float) -> str:
-    """Stable decimal form of a unix time (the v0 `hostauth.format_time` form): whole seconds
+    """Stable decimal form of a unix time (§21 `X-Gud-Time`): whole seconds
     have no fraction, otherwise up to 6 digits without trailing zeros."""
     text = format(float(now), ".6f")
     if "." in text:

@@ -7,7 +7,8 @@ FAKE_AGENT_MODE:
   work      (default) do the task: write this agent's share of FAKE_FILES_DIR (files are dealt round-robin
             across agents), plus, with FAKE_CONFLICT=1, a line in README.md at the same place as every other
             agent. git arm: branch, commit, push, `pr open`, approve others, `pr merge`, rebase on conflict.
-            gud arm: export, push via the gud tools, wait, rebase or re-push when it loses a race.
+            gud arm: claim T1, check inflight, write the files into the working copy, push via the gud MCP
+            tools, wait; when superseded, sync and push again.
   spend     burn reported cost forever (budget-kill test)
   sleep     do nothing until killed (timeout test)
   authfail  print Claude Code's expired-OAuth events and exit 1
@@ -147,56 +148,6 @@ def _union_resolve(path: Path) -> None:
     path.write_text("".join(keep))
 
 
-# -- gud arm --------------------------------------------------------------------------------------
-
-def gud_work(out: Out, handle: str, prompt: str, mcp_path: str) -> str:
-    cfg = json.loads(Path(mcp_path).read_text())["mcpServers"]["gud"]
-    for key, value in cfg["env"].items():
-        os.environ[key] = value
-    sys.path.insert(0, cfg["env"]["PYTHONPATH"])
-    from gud.config import load
-    from gud.mailbox import open_mailbox
-    from gud.mcp_server import GudTools
-
-    key = re.search(r'private_key "([^"]+)"', prompt).group(1)
-    conf = load()
-    tools = GudTools(open_mailbox(conf), window_seconds=conf.window_seconds)
-
-    def call(name: str, **kw) -> str:
-        result = getattr(tools, name)(**kw)
-        out.tool(f"mcp__gud__{name}", kw if name not in {"push", "reply", "rebase"} else {**kw, "private_key": "***"},
-                 result)
-        return result
-
-    call("tasks")
-    call("export", dir=str(Path.cwd() / "tip1"))
-    edits = [{"path": rel, "new": text} for rel, text in my_files(handle).items()]
-    if os.environ.get("FAKE_CONFLICT") == "1":
-        readme = tools.read("README.md")
-        edits.append({"path": "README.md", "old": readme, "new": readme + f"Owner note from {handle}.\n"})
-    res = call("push", intent=f"work from {handle}", edits=edits, task="T1", handle=handle, private_key=key)
-    push_id = res.splitlines()[0]
-    deadline = time.time() + float(os.environ.get("FAKE_DEADLINE", "60"))
-    while time.time() < deadline:
-        res = call("wait", push_id=push_id, timeout=5, handle=handle)
-        if res.startswith("landed"):
-            return f"landed {push_id}"
-        if res.startswith("needs-you"):
-            call("reply", target=res.split()[1], action="approve", handle=handle, private_key=key)
-            continue
-        if res.split(" ", 1)[0] in {"superseded", "stale"}:
-            res = call("rebase", push_id=push_id, handle=handle, private_key=key)
-            if res.startswith("conflict"):
-                readme = tools.read("README.md")
-                have = set(tools.ls().splitlines())
-                edits = [{"path": rel, "new": text} for rel, text in my_files(handle).items() if rel not in have]
-                edits.append({"path": "README.md", "old": readme, "new": readme + f"Owner note from {handle}.\n"})
-                res = call("push", intent=f"redo from {handle}", edits=edits, task="T1", handle=handle,
-                           private_key=key)
-            push_id = res.splitlines()[0]
-    return "gave up"
-
-
 # -- gud v1 arm (gud1-cc) ---------------------------------------------------------------------------
 
 def gud1_work(out: Out, handle: str, mcp_path: str) -> str:
@@ -292,10 +243,8 @@ def main() -> int:
     if mode == "sleep":
         time.sleep(600)
         return 0
-    if "--mcp-config" in opts and "gud.cli_v1" in Path(opts["--mcp-config"]).read_text():
+    if "--mcp-config" in opts:
         text = gud1_work(out, handle, opts["--mcp-config"])
-    elif "--mcp-config" in opts:
-        text = gud_work(out, handle, opts["-p"], opts["--mcp-config"])
     else:
         text = git_work(out, handle)
     if os.environ.get("FAKE_ESCALATE") == "1" and handle == "@a1":

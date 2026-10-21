@@ -63,7 +63,7 @@ from gud.runners.local import LocalRunner
 
 __all__ = [
     "Runner", "RunResult", "RunnerUnavailable", "RunnerError", "LocalRunner", "DockerRunner", "make_runner",
-    "runner_from_legacy", "TesterIdentity", "TesterClient", "LocalClient", "mailbox_sender", "Tester",
+    "TesterIdentity", "TesterClient", "LocalClient", "mailbox_sender", "Tester",
 ]
 
 log = logging.getLogger("gud.tester")
@@ -86,9 +86,6 @@ def make_runner(kind: Literal["local", "docker", "instabox"] = "local", **kw: An
         from gud.runners.instabox import InstaBoxRunner
         return InstaBoxRunner(**kw)
     raise ValueError(f"unknown runner {kind!r} (expected local, docker or instabox)")
-
-
-runner_from_legacy = make_runner
 
 
 # ---------------------------------------------------------------- client side

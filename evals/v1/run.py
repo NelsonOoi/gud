@@ -44,8 +44,8 @@ def find_claude() -> str:
     return shutil.which("claude") or str(Path.home() / ".local" / "bin" / "claude")
 
 
-ARMS = ("git", "gud", "gud1-cc", "gud1-ref")
-ARM_SETS = {"both": ("git", "gud"), "v1": ("git", "gud1-cc", "gud1-ref")}
+ARMS = ("git", "gud1-cc", "gud1-ref")
+ARM_SETS = {"v1": ("git", "gud1-cc", "gud1-ref")}
 
 
 def make_arm(name: str, root: Path, spec, handles: list[str], window: float, policy: str = "tip", gud_config=None):
@@ -53,9 +53,6 @@ def make_arm(name: str, root: Path, spec, handles: list[str], window: float, pol
     if name == "git":
         from git_arm import GitArm
         return GitArm(root, spec, handles)
-    if name == "gud":
-        from gud_arm import GudArm
-        return GudArm(root, spec, handles, window=window)
     if name == "gud1-cc":
         from gud1_arm import Gud1CCArm
         return Gud1CCArm(root, spec, handles, window=window, policy=policy, **gud_config)
@@ -378,10 +375,6 @@ def _run_one(*, arm_name: str, spec, n: int, trial: int, budget: float, timeout:
 def _keep_artifacts(arm, arm_name: str, root: Path, run_dir: Path) -> None:
     if arm_name.startswith("gud1"):
         arm.keep_artifacts(run_dir)
-    elif arm_name == "gud":
-        mailbox = root / "gud-home" / "mailbox.jsonl"
-        if mailbox.exists():
-            shutil.copy(mailbox, run_dir / "mailbox.jsonl")
     else:
         prs = root / "prs"
         if prs.exists():
@@ -405,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--model", default=DEFAULT_MODEL, help="'' lets the CLI pick its default")
     ap.add_argument("--agent-cmd", default=None, help="agent command; default: the claude CLI")
     ap.add_argument("--ref-cmd", default=None, help="gud1-ref agent command (default: python -m gud.agent.runtime)")
-    ap.add_argument("--window", type=float, default=None, help="consent window in seconds (gud 30, gud1 20)")
+    ap.add_argument("--window", type=float, default=None, help="consent window in seconds (default 20)")
     ap.add_argument("--gud-test-policy", default="tip", choices=("tip", "gate"), help="gud1 arms' .gud/test")
     ap.add_argument("--gud-lease", default=None, help="gud1 arms' .gud/config lease (default 10m)")
     ap.add_argument("--gud-task-quiet", default=None, help="gud1 arms' .gud/config task-quiet (default: the lease)")
@@ -428,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
     results = []
     for trial in range(args.trial_start, args.trial_start + args.trials):
         for arm in arms:
-            window = args.window if args.window is not None else (30.0 if arm == "gud" else 20.0)
+            window = args.window if args.window is not None else 20.0
             results.append(run_one(
                 arm_name=arm, spec_name=args.spec, n=args.agents, trial=trial, budget=args.budget_usd,
                 timeout=args.timeout, out=out, agent_cmd=agent_cmd, model=args.model or None,

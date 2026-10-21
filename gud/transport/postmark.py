@@ -17,7 +17,7 @@ HTTP Basic credentials in the webhook URL (`https://user:pass@host/hook`) and, o
 documented source-IP allow-list (`allowed_ips = postmark`). `verify` refuses everything when
 neither is configured.
 
-Accepted messages go into a local `Spool` (the v0 HostedMailbox pattern); `list`/`wait`/
+Accepted messages go into a local `Spool` (a cache of delivered mail); `list`/`wait`/
 `subscribe` read it. `catch_up()` pages `GET /messages/inbound` (newest first) until it reaches
 messages already stored and ingests the missing ones from `GET /messages/inbound/{id}/details`
 (their `RawEmail`). Received time is the local time the webhook arrived (Postmark's webhook has
