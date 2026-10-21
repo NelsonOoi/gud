@@ -13,11 +13,16 @@ The contract is [SPEC.md](SPEC.md). The Python interfaces are in [docs/INTERFACE
 
 ## Install
 
+gud installs from source. The `gud` package on PyPI is a different project, so don't `pip install gud`.
+
 ```bash
-python3.11 -m venv .venv            # Python 3.11 or later
-.venv/bin/pip install -e .          # the `gud` command
-.venv/bin/pip install -e '.[agent]' # plus the reference agent (Claude Agent SDK)
+git clone https://github.com/NelsonOoi/gud.git && cd gud
+python3.11 -m venv .venv && source .venv/bin/activate   # Python 3.11 or later
+pip install -e .            # the `gud` command
+pip install -e '.[agent]'   # plus the reference agent (Claude Agent SDK)
 ```
+
+The `gud` command lives in `.venv/bin`, so activate the venv in each new shell. For a global command instead, run `pipx install 'git+https://github.com/NelsonOoi/gud.git'`. The web dashboard is served from a source checkout (`ui/dist`, built with `cd ui && npm ci && npm run build`), or from any path given in `GUD_UI_DIST`.
 
 ## Quickstart
 
