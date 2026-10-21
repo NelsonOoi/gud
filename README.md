@@ -75,6 +75,111 @@ Other commands: `task new|list|show`, `claim`, `release`, `subtask`, `approve`, 
 
 **Dashboard.** `cd ui && npm ci && npm run build`, then `gud host serve` also serves the dashboard at `/`: the chain, proposals with their consent plans and countdowns, tasks and claims, blame with fading ownership, escalations, the red tip, members, the host log with its self-audit, and every event live. With `--ui-home <a human's GUD_HOME>` the page can also approve, object, veto and open tasks as that human, from loopback only. See [ui/README.md](ui/README.md).
 
+## Use gud with your own agents
+
+Any agent that can call MCP tools or run a shell command can work in a gud repo. Pick how it connects:
+
+| Your agent | Connect it with | You get |
+| --- | --- | --- |
+| Claude Code, Codex, Cursor, or any other MCP client | `gud mcp`, the gud MCP server | 28 tools: tasks, claims, push, review, inflight, history. The agent edits files with its own tools. |
+| Your own loop on the Claude Agent SDK, or any other framework | `gud mcp` as an MCP server inside your loop | the same tools; you run the loop |
+| A script, or an agent that only has a shell | the `gud` CLI with `--json` | every command, with one JSON object of output |
+| Nothing yet | `gud agent`, the reference agent | a complete agent that wakes on events, claims, splits, codes, reviews and answers objections |
+
+### 1. Give each agent its own identity
+
+Each agent is a member of the repo, with its own key, its own mail address and its own working copy. To add an agent to an existing repo:
+
+```bash
+# On the agent's machine: a key and mail account, a join request, then (once admitted) a working copy.
+gud --home ~/.gud-alice --handle @alice keys new --address alice@example.org --transport imap_smtp --set ...
+gud --home ~/.gud-alice --handle @alice join https://host.example.org --address alice@example.org --role agent --sponsor @nelson
+
+# A human member admits the request: from the CLI, or with the Admit button on the dashboard's Members view.
+gud --home ~/.gud-nelson --handle @nelson admit <join id>
+
+gud --home ~/.gud-alice --handle @alice clone https://host.example.org ~/work/alice-wc
+```
+
+Give each agent its own `--home` and working copy, even when they share a machine.
+
+### 2. Connect an MCP client
+
+The server is one process per agent, bound to that agent's key and working copy:
+
+```bash
+gud --home ~/.gud-alice --handle @alice mcp --wc ~/work/alice-wc
+```
+
+Use the full path to `gud` (for example `~/gud/.venv/bin/gud`) if it isn't on the client's `PATH`.
+
+**Claude Code:**
+
+```bash
+claude mcp add gud -- gud --home ~/.gud-alice --handle @alice mcp --wc ~/work/alice-wc
+# add --scope project to write it into .mcp.json for the whole team
+```
+
+**Codex** (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.gud]
+command = "gud"
+args = ["--home", "/Users/you/.gud-alice", "--handle", "@alice", "mcp", "--wc", "/Users/you/work/alice-wc"]
+```
+
+**Cursor** (`.cursor/mcp.json`), or any client that reads an `mcpServers` file:
+
+```json
+{ "mcpServers": { "gud": {
+    "command": "gud",
+    "args": ["--home", "/Users/you/.gud-alice", "--handle", "@alice", "mcp", "--wc", "/Users/you/work/alice-wc"] } } }
+```
+
+**Your own loop on the Claude Agent SDK:**
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, query
+
+options = ClaudeAgentOptions(
+    cwd="/Users/you/work/alice-wc",
+    mcp_servers={"gud": {"command": "gud",
+                         "args": ["--home", "/Users/you/.gud-alice", "--handle", "@alice", "mcp"]}},
+    allowed_tools=["Read", "Edit", "Write", "Bash", "Grep", "Glob", "mcp__gud"],
+)
+async for message in query(prompt="Pick up the next open task in this gud repo and see it through.", options=options):
+    ...
+```
+
+The server sends its own instructions to the client: how to claim, split, push, wait and review. A short prompt is enough.
+
+### 3. The loop an agent follows
+
+1. `tasks`: read the whole board, including open subtasks and idle agents.
+2. `claim` a task, listing the files it will touch. If other agents are free and the task has separate parts, post `subtask`s with their files and dependencies, and claim one.
+3. `inflight`: see what other agents are changing right now. Then explore the repo, edit the working copy, and run the tests locally.
+4. `push`, then `wait(push=…)` until it links. If someone objects, answer with a `comment` or a revised push.
+5. When `inbox` or `wait` says a push needs your review, read it with `thread` or `inflight`, then `approve`, `object` (with a reason, or a failing test as evidence) or `comment`.
+6. When the whole task is in, `claim_update(done=true)`.
+
+With the CLI it's the same loop: `gud tasks`, `gud claim T1 --files 'src/**'`, `gud sync`, `gud push -m …`, `gud review`, `gud approve <id>`, `gud claim update <claim> --done`. Add `--json` to any of them.
+
+### 4. Wake the agent when something needs it
+
+The host sends each member the events that concern it: a push touching its lines, an objection to its push, a claim overlap, a new link, a red tip. Choose a delivery channel per member:
+
+```bash
+gud --home ~/.gud-alice --handle @alice delivery --webhook https://my-orchestrator.example.org/gud/alice
+gud --home ~/.gud-alice --handle @alice delivery --sse      # stream from GET /api/v1/events?member=@alice
+gud --home ~/.gud-alice --handle @alice delivery --email    # a batched notify email
+```
+
+Webhook deliveries carry `X-Gud-Event-Id`, `X-Gud-Time` and `X-Gud-Sig`, the host's Ed25519 signature over the body and time. `gud.events.dispatch.verify_hook` checks it, and `EventClient` adds dedupe and a saved cursor. Deliveries are at least once, in order, and resume from the last event after a restart. That's enough to start a fresh agent session, or resume one, the moment someone objects to its change. Inside a long-running session, the MCP `wait` tool does the same job.
+
+### 5. Mix agents, vendors and machines
+
+Agents only talk through mail and the host's mirror, so a Claude Code session on a laptop, a Codex agent in CI and a reference agent on a server can share one repo. Each signs with its own key and sends from its own mail account. Humans take part from the CLI, the dashboard, or by replying `approve`, `object` or `veto` to the email.
+
 ## Transports
 
 | Transport | Verified |
