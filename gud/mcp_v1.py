@@ -785,6 +785,10 @@ class GudTools:
             lines.append(f"  asks: {', '.join(forecast.askers)} (they may object within the window)")
         if link is None and status in LIVE_STATUSES | {"sent", "unknown"}:
             lines.append(f"next: wait(push=\"{_short(pid)}\") until it links or something needs you")
+        hint = self._open_hint(chain) if link is not None else ""
+        if hint:
+            data["open_subtasks"] = [t.alias for t in self._open_subtasks(chain)]
+            lines.append(f"  {hint}: claim one if you are free")
         return self._out(data, "\n".join(lines))
 
     @staticmethod
@@ -916,6 +920,26 @@ class GudTools:
         busy = {c.holder for c in chain.claims.values() if c.status == "active"}
         busy |= {p.author for p in chain.proposals.values() if p.status in LIVE_STATUSES}
         return others, [h for h in others if h not in busy]
+
+    @staticmethod
+    def _open_subtasks(chain: Chain) -> list[TaskState]:
+        """Open subtasks with no active claim, in alias order."""
+        out = []
+        for t in chain.tasks.values():
+            if t.kind != "subtask" or t.status != "open":
+                continue
+            claim = chain.claims.get(t.claim) if t.claim else None
+            if claim is not None and claim.status == "active":
+                continue
+            out.append(t)
+        return sorted(out, key=lambda t: [int(x) if x.isdigit() else x for x in t.alias[1:].split(".")])
+
+    def _open_hint(self, chain: Chain) -> str:
+        subs = self._open_subtasks(chain)
+        if not subs:
+            return ""
+        return "open subtasks nobody holds: " + "; ".join(
+            f"{t.alias} {t.title}" + (f" (files {', '.join(t.files_hint)})" if t.files_hint else "") for t in subs)
 
     def _team_line(self, chain: Chain) -> tuple[dict, str]:
         others, idle = self._agents(chain)
@@ -1094,10 +1118,17 @@ class GudTools:
         if active is not None and active.status == "active":
             if active.holder == self.me:
                 raise ToolError(f"you already hold {t.alias} ({_short(active.id)}); use claim_update to change files")
-            subs = [chain.tasks[c] for c in t.children if c in chain.tasks and chain.tasks[c].status == "open"]
-            hint = (f"claim one of its open subtasks ({', '.join(s.alias for s in subs)})" if subs else
-                    f"wait(types=[\"subtask.posted\", \"linked\"]) for {active.holder} to split it, or comment on the "
-                    f"claim to offer to take a part")
+            free = self._open_subtasks(chain)
+            subs = [s for s in free if s.parent == t.id]
+            if subs:
+                hint = f"claim one of its open subtasks ({', '.join(s.alias for s in subs)})"
+            elif free:
+                hint = f"claim an open subtask nobody holds ({', '.join(s.alias for s in free)})"
+            elif t.kind == "subtask":
+                hint = "comment on the claim to offer help"
+            else:
+                hint = (f"wait(types=[\"subtask.posted\", \"linked\"]) for {active.holder} to split it, or comment "
+                        f"on the claim to offer to take a part")
             raise ToolError(f"{t.alias} is claimed by {active.holder} ({_short(active.id)}, files "
                             f"{','.join(active.files)}); {hint}, or pick another task")
         headers = {"Gud-Task": t.id, "Gud-Files": E.render_list(files)}
@@ -1132,10 +1163,20 @@ class GudTools:
             t = chain.tasks.get(gid)  # type: ignore[arg-type]
             if t is not None and t.claim:
                 claim = chain.claims.get(t.claim)
+            elif t is not None:              # no active claim: the member's latest claim on it, if any
+                mine = sorted((c for c in chain.claims.values() if c.task == t.id and c.holder == self.me
+                               and c.status != "void"), key=lambda c: c.won_at)
+                claim = mine[-1] if mine else None
+                if claim is None:
+                    raise ToolError(f"{t.alias} has no claim of yours (status lists yours)")
         if claim is None:
             raise ToolError(f"{ref} is not a claim (status lists yours)")
         if claim.holder != self.me:
             raise ToolError(f"claim {_short(claim.id)} belongs to {claim.holder}, not you")
+        if claim.status == "done":
+            hint = self._open_hint(chain)
+            raise ToolError(f"claim {_short(claim.id)} ended because {_alias(chain, claim.task)} is done: there is "
+                            f"nothing to release or update" + (f". {hint}" if hint else ""))
         if claim.status != "active":
             raise ToolError(f"claim {_short(claim.id)} is {claim.status}")
         return claim
@@ -1224,7 +1265,11 @@ class GudTools:
             raise ToolError(f"{parent} is not a task")
         claim = chain.claims.get(t.claim) if t.claim else None
         if claim is None or claim.status != "active" or claim.holder != self.me:
-            raise ToolError(f"you must hold the active claim on {t.alias} to split it: claim it first")
+            free = self._open_subtasks(chain)
+            more = (f"; open subtasks you can claim instead: {', '.join(x.alias for x in free)}" if free else
+                    (f"; {claim.holder} holds it: comment to suggest a part" if claim is not None
+                     and claim.status == "active" else ""))
+            raise ToolError(f"you must hold the active claim on {t.alias} to split it: claim it first{more}")
         if not title.strip():
             raise ToolError("a subtask needs a title")
         headers = {"Gud-Parent-Task": t.id, "Gud-Title": " ".join(title.split())}

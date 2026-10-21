@@ -175,6 +175,31 @@ def test_claiming_everything_while_others_are_idle_is_flagged(repo: LocalRepo):
     assert narrow["status"] == "active" and "warning" not in narrow
 
 
+def test_tool_results_point_at_subtasks_nobody_holds(repo: LocalRepo):
+    """Regression (gud1-cc todo-stack v1-fixes t1): with T1 split into CLI, API and docs, an agent refused on a
+    held subtask was told to wait for its holder to split it, and the agents who finished their subtask
+    stopped with the CLI subtask unclaimed. Refusals and push results now name the open subtasks."""
+    repo.genesis({"app.py": "x = 1\n"})
+    repo.task("Todo stack")
+    repo.clone("@bob")
+    alice, bob, carol = repo.tools("@alice"), repo.tools("@bob"), repo.tools("@carol")
+    alice.claim("T1", ["todolib.py"])
+    for title, name in (("CLI", "cli.py"), ("API", "api.py"), ("docs", "docs.md")):
+        alice.subtask("T1", title, files=[name])
+    repo.client("@bob").sync_log()
+    assert json.loads(bob.claim("T1.2", ["api.py"]))["status"] == "active"
+    repo.client("@carol").sync_log()
+    err = json.loads(carol.claim("T1.2", ["api.py"]))["error"]
+    assert "open subtask nobody holds (T1.1, T1.3)" in err and "split it" not in err
+    err = json.loads(carol.subtask("T1", "my own part"))["error"]
+    assert "open subtasks you can claim instead: T1.1, T1.3" in err
+    (repo.wc_dir("@bob") / "api.py").write_text("print('api')\n")
+    out = json.loads(bob.push("api", task="T1.2"))
+    assert out["status"] == "linked" and out["open_subtasks"] == ["T1.1", "T1.3"]
+    err = json.loads(bob.release("T1.2"))["error"]
+    assert "T1.2 is done" in err and "nothing to release" in err and "T1.1 CLI" in err
+
+
 def test_declaring_done_through_claim_update_and_release(repo: LocalRepo):
     repo.genesis({"app.py": "x = 1\n"})
     repo.task("Docs")
