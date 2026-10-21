@@ -30,7 +30,7 @@ How you work
 - A push that touches lines another member wrote recently gives them a consent window. If they object, answer: fix it and push a revision with revises=<your push>, or reply with a comment explaining why it is right. An objection with a failing test only clears when your revision passes that test.
 - Reviewing: when you are asked to review (inbox, or a review.requested event), read the diff (inflight or thread), look at the surrounding code, run it if needed, then approve, object with a concrete reason (attach a failing test as evidence when you can), or comment with a question. Do not object to style alone. You cannot veto.
 - Keep claims alive: any push or comment with task=<id> renews the lease. Release a claim you will not finish. When a task needs no change, say so with no_change.
-- Finishing: a subtask is done when a push for it links. A top-level task you hold without subtasks is done only when you declare it: once all of its work has linked, call claim_update(claim=<task>, done=true) (or release(claim=<task>, done=true)); its acceptance check then runs on the tip. A task you split is done when all its subtasks are done, so there is nothing to declare.
+- Finishing: a subtask is done when a push for it links. A top-level task you hold without subtasks is done only when you declare it: once all of its work has linked, call claim_update(claim=<task>, done=true) (or release(claim=<task>, done=true)); its acceptance check then runs on the tip. A task you split is done when all its subtasks are done, so there is nothing to declare. When other members' links carry a task you hold, check whether all of it is now in the tip and, if it is, declare it done (whole=true); nobody else can while you hold it. A landed top-level task that nobody holds also becomes done by itself once nothing has happened on it for the repo's task-quiet time.
 - When you are stuck (conflicting requirements, an objection you cannot resolve after a round, missing access), escalate: comment(target=<task>, task=<task>, escalate="stuck", text=<what is blocked>).
 - Leave the working copy consistent at the end of each turn: either your changes are pushed, or you say in your summary what is still local and why.
 - Be economical: you have a budget ({budget}). Do not poll in loops; wait blocks until something happens.
@@ -64,9 +64,11 @@ def render_event(event: Event, chain: Chain) -> str:
 
 
 def render_batch(events: Sequence[Event], chain: Chain, *, key: str = "", notes: Sequence[str] = (),
-                 status: str = "", idle: bool = False, team: str = "", idle_agents: Sequence[str] = ()) -> str:
+                 status: str = "", idle: bool = False, team: str = "", idle_agents: Sequence[str] = (),
+                 declare: Sequence[str] = ()) -> str:
     """The user turn for one debounced batch of events on one thread. `team` describes the other agents
-    (who is idle); with idle agents, a turn about an open, unsplit task asks the agent to split it first."""
+    (who is idle); with idle agents, a turn about an open, unsplit task asks the agent to split it first.
+    `declare` holds one hint per task the agent holds that other members' links carry (review.declare_text)."""
     lines = []
     if notes:
         lines.append("Notes from your earlier sessions (your own words):")
@@ -91,6 +93,7 @@ def render_batch(events: Sequence[Event], chain: Chain, *, key: str = "", notes:
         if idle_agents and splittable:
             lines.append(PLAN_PROMPT.format(team=f"{len(idle_agents)} other agent(s) are idle ({', '.join(idle_agents)})",
                                             task=splittable[0]))
+    lines += list(declare)
     if status:
         lines.append(status)
     lines.append("Decide what to do, do it, and end with a one-line summary.")

@@ -80,7 +80,7 @@ class Gud1Arm:
     metrics_key = "gud1"
 
     def __init__(self, root: Path, spec, handles: list[str], *, window: float = 20.0, python: str = sys.executable,
-                 policy: str = "tip", grace: float = 5.0):
+                 policy: str = "tip", grace: float = 5.0, lease: str = "10m", task_quiet: str | None = None):
         if policy not in POLICIES:
             raise ValueError(f"unknown test policy {policy!r}")
         self.root = Path(root)
@@ -90,6 +90,8 @@ class Gud1Arm:
         self.grace = float(grace)
         self.python = python
         self.policy = policy
+        self.lease = lease                     # .gud/config `lease` (claims lapse after it)
+        self.task_quiet = task_quiet           # .gud/config `task-quiet` (§16.6 done by quiescence); None: = lease
         self.mail = self.root / "mail"
         self.host_dir = self.root / "host"
         self.host_url = ""
@@ -163,7 +165,8 @@ class Gud1Arm:
     def config_bytes(self) -> bytes:
         w = int(self.window) if self.window.is_integer() else self.window
         g = int(self.grace) if self.grace.is_integer() else self.grace
-        return f"window {w}s\ngrace {g}s\nlease 10m\nescalate 3m\nfix-offer 2m\n".encode()
+        quiet = f"task-quiet {self.task_quiet}\n" if self.task_quiet else ""
+        return f"window {w}s\ngrace {g}s\nlease {self.lease}\n{quiet}escalate 3m\nfix-offer 2m\n".encode()
 
     # -- setup -----------------------------------------------------------------------------
 
@@ -264,6 +267,21 @@ class Gud1Arm:
                 break
             time.sleep(2)
         return round(time.time() - t, 1)
+
+    def wait_task_done(self, deadline: float, poll: float = 3.0) -> dict:
+        """After the agents stop: keep the host and the tester running until T1 is done or `deadline` (a
+        time.time()). Done by quiescence (§16.6) needs `task-quiet` with nothing happening on T1, then the
+        tester's acceptance run on the tip; no agent runs, so this costs nothing."""
+        t = time.time()
+        status = None
+        while True:
+            self.nelson.sync_log()
+            task = self.nelson.chain().tasks.get(self.task_id) if self.task_id else None
+            status = task.status if task is not None else None
+            if status == "done" or time.time() >= deadline:
+                break
+            time.sleep(poll)
+        return {"waited_s": round(time.time() - t, 1), "status": status}
 
     def stop_services(self) -> None:
         """Stop the tester (the agents have stopped). The host keeps serving for the harness's analysis."""

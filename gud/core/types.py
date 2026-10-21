@@ -270,6 +270,11 @@ class TaskState:
     offer_until: Ms | None = None
     declared: Hex | None = None          # the holder's done declaration (claim with Gud-Done), §16.6
     declared_by: Handle | None = None
+    # how work became done: "subtasks", "link", "declared", "no_change", "quiet" or "green" (fix tasks), §16.6
+    work_done_by: str | None = None
+    # done by quiescence (§16.6): latest activity on the item and the time the rule would hold, while it applies
+    active_at: Ms | None = None
+    quiet_until: Ms | None = None
 
 
 @dataclass(frozen=True)

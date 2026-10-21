@@ -308,6 +308,7 @@ def gud1_metrics(client, *, t0: float, wall_s: float, genesis: str | None, task:
             "opened_s": rel(t.opened_at),
             "opened_to_done_s": round((t.done_at - t.opened_at) / 1000, 1) if t.done_at is not None else None,
             "declared_by": t.declared_by,
+            "work_done_by": getattr(t, "work_done_by", None),     # declared, subtasks, quiet (§16.6), ...
             "last_agent_link_s": rel(max((l.linked_at for l in agent_links), default=None)) if agent_links else None,
             "agent_links_after_done": len(links_after_done),
             "done_after_all_work": (t.done_at is not None and not links_after_done) if t.done_at is not None else None,

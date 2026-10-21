@@ -449,9 +449,15 @@ class RepoConfig:
     lease_thrash: int = 3
     checkpoint: int = 1000
     authserv_id: str | None = None
+    task_quiet: Ms | None = None          # §16.6 done by quiescence; None: the lease L
+
+    @property
+    def quiet(self) -> Ms:
+        """`task-quiet`, defaulting to the lease (§10.5)."""
+        return self.lease if self.task_quiet is None else self.task_quiet
 
 
-_CONFIG_DURATIONS = {"window", "grace", "skew", "own-time", "lease", "escalate", "expire", "fix-offer"}
+_CONFIG_DURATIONS = {"window", "grace", "skew", "own-time", "lease", "escalate", "expire", "fix-offer", "task-quiet"}
 _CONFIG_INTS = {"own-links": 0, "lease-thrash": 1, "checkpoint": 1}
 
 
@@ -492,12 +498,15 @@ class RepoRules:
 
     def encode(self) -> bytes:
         """Canonical bytes (sorted-key compact JSON), stored at LinkState.rules_root."""
+        config = asdict(self.config)
+        if config["task_quiet"] is None:
+            del config["task_quiet"]             # bundles without task-quiet keep their earlier bytes
         doc = {
             "members": [[m.handle, m.role, m.address, m.public_key, m.sponsor]
                         for _, m in sorted(self.members.by_handle.items())],
             "owners": [[r.glob, r.rule, list(r.owners)] for r in self.owners.rules],
             "test": {k: list(v) if isinstance(v, tuple) else v for k, v in asdict(self.test).items()},
-            "config": asdict(self.config),
+            "config": config,
             "version": 1,
         }
         return json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
