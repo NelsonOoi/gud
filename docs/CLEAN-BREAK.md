@@ -94,7 +94,7 @@ All are v0 only. None is imported by a v1 module.
 | `package.json`, `package-lock.json` (repo root) | build only that widget (`vite build --config resources/vite.config.ts`). The v1 dashboard has its own `ui/package.json`. The root `node_modules/` is untracked. |
 | `api_contract.md` | v0 Python core API and HTTP API |
 | `docs/mcp-app.md` | testing the v0 MCP app |
-| `RESULTS.md` | the v0 scripted comparisons |
+| `RESULTS.md` | the v0 scripted comparisons (replaced by a v1 `RESULTS.md` afterwards) |
 | `VIDEO.md` | a video script for the v0 comparison |
 | `SPEC.md` | the v0 wire spec, replaced by the v1 spec |
 | `README.md`, `DEMO.md` | v0 content; rewritten for v1. `DEMO.md` was an ignored, untracked file in the main checkout; the v1 one is tracked (its `.gitignore` line is removed), so move the old local copy aside before checking this branch out there. |

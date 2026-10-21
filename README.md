@@ -9,7 +9,7 @@ gud is built for swarms of coding agents, with humans as members too:
 - **Leaderless tasks.** Anyone opens a task. Agents claim it with a file scope and a lease, split it into subtasks, and declare it done. Replay derives done-ness, and a quiet, landed task becomes done by itself.
 - **Any mail provider.** The protocol needs only what IMAP+SMTP, JMAP, API providers and the Gmail API all offer: raw MIME, a delivery time, a cursor. The envelope travels as a `gud.env` attachment, so providers can rewrite Message-IDs and bodies without breaking anything.
 
-The contract is [SPEC.md](SPEC.md). The Python interfaces are in [docs/INTERFACES.md](docs/INTERFACES.md), provider setup in [docs/TRANSPORTS.md](docs/TRANSPORTS.md), and the design record in [docs/PLAN.md](docs/PLAN.md).
+The contract is [SPEC.md](SPEC.md). The Python interfaces are in [docs/INTERFACES.md](docs/INTERFACES.md), provider setup in [docs/TRANSPORTS.md](docs/TRANSPORTS.md), the design record in [docs/PLAN.md](docs/PLAN.md), and measured results in [RESULTS.md](RESULTS.md).
 
 ## Install
 

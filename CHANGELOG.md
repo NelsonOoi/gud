@@ -13,7 +13,7 @@ gud v1 replaces v0 outright. v0 is deprecated; its last commit is tagged `v0-fin
 
 - The legacy reader `gud/core/v0.py` (v0 mailboxes replayed through the v1 chain view).
 - All v0 modules: `wire`, `replay`, `rules`, `tasks`, `types`, `chain`, `patch`, `sig`, `keys`, the `mail_*` mailboxes and `mailbox`, `webhook`, `inbox`, `worker`, `lead`, `swarm`, the v0 `tester`, `build`, `mcp_server`, `mcp_baseline`, `mcp_app`, `api`, the v0 `cli`, `config`, `console`, `bugs`, `joins`, `members`, `memberfile`, `merge`, `notify`, `open`, `repos`, `qa`, `analytics`, `hostauth`, `blame`, `compose`, `testkit`.
-- The v0 tests (`tests/test_*.py`, `tests/v1/v0/`), `scripts/` (`demo.py`, `run_local.sh`), `demo_repo/`, the scripted evals and their results (`evals/*.py`, `evals/cases/`, `evals/results/`, `results/`), the v0 arm of the agent evals (`evals/v1/gud_arm.py`, `gud_tester.py`), the MCP-app widget (`resources/`, the root `package.json`), and the v0 docs (`api_contract.md`, `docs/mcp-app.md`, `RESULTS.md`, `VIDEO.md`, the v0 `SPEC.md`).
+- The v0 tests (`tests/test_*.py`, `tests/v1/v0/`), `scripts/` (`demo.py`, `run_local.sh`), `demo_repo/`, the scripted evals and their results (`evals/*.py`, `evals/cases/`, `evals/results/`, `results/`), the v0 arm of the agent evals (`evals/v1/gud_arm.py`, `gud_tester.py`), the MCP-app widget (`resources/`, the root `package.json`), and the v0 docs (`api_contract.md`, `docs/mcp-app.md`, the v0 `RESULTS.md`, `VIDEO.md`, the v0 `SPEC.md`). `RESULTS.md` now holds the v1 results.
 - Dependencies only v0 used: `sse-starlette`, `armature-mcp-analytics`, and the `app` (`mcp-use`) and `qa` (`browser-use`) extras.
 
 ### Renamed
