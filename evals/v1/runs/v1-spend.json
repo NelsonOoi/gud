@@ -1,5 +1,5 @@
 {
- "cap_usd": 26.0,
+ "cap_usd": 24.9142,
  "reserved": {},
  "runs": {
   "20261020-v1-fixes-grid/gud1-cc-acme-site-shared-n4-t1": {
@@ -375,6 +375,30 @@
    "spec": "todo-stack",
    "spent_usd": 0.2229,
    "trial": 2
+  },
+  "20261020-v1-quiet/gud1-cc-acme-site-shared-n4-t1": {
+   "arm": "gud1-cc",
+   "at": 1792551018.871052,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.4251,
+   "trial": 1
+  },
+  "20261020-v1-quiet/gud1-cc-acme-site-shared-n4-t2": {
+   "arm": "gud1-cc",
+   "at": 1792551147.854808,
+   "n": 4,
+   "spec": "acme-site-shared",
+   "spent_usd": 0.5544,
+   "trial": 2
+  },
+  "20261020-v1-quiet/gud1-cc-refactor-guard-n4-t1": {
+   "arm": "gud1-cc",
+   "at": 1792551397.907063,
+   "n": 4,
+   "spec": "refactor-guard",
+   "spent_usd": 0.6247,
+   "trial": 1
   },
   "20261020-v1-smoke/gud1-cc-todo-cli-n2-t1": {
    "arm": "gud1-cc",

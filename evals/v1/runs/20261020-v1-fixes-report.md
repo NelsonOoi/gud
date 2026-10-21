@@ -351,3 +351,88 @@ Model: claude-sonnet-5-5. Total spend in this table: $3.33.
 - Test runs are the gud tester's replies or the git merge gate's pytest runs; both run `python -m pytest -q -x`.
 - gud conflicts are pushes that ended superseded, stale, conflict or objected; git conflicts are merge-gate rebase conflicts plus `CONFLICT` lines in agents' own git output. Resolved means the same author landed later.
 - Escalations are final messages containing `ESCALATE:`. Cost is Claude Code's reported total_cost_usd (list price), or an estimate from usage for a killed agent.
+
+## Follow-up: done by quiescence (closes "Nobody declares an unsplit task done")
+
+**The gap.** In all three gud1-cc runs above on unsplit tasks (acme-site-shared ×2, refactor-guard), every part of
+the work linked, but T1 was never done. The holder had claimed only its own files and stopped, or had released
+without done, or the work had been landed by agents that did not hold T1. Only the holder's declaration could make
+an unsplit root task done, so whether T1 finished depended on what the model did.
+
+**The fix (deterministic, in replay).** SPEC §16.6 gains **quiescence**, set by a new `.gud/config` key `task-quiet`
+(§10.5; the default is the lease `L`). A root task with no subtasks is work-done at the first τ where all of these
+hold:
+
+- a link carries `Gud-Task` = the task;
+- it has no active claim;
+- no open push carries it;
+- τ ≥ the latest activity on it + `task-quiet`. Activity is a claim, push, comment or link with that `Gud-Task`.
+
+So it becomes work-done at the latest of three times: the last activity + `task-quiet`, the end of the last claim
+(release or lapse), and the end of the last open push. The existing rule then applies unchanged: acceptance must
+pass on that tip or a later one, while the chain is not red. The holder's declaration is still the fast path. New
+activity before done revokes a quiescence work-done. The board keeps each task's latest activity and its open
+pushes. The quiescence time is part of `next_wakeup`, so the host ticks at it. `TaskBoard.advance` refreshes at that
+exact time, or at the lapse that releases the task. `TaskState.work_done_by` records how a task's work became done.
+This is coordination note 7.
+
+MCP and the reference agent also nudge the holder. When other members' links carry a task the holder holds, MCP
+`inbox` (a `declare` need), `tasks`, `task` and `wait` tell it to check the landed work and declare done with
+`whole=true`. In the reference agent, such a link wakes the task's session (it is no longer ambient), and the turn
+text carries the same hint.
+
+**Tests.** 7 replay scenarios in `tests/v1/replay/test_tasks.py`:
+
+- others landed the work and the holder released;
+- the holder claimed narrowly and stopped, so work is done one lease after the last link;
+- the lease lapsed with `task-quiet` < `L`, so work is done exactly at the lapse, even when the next tick comes later;
+- activity inside `task-quiet` (a comment with `Gud-Task`, not one without it) resets the timer, a claim revokes the
+  work-done, and an open push holds the task until it dies;
+- a red tip blocks done;
+- the declaration fast path is unchanged;
+- split and unlinked tasks are skipped.
+
+Also new: an MCP regression test for the holder hint, a runtime test for the reference agent's wake-up and turn
+text, a `task-quiet` parse/default test, and an eval arm config test. The full suite is 1246 passed, 59 skipped
+(`pytest -q --deselect tests/test_mcp_baseline.py`). `evals/v1/tests` is 42 passed.
+`tests/v1/transport/test_gmail.py::test_walk_from_start_reads_spam_and_skips_own_sends` is flaky, with no change in
+that code. It failed in one of the two full runs and 2 of 3 isolated runs, because the order depends on timing.
+
+**Re-run of the cells that showed the gap.** gud1-cc, N=4, `claude-sonnet-5-5`, $1.20 run budget, 20-minute
+timeout, run sequentially. The arm's repo config sets `lease 2m` and `task-quiet 2m` for these runs only
+(`run.py --gud-lease 2m --gud-task-quiet 2m`); the arm's default stays `lease 10m` with `task-quiet` = lease.
+`--wait-done` keeps the host and tester running after the agents stop, until T1 is done or the timeout. Summaries are
+in `runs/20261020-v1-quiet/`.
+
+| | acme-site-shared t1 | acme-site-shared t2 | refactor-guard t1 |
+| --- | --- | --- | --- |
+| hidden tests | 28/28 | 28/28 | 23/23 |
+| cost | $0.43 | $0.55 | $0.62 |
+| agents' wall time | 150 s | 124 s | 130 s |
+| how the work went | @a1 claimed `**` and pushed the whole site (1 link) | @a2 claimed build/nav/css/tests; @a3 and @a1 landed the five pages with `task=T1` (3 authors, 3 links) | @a1 landed the slug/cleanup part and @a2 (holder, `**`) landed the rest. Then @a2 hit its $0.30 agent budget and was killed before declaring |
+| T1 at the end | **done** | **done** | **done** |
+| how T1 became done | declared by the holder @a1 (fast path) | declared by @a2 with `whole=true`, after MCP `wait` returned the "other members landed work for it" hint twice | **quiescence**: the claim lapsed, and nothing happened on T1 for 2 min after the last link |
+| last agent link → work done | 1.9 s | 3.8 s | **120.0 s** (115.2 s → 235.2 s, exactly `task-quiet`) |
+| T1 opened → done | 52 s | 96 s | 239 s (acceptance passed 3.5 s after work-done) |
+| agent links after done | 0 | 0 | 0 |
+| host/tester kept running for T1 after the agents stopped | 0 s | 0 s | 111 s |
+
+T1 reached done in all three runs. Before this fix, all three of these cells left T1 open. Done came only after all
+the work had landed. In the run where quiescence applied, work-done fell exactly `task-quiet` after the last link. By
+then the holder's claim had already lapsed, because its last activity was its own push before it was killed. No
+agent link landed after done in any run. Two runs did not need the new rule: in one the holder declared on its own,
+and in the other it declared after the new hint. So the hint and the rule both fired at least once. With three runs,
+this says nothing about how often each path occurs.
+
+**Spend: $1.60 of the $3 cap** ($0.43 + $0.55 + $0.62), enforced by `cap.py` on `runs/v1-spend.json` with
+`--cap-usd 24.9142` (the $21.91 spent before, plus $3). No cell was repeated, and none was discarded.
+
+**Still open.**
+
+- `task-quiet` trades latency for safety. With the default (= lease, 10 min in the eval arm, 30 min in the repo
+  default), a finished swarm whose holder stops waits that long for done.
+- A comment with `Gud-Task` restarts the timer, so an agent that keeps chatting about a finished task delays done.
+- Quiescence cannot tell "finished" from "abandoned half-way". Acceptance (`python -m pytest -q` here) is the only
+  check on the content, as for a declaration.
+- The holder killed by its agent budget in refactor-guard is a reminder that the $0.30 per-agent budget is tight for
+  the agent that holds `**`.
