@@ -157,7 +157,7 @@ Agents only talk through mail and the host's mirror, so a Claude Code session on
 
 ## Quickstart
 
-A local test run: this runs a whole repo on one machine over the `fake` transport, an on-disk mail system, so nothing leaves the machine. Swap `--transport fake --set root=...` for a real provider ([docs/TRANSPORTS.md](docs/TRANSPORTS.md)) to run it over email. Each member has its own `GUD_HOME` (`--home`) and handle (`--handle`, or `GUD_HANDLE`); `--json` makes any command print one JSON object.
+A local test run: this runs a whole repo on one machine over the `fake` transport, an on-disk mail system, so nothing leaves the machine. Swap `--transport fake --set root=...` for a real provider ([Run on your email provider](#run-on-your-email-provider)) to run it over email. Each member has its own `GUD_HOME` (`--home`) and handle (`--handle`, or `GUD_HANDLE`); `--json` makes any command print one JSON object.
 
 ```bash
 MAIL=$PWD/mail; REPO=repo@example.org
@@ -205,6 +205,52 @@ gud --home ../homes/alice --handle @alice mcp                        # stdio MCP
 Other commands: `task new|list|show`, `claim`, `release`, `subtask`, `approve`, `object` (with `--test FILE` for an evidence objection), `veto`, `hold`, `comment`, `review`, `blame`, `verify --from-genesis`, `join` / `admit`, `delivery --webhook|--sse|--email`, `mirror git`, `import` (genesis from a git commit), `audit`, `export-archive` / `import-archive` and `host handover`. `gud --help` lists them all; `gud init` without `--host-url` makes a local host instead (`local:<dir>`), with no server at all.
 
 **Dashboard.** `cd ui && npm ci && npm run build`, then `gud host serve` also serves the dashboard at `/`: the chain, proposals with their consent plans and countdowns, tasks and claims, blame with fading ownership, escalations, the red tip, members, the host log with its self-audit, and every event live. With `--ui-home <a human's GUD_HOME>` the page can also approve, object, veto and open tasks as that human, from loopback only. See [ui/README.md](ui/README.md).
+
+## Run on your email provider
+
+A repo needs one mail account for the **repo address**, which the host reads, and one for **each member's own address**, which that member sends from. Each can be on a different provider. Transport settings go in `--set KEY=VALUE`; any key ending in `_env` names an environment variable that is read when the mailbox opens, so passwords and API keys never land in a config file.
+
+**1. The host, on the repo address.**
+
+```bash
+export REPO_IMAP_PASSWORD=...
+gud --home homes/host --handle @host host init --repo repo@yourdomain.com --dir hostdir \
+  --transport imap_smtp \
+  --set imap_host=imap.fastmail.com --set smtp_host=smtp.fastmail.com \
+  --set username=repo@yourdomain.com --set password_env=REPO_IMAP_PASSWORD \
+  --set authserv_id=mx.messagingengine.com
+gud --home homes/host --handle @host host serve --dir hostdir --bind 0.0.0.0:8787
+```
+
+On Primitive, use `--transport primitive --set api_key_env=PRIMITIVE_API_KEY` instead. When it can log in, `host init` also probes the mailbox and reports its size limit, push mode and authserv-id. `gud doctor` (step 3) shows a login failure explicitly.
+
+**2. Each member, on their own address.**
+
+```bash
+export ALICE_PASSWORD=...
+gud --home ~/.gud-alice --handle @alice keys new --address alice@yourdomain.com \
+  --transport imap_smtp --set imap_host=imap.fastmail.com --set smtp_host=smtp.fastmail.com \
+  --set username=alice@yourdomain.com --set password_env=ALICE_PASSWORD
+```
+
+This creates the key and writes `~/.gud-alice/members/@alice/transport.toml`. Then put the member in the genesis roster, or have them `join` and a sponsor `admit` them ([Use gud with your own agents](#use-gud-with-your-own-agents)).
+
+**3. Check the round trip and set the timing.**
+
+```bash
+gud --home ~/.gud-alice --handle @alice doctor
+```
+
+`doctor` sends a message to the member's own address, times how long it takes to come back, and proposes a consent window and grace for `.gud/config`. Commit those as an ordinary push, so every member replays with the same values. Providers that deliver slowly (SMTP greylisting, retries) need a longer grace.
+
+**Things to get right:**
+- **`authserv_id`** must match the `Authentication-Results` header that the repo's receiving server writes. A human's plain email reply (approve, object, veto) counts only with a DMARC pass under that id. Signed replies (`gud approve` and friends) work on any provider.
+- **One address per member.** Agents and the host each need their own inbox.
+- **Webhooks.** IMAP wakes the host with IDLE and Primitive with long-poll, so neither needs a public URL. SES and Postmark deliver only by webhook: expose `/api/v1/webhook/<provider>` over HTTPS, on its own port with `host serve --webhook-bind` if the main port stays private.
+- **Spam filtering.** `imap_smtp` reads `Junk` as well as `INBOX`, but allowlist the members' domains anyway.
+- **Gmail** allows about 500 sends a day on a consumer account, which suits humans and small swarms only.
+
+Every adapter's keys and caveats are in [docs/TRANSPORTS.md](docs/TRANSPORTS.md).
 
 ## Transports
 
