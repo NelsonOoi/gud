@@ -24,57 +24,6 @@ pip install -e '.[agent]'   # plus the reference agent (Claude Agent SDK)
 
 The `gud` command lives in `.venv/bin`, so activate the venv in each new shell. For a global command instead, run `pipx install 'git+https://github.com/NelsonOoi/gud.git'`. The web dashboard is served from a source checkout (`ui/dist`, built with `cd ui && npm ci && npm run build`), or from any path given in `GUD_UI_DIST`.
 
-## Quickstart
-
-This runs a whole repo on one machine over the `fake` transport, an on-disk mail system, so nothing leaves the machine. Swap `--transport fake --set root=...` for a real provider ([docs/TRANSPORTS.md](docs/TRANSPORTS.md)) to run it over email. Each member has its own `GUD_HOME` (`--home`) and handle (`--handle`, or `GUD_HANDLE`); `--json` makes any command print one JSON object.
-
-```bash
-MAIL=$PWD/mail; REPO=repo@example.org
-
-# 1. A host for the repo address, served over HTTP (the mirror, intake, events and the dashboard).
-gud --home homes/host --handle @host host init --repo $REPO --transport fake --set root=$MAIL --dir hostdir
-gud --home homes/host --handle @host host serve --dir hostdir --bind 127.0.0.1:8787 &
-
-# 2. A key and a mail account for every member.
-for who in nelson alice tester; do
-  gud --home homes/$who --handle @$who keys new --address $who@example.org --transport fake --set root=$MAIL
-done
-gud --home homes/alice --handle @alice keys show          # prints the public key for the roster
-
-# 3. Genesis from a directory and a roster: handle role address [public key] [sponsor].
-cat > roster <<EOF
-@nelson human  nelson@example.org
-@alice  agent  alice@example.org   ed25519:<alice's key>  @nelson
-@tester tester tester@example.org  ed25519:<tester's key> @nelson
-@host   host   $REPO
-EOF
-mkdir -p myproject/.gud && echo 'command python -m pytest -q' > myproject/.gud/test
-cd myproject && gud --home ../homes/nelson --handle @nelson init --repo $REPO --member-file ../roster \
-    --host-url http://127.0.0.1:8787 -m "first commit" && cd ..
-
-# 4. An agent clones, edits and pushes. A push that touches nobody's lines links on its own.
-gud --home homes/alice --handle @alice clone http://127.0.0.1:8787 alice-wc
-cd alice-wc && echo 'def mul(a, b): return a * b' > mul.py
-gud --home ../homes/alice --handle @alice push -m "add mul"     # push ... on <base>: 1 ops; linked
-gud --home ../homes/alice --handle @alice log
-gud --home ../homes/alice --handle @alice sync                  # three-way merge of the tip; never auto-resolves
-cd ..
-
-# 5. The tester runs the repo's test policy and signs results.
-gud --home homes/tester --handle @tester clone http://127.0.0.1:8787 tester-wc
-cd tester-wc && gud --home ../homes/tester --handle @tester tester --runner local &   # or docker, instabox
-cd ..
-
-# 6. Agents: the reference agent, or any MCP client (Claude Code, Codex, Cursor) on the gud MCP server.
-cd alice-wc
-gud --home ../homes/alice --handle @alice agent --budget-usd 2       # needs the [agent] extra and Claude auth
-gud --home ../homes/alice --handle @alice mcp                        # stdio MCP server bound to @alice and this working copy
-```
-
-Other commands: `task new|list|show`, `claim`, `release`, `subtask`, `approve`, `object` (with `--test FILE` for an evidence objection), `veto`, `hold`, `comment`, `review`, `blame`, `verify --from-genesis`, `join` / `admit`, `delivery --webhook|--sse|--email`, `mirror git`, `import` (genesis from a git commit), `audit`, `export-archive` / `import-archive` and `host handover`. `gud --help` lists them all; `gud init` without `--host-url` makes a local host instead (`local:<dir>`), with no server at all.
-
-**Dashboard.** `cd ui && npm ci && npm run build`, then `gud host serve` also serves the dashboard at `/`: the chain, proposals with their consent plans and countdowns, tasks and claims, blame with fading ownership, escalations, the red tip, members, the host log with its self-audit, and every event live. With `--ui-home <a human's GUD_HOME>` the page can also approve, object, veto and open tasks as that human, from loopback only. See [ui/README.md](ui/README.md).
-
 ## Use gud with your own agents
 
 Any agent that can call MCP tools or run a shell command can work in a gud repo. Pick how it connects:
@@ -88,7 +37,7 @@ Any agent that can call MCP tools or run a shell command can work in a gud repo.
 
 ### 1. Give each agent its own identity
 
-Each agent is a member of the repo, with its own key, its own mail address and its own working copy. To add an agent to an existing repo:
+Each agent is a member of the repo, with its own key, its own mail address and its own working copy. To add an agent to an existing repo (the [Quickstart](#quickstart) below builds a local one to try this on):
 
 ```bash
 # On the agent's machine: a key and mail account, a join request, then (once admitted) a working copy.
@@ -179,6 +128,57 @@ Webhook deliveries carry `X-Gud-Event-Id`, `X-Gud-Time` and `X-Gud-Sig`, the hos
 ### 5. Mix agents, vendors and machines
 
 Agents only talk through mail and the host's mirror, so a Claude Code session on a laptop, a Codex agent in CI and a reference agent on a server can share one repo. Each signs with its own key and sends from its own mail account. Humans take part from the CLI, the dashboard, or by replying `approve`, `object` or `veto` to the email.
+
+## Quickstart
+
+A local test run: this runs a whole repo on one machine over the `fake` transport, an on-disk mail system, so nothing leaves the machine. Swap `--transport fake --set root=...` for a real provider ([docs/TRANSPORTS.md](docs/TRANSPORTS.md)) to run it over email. Each member has its own `GUD_HOME` (`--home`) and handle (`--handle`, or `GUD_HANDLE`); `--json` makes any command print one JSON object.
+
+```bash
+MAIL=$PWD/mail; REPO=repo@example.org
+
+# 1. A host for the repo address, served over HTTP (the mirror, intake, events and the dashboard).
+gud --home homes/host --handle @host host init --repo $REPO --transport fake --set root=$MAIL --dir hostdir
+gud --home homes/host --handle @host host serve --dir hostdir --bind 127.0.0.1:8787 &
+
+# 2. A key and a mail account for every member.
+for who in nelson alice tester; do
+  gud --home homes/$who --handle @$who keys new --address $who@example.org --transport fake --set root=$MAIL
+done
+gud --home homes/alice --handle @alice keys show          # prints the public key for the roster
+
+# 3. Genesis from a directory and a roster: handle role address [public key] [sponsor].
+cat > roster <<EOF
+@nelson human  nelson@example.org
+@alice  agent  alice@example.org   ed25519:<alice's key>  @nelson
+@tester tester tester@example.org  ed25519:<tester's key> @nelson
+@host   host   $REPO
+EOF
+mkdir -p myproject/.gud && echo 'command python -m pytest -q' > myproject/.gud/test
+cd myproject && gud --home ../homes/nelson --handle @nelson init --repo $REPO --member-file ../roster \
+    --host-url http://127.0.0.1:8787 -m "first commit" && cd ..
+
+# 4. An agent clones, edits and pushes. A push that touches nobody's lines links on its own.
+gud --home homes/alice --handle @alice clone http://127.0.0.1:8787 alice-wc
+cd alice-wc && echo 'def mul(a, b): return a * b' > mul.py
+gud --home ../homes/alice --handle @alice push -m "add mul"     # push ... on <base>: 1 ops; linked
+gud --home ../homes/alice --handle @alice log
+gud --home ../homes/alice --handle @alice sync                  # three-way merge of the tip; never auto-resolves
+cd ..
+
+# 5. The tester runs the repo's test policy and signs results.
+gud --home homes/tester --handle @tester clone http://127.0.0.1:8787 tester-wc
+cd tester-wc && gud --home ../homes/tester --handle @tester tester --runner local &   # or docker, instabox
+cd ..
+
+# 6. Agents: the reference agent, or any MCP client (Claude Code, Codex, Cursor) on the gud MCP server.
+cd alice-wc
+gud --home ../homes/alice --handle @alice agent --budget-usd 2       # needs the [agent] extra and Claude auth
+gud --home ../homes/alice --handle @alice mcp                        # stdio MCP server bound to @alice and this working copy
+```
+
+Other commands: `task new|list|show`, `claim`, `release`, `subtask`, `approve`, `object` (with `--test FILE` for an evidence objection), `veto`, `hold`, `comment`, `review`, `blame`, `verify --from-genesis`, `join` / `admit`, `delivery --webhook|--sse|--email`, `mirror git`, `import` (genesis from a git commit), `audit`, `export-archive` / `import-archive` and `host handover`. `gud --help` lists them all; `gud init` without `--host-url` makes a local host instead (`local:<dir>`), with no server at all.
+
+**Dashboard.** `cd ui && npm ci && npm run build`, then `gud host serve` also serves the dashboard at `/`: the chain, proposals with their consent plans and countdowns, tasks and claims, blame with fading ownership, escalations, the red tip, members, the host log with its self-audit, and every event live. With `--ui-home <a human's GUD_HOME>` the page can also approve, object, veto and open tasks as that human, from loopback only. See [ui/README.md](ui/README.md).
 
 ## Transports
 
