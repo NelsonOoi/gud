@@ -6,9 +6,9 @@ Replay is a discrete-event simulation over the host log. The engine keeps a repl
 (never beyond the log head, §11.3) and advances it through the finite set of times at which
 anything can change: each log entry's time, and the timers derived from the current state
 (window close + G, park times, expiry, evidence and escalation deadlines, lease lapses,
-auto-revert, `window.closing` emissions). At each time τ, in this order:
+auto-revert, `window.closing` emissions, §16.6 quiescence). At each time τ, in this order:
 
-1. lease lapses due at or before τ (`TaskBoard.advance`);
+1. lease lapses due at or before τ, then done by quiescence due at τ (`TaskBoard.advance`, §16.6);
 2. the log entry at τ, if any (messages verified at "tip at received time" use the tip
    before any link decided at τ);
 3. settle: evaluate every candidate of the tip at τ, open/decide escalations, and walk the
@@ -626,7 +626,7 @@ class Replayer:
         for esc in self._s["escalations"].values():
             if esc["status"] == "open" and esc["deadline"] > now:
                 times.append(esc["deadline"])
-        lapse = self._board.next_time()
+        lapse = self._board.next_time(now)                 # lease lapses and §16.6 quiescence
         if lapse is not None and lapse > now:
             times.append(lapse)
         return min(times) if times else None
@@ -866,7 +866,7 @@ class Replayer:
         if p["task"] and tip is not None:
             m = self._members_now().get(author)
             if m is not None and self._verified(gid, env_key, m.public_key):
-                self._board.add_activity(Activity(author, p["task"], tau))
+                self._emit_all(self._board.add_activity(Activity(author, p["task"], tau), push=gid))
         if p["parent"] == ZERO:
             if tip is None:
                 self._try_genesis(p, env, tau)
@@ -966,6 +966,8 @@ class Replayer:
             self._emit("push.rejected", tau, (p["author"],), {
                 "push": p["id"], "status": status, "reason": reason,
             })
+        if p.get("task"):
+            self._emit_all(self._board.on_push_end(p["id"], p["task"], tau))
         self._check_orphans(tau)
 
     def _orphan_or_stale(self, p: dict, tau: Ms) -> None:
@@ -1894,7 +1896,7 @@ class Replayer:
         self._s["comments"].setdefault(target, []).append({"id": gid, "by": author, "at": tau, "task": task})
         self._s["authors"][gid] = author
         if task:
-            self._board.add_activity(Activity(author, task, tau))
+            self._emit_all(self._board.add_activity(Activity(author, task, tau)))
         p = self._push_of(target)
         if p is not None:
             self._touched_props.add(p["id"])

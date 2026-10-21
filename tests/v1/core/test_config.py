@@ -180,6 +180,14 @@ def test_parse_config():
                        b"authserv-id mx.example.net\nunknown-key 1 2 3\n")
     assert cfg == RepoConfig(90_000, 45_000, 300_000, 0, 172_800_000, 3_600_000, 1_800_000, 86_400_000, "line",
                              60_000, 5, 10, "mx.example.net")
+    assert cfg.quiet == 3_600_000                             # task-quiet defaults to the lease (§10.5)
+    quiet = parse_config(b"lease 10m\ntask-quiet 2m\n")
+    assert quiet.task_quiet == quiet.quiet == 120_000
+    # a rules bundle without task-quiet keeps its earlier bytes; with it, the value round-trips
+    rules = RepoRules(parse_members(ROSTER), parse_owners(b""), parse_test(None), RepoConfig())
+    assert b"task_quiet" not in rules.encode()
+    with_quiet = RepoRules(rules.members, rules.owners, rules.test, quiet)
+    assert RepoRules.decode(with_quiet.encode()).config.quiet == 120_000
 
 
 @pytest.mark.parametrize("data", [b"window\n", b"window 1 2\n", b"window fast\n", b"carry block\n",

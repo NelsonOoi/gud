@@ -143,11 +143,15 @@ class _Task:
     red_link: Hex | None = None
     scope: list[str] = field(default_factory=list)
     declared: dict[str, Any] | None = None                         # done declaration {id, by, at}
+    active_at: Ms | None = None              # latest claim, push, comment or link carrying this id (§16.6 quiet)
+    open_pushes: list[Hex] = field(default_factory=list)          # live pushes carrying this id
 
     def to_json(self) -> dict:
         d = dict(self.__dict__)
-        if d["declared"] is None:
-            del d["declared"]            # snapshots without a declaration keep their v1 bytes
+        # snapshots keep their earlier bytes for tasks without a declaration or activity
+        for key, empty in (("declared", None), ("active_at", None), ("open_pushes", [])):
+            if d[key] == empty:
+                del d[key]
         return d
 
     @classmethod
@@ -289,7 +293,21 @@ class TaskBoard:
             done_at=t.done_at, done_link=t.done_link, no_change=tuple(no_change),
             cited_link=t.cited_link, offered_to=t.offered_to, offer_until=t.offer_until,
             declared=t.declared["id"] if t.declared else None, declared_by=t.declared["by"] if t.declared else None,
+            work_done_by=self._work_done_by(t), active_at=t.active_at, quiet_until=self._quiet_until(t),
         )
+
+    def _work_done_by(self, t: _Task) -> str | None:
+        if t.work_done_at is None:
+            return None
+        if t.kind == "fix":
+            return "green"
+        if t.children:
+            return "subtasks"
+        if t.no_change is not None:
+            return "no_change"
+        if t.declared is not None:
+            return "declared"
+        return "link" if t.parent is not None else "quiet"
 
     def tasks(self) -> Mapping[Hex, TaskState]:
         return {tid: self._state(t) for tid, t in self._tasks.items()}
@@ -408,7 +426,12 @@ class TaskBoard:
         return events
 
     def add_claim(self, c: ClaimInput, tip_paths: Iterable[str]) -> list[Event]:
-        """§16.3: win, void (claim.lost), update or release; overlap on win and update."""
+        """§16.3: win, void (claim.lost), update or release; overlap on win and update. Any claim carrying
+        the item is activity on it (§16.6 quiescence)."""
+        events = self._mark(c.task, c.received)
+        return events + self._add_claim(c, tip_paths)
+
+    def _add_claim(self, c: ClaimInput, tip_paths: Iterable[str]) -> list[Event]:
         paths = list(tip_paths)
         if c.revises is not None:
             for active in self._active():
@@ -478,8 +501,10 @@ class TaskBoard:
         self._touch_task(task.id)
         return True
 
-    def add_activity(self, a: Activity) -> None:
-        """§16.3 lease renewal by a push or comment from the holder on the item or a descendant."""
+    def add_activity(self, a: Activity, push: Hex | None = None) -> list[Event]:
+        """§16.3 lease renewal by a push or comment from the holder on the item or a descendant. From any
+        member, it is activity on the item for §16.6 quiescence; `push` (a push carrying the item) stays
+        open until `on_push_end` or its link."""
         for tid in self._ancestors(a.task):
             t = self._tasks[tid]
             if t.claim is None:
@@ -489,6 +514,50 @@ class TaskBoard:
                 claim.last_activity = a.at
                 claim.lapses_at = a.at + self._lease(a.at)
                 self._touch_claim(claim.id)
+        task = self._tasks.get(a.task)
+        if push is not None and task is not None and push not in task.open_pushes:
+            task.open_pushes.append(push)
+            self._touch_task(task.id)
+        return self._mark(a.task, a.at)
+
+    def on_push_end(self, push: Hex, task: Hex | None, at: Ms) -> list[Event]:
+        """A push carrying `task` died (§16.6: an open push holds quiescence back)."""
+        t = self._tasks.get(task or "")
+        if t is None or push not in t.open_pushes:
+            return []
+        t.open_pushes.remove(push)
+        self._touch_task(t.id)
+        return self._refresh(at) if self._quiet_due(t, at) else []
+
+    # ------------------------------------------------------------ quiescence (§16.6)
+
+    def _quiet_rule(self, t: _Task) -> bool:
+        """The item is a root task with no valid subtasks that a link carries, not done, and neither a
+        declaration nor a no-change made its work done."""
+        return (t.kind == "task" and t.parent is None and not t.children and bool(t.links)
+                and t.declared is None and t.no_change is None and t.done_at is None)
+
+    def _quiet_until(self, t: _Task) -> Ms | None:
+        """When the quiescence rule holds for `t` if nothing else happens: `task-quiet` after its latest
+        activity, while it has no active claim and no open push. None when the rule cannot hold now."""
+        if not self._quiet_rule(t) or t.claim is not None or t.open_pushes or t.active_at is None:
+            return None
+        return t.active_at + self._cfg_at(t.active_at).quiet
+
+    def _quiet_due(self, t: _Task, at: Ms) -> bool:
+        q = self._quiet_until(t)
+        return t.work_done_at is None and q is not None and at >= q
+
+    def _mark(self, task: Hex, at: Ms) -> list[Event]:
+        """Activity on `task` (and its ancestors). Work done by quiescence that is not yet done is revoked."""
+        revoke = False
+        for tid in self._ancestors(task):
+            t = self._tasks[tid]
+            if t.active_at is None or at > t.active_at:
+                t.active_at = at
+                self._touch_task(tid)
+            revoke |= t.work_done_at is not None and self._quiet_rule(t)
+        return self._refresh(at) if revoke else []
 
     # ------------------------------------------------------------ no-change
 
@@ -518,6 +587,12 @@ class TaskBoard:
         if link.task is not None and link.task in self._tasks:
             task = self._tasks[link.task]
             task.links.append([link.state, link.seq, at])
+            if link.push in task.open_pushes:
+                task.open_pushes.remove(link.push)
+            for tid in self._ancestors(task.id):   # a link carrying the item is activity on it (§16.6)
+                if self._tasks[tid].active_at is None or at > self._tasks[tid].active_at:  # type: ignore[operator]
+                    self._tasks[tid].active_at = at
+                    self._touch_task(tid)
             self._touch_task(task.id)
         for tid, t in list(self._tasks.items()):
             if t.no_change is None or self._tasks[self.root_of(tid)].done_at is not None:
@@ -637,10 +712,19 @@ class TaskBoard:
             }))
             if task.lapses == self._cfg_at(at).lease_thrash:
                 events.append(self.escalate(claim.task, "lease-thrash", at, None))
+        # §16.6 quiescence: `task-quiet` passed, or the last claim holding it back lapsed
+        if any(self._quiet_due(t, to) for t in self._tasks.values()):
+            events += self._refresh(to)
         return events
 
-    def next_time(self) -> Ms | None:
+    def next_time(self, after: Ms | None = None) -> Ms | None:
+        """The earliest lease lapse or quiescence time (later than `after`)."""
         times = [c.lapses_at for c in self._active()]
+        for t in self._tasks.values():
+            if t.work_done_at is None:
+                q = self._quiet_until(t)
+                if q is not None and (after is None or q > after):
+                    times.append(q)
         return min(times) if times else None
 
     def escalate(self, task: Hex, reason: str, at: Ms, by: Handle | None) -> Event:
@@ -678,7 +762,7 @@ class TaskBoard:
             "no_change": [[sid, reason] for sid, reason in state.no_change],
         })]
 
-    def _work_done(self, t: _Task) -> bool:
+    def _work_done(self, t: _Task, at: Ms) -> bool:
         if t.kind == "fix":
             return False
         if t.children:
@@ -686,8 +770,12 @@ class TaskBoard:
         if t.no_change is not None or t.declared is not None:
             return True
         # a subtask is small by construction: a link carrying its id is its work; a root task's work is
-        # done only when its holder says so (claim update with Gud-Done, or no-change), §16.6
-        return t.parent is not None and bool(t.links)
+        # done when its holder says so (claim update with Gud-Done, or no-change), or by quiescence: a link
+        # carries it, and no claim, open push or activity on it for `task-quiet` (§16.6)
+        if t.parent is not None:
+            return bool(t.links)
+        q = self._quiet_until(t)
+        return q is not None and at >= q
 
     def _refresh(self, at: Ms) -> list[Event]:
         """Re-derive work-done and done for every open item, children before parents."""
@@ -696,7 +784,7 @@ class TaskBoard:
             t = self._tasks[tid]
             if t.done_at is not None or t.kind == "fix":
                 continue
-            if self._work_done(t):
+            if self._work_done(t, at):
                 if t.work_done_at is None:
                     t.work_done_at = at
                     if not t.children and t.links and t.declared is None and t.parent is not None:

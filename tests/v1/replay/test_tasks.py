@@ -1,6 +1,7 @@
 """Leaderless tasks and claims (§16): opening, claims, leases, overlap, self-splitting, derived done,
 no-change, bug reports, fix-task offers, escalation events, aliases."""
 
+from gud.core.replay import Replayer
 from gud.core.tasks import aliases, fix_task_id
 from gud.core.types import TaskState
 from tests.v1.kit import Kit, events_of, link_of, status
@@ -401,3 +402,203 @@ def test_aliases_function():
                          None, "open", None, (), None, None, None, None, ())
     tasks = [ts("b", None, 2), ts("a", None, 1), ts("c", "a", 5), ts("d", "a", 3)]
     assert dict(aliases(tasks)) == {"a": "T1", "b": "T2", "d": "T1.1", "c": "T1.2"}
+
+
+# ---------------------------------------------------------------- done by quiescence (§16.6)
+#
+# The gud1-cc re-run (evals/v1/runs/20261020-v1-fixes-report.md, "Still unresolved"): the work on an unsplit
+# T1 landed, but nobody holding T1 declared it done, so a finished swarm left T1 open for good. A root task
+# without subtasks is now also work-done once a link carries it and nothing (no claim, no open push, no
+# activity) has happened on it for `task-quiet`.
+
+Q = 5 * 60_000
+QUIET = "lease 10m\ntask-quiet 5m\n"
+
+
+def quiet_base(config: str = QUIET):
+    k, g = base(test="command pytest\n", config=config)
+    t = k.task("@nelson", "site", cmds=["python -m pytest -q"])
+    return k, g, t
+
+
+def at(k, when: int):
+    """Replay with the log head (a tick) at exactly `when`."""
+    k.now = when
+    return k.run()
+
+
+def accept_tip(k, chain, t, result: str = "pass"):
+    return k.test("accept", t, chain.tip.tree_hash, result, link=chain.tip.state)
+
+
+def test_quiet_done_when_others_landed_the_work_and_the_holder_released():
+    """acme-site-shared re-run: @a2 claimed T1 for two pages, others pushed the rest with Gud-Task = T1, and
+    @a2 released without done. Work is done `task-quiet` after the last activity (the release)."""
+    k, g, t = quiet_base()
+    c = k.claim("@alice", t, ["index.html"])
+    p1 = k.push("@bob", g, {"nav.html": "nav\n"}, task=t.id)
+    p2 = k.push("@carol", g, {"style.css": "css\n"}, task=t.id)
+    rel = k.claim("@alice", t, ["index.html"], revises=c, release=True)     # "my part", no Gud-Done
+    chain, _ = k.run()
+    assert status(chain, p1) == "linked" and status(chain, p2) == "linked"
+    task = chain.tasks[t.id]
+    assert task.status == "open" and task.claim is None and task.quiet_until == rel.logged_at + Q
+    r = Replayer(k.store)
+    assert r.feed(k.emails, k.entries(), k.now).next_wakeup == rel.logged_at + Q   # the host ticks then
+    chain, events = at(k, rel.logged_at + Q - 1)
+    assert chain.tasks[t.id].status == "open" and not events_of(events, "task.ready")
+    chain, events = at(k, rel.logged_at + Q)
+    task = chain.tasks[t.id]
+    assert task.status == "work_done" and task.work_done_at == rel.logged_at + Q
+    assert task.work_done_by == "quiet" and task.work_done_link == chain.tip.state
+    assert all(link.linked_at < task.work_done_at for link in chain.links)   # only after the work landed
+    ready = events_of(events, "task.ready")
+    assert ready and ready[-1].at == rel.logged_at + Q and ready[-1].data["needs"] == "criteria"
+    accept = accept_tip(k, chain, t)
+    chain, events = k.run()
+    task = chain.tasks[t.id]
+    assert task.status == "done" and task.done_at == accept.logged_at
+    assert {"@alice", "@bob", "@carol"} <= set(events_of(events, "task.done")[-1].concerns)
+
+
+def test_quiet_done_when_the_holder_claimed_narrowly_and_stopped():
+    """refactor-guard / acme re-run: the holder claimed its own files, pushed them, and stopped without a
+    declaration while another agent landed the rest. With the default `task-quiet` (= the lease), work is done
+    one lease after the last link, after the holder's claim has lapsed."""
+    k, g = base(test="command pytest\n")
+    t = k.task("@nelson", "refactor", cmds=["python -m pytest -q"])
+    c = k.claim("@alice", t, ["src/c.py"])
+    mine = k.push("@alice", g, {"src/c.py": "c\n"}, task=t.id)
+    k.tick(60_000)
+    other = k.push("@bob", g, {"src/d.py": "d\n"}, task=t.id)
+    chain, _ = k.run()
+    last = link_of(chain, other).linked_at
+    assert chain.claims[c.id].lapses_at == mine.logged_at + L
+    assert chain.tasks[t.id].status == "claimed" and chain.tasks[t.id].quiet_until is None   # held by the claim
+    chain, events = at(k, mine.logged_at + L)
+    assert chain.claims[c.id].status == "lapsed" and chain.tasks[t.id].status == "open"
+    assert chain.tasks[t.id].quiet_until == last + L
+    chain, _ = at(k, last + L - 1)
+    assert chain.tasks[t.id].status == "open"
+    chain, events = at(k, last + L)
+    task = chain.tasks[t.id]
+    assert task.status == "work_done" and task.work_done_at == last + L and task.work_done_by == "quiet"
+    accept_tip(k, chain, t)
+    chain, _ = k.run()
+    assert chain.tasks[t.id].status == "done"
+
+
+def test_quiet_done_at_the_lapse_when_the_lease_outlasts_task_quiet():
+    """The holder claimed `**`, landed everything and stopped. `task-quiet` (5m) passes while its claim is
+    still active; work is done exactly when the lease (10m) lapses."""
+    k, g, t = quiet_base()
+    c = k.claim("@alice", t, ["**"])
+    p = k.push("@alice", g, {"index.html": "home\n"}, task=t.id)
+    chain, _ = k.run()
+    lapse = chain.claims[c.id].lapses_at
+    assert lapse == p.logged_at + 10 * 60_000
+    chain, _ = at(k, p.logged_at + Q + 60_000)
+    assert chain.tasks[t.id].status == "claimed"
+    k.now = lapse + 30_000                                    # the next tick comes later: replay times it anyway
+    k.tick_entry()
+    r = Replayer(k.store)
+    delta = r.feed(k.emails, k.entries(), k.now)
+    task = r.chain().tasks[t.id]
+    assert task.status == "work_done" and task.work_done_at == lapse
+    lapsed, ready = events_of(delta.events, "claim.lapsed"), events_of(delta.events, "task.ready")
+    assert lapsed[0].at == lapse and ready[0].at == lapse
+
+
+def test_activity_inside_task_quiet_resets_the_timer():
+    k, g, t = quiet_base(QUIET + "window 20m\n")             # a consent window that outlasts task-quiet
+    p = k.push("@bob", g, {"nav.html": "nav\n"}, task=t.id)                 # nobody ever claimed T1
+    chain, _ = k.run()
+    landed = link_of(chain, p).linked_at
+    assert chain.tasks[t.id].quiet_until == landed + Q
+    k.now = landed + 4 * 60_000
+    k.comment("@carol", t, "is the footer missing?")                          # no Gud-Task: not activity
+    chain, _ = k.run()
+    assert chain.tasks[t.id].quiet_until == landed + Q
+    talk = k.comment("@carol", t, "checking the footer", task=t.id)
+    chain, _ = at(k, landed + Q)
+    assert chain.tasks[t.id].status == "open" and chain.tasks[t.id].quiet_until == talk.logged_at + Q
+    chain, _ = at(k, talk.logged_at + Q)
+    assert chain.tasks[t.id].status == "work_done" and chain.tasks[t.id].work_done_at == talk.logged_at + Q
+    # before acceptance, a claim is activity too: someone took T1 up again, so its work is no longer done
+    c = k.claim("@carol", t, ["footer.html"])
+    chain, _ = k.run()
+    task = chain.tasks[t.id]
+    assert chain.claims[c.id].status == "active" and task.status == "claimed" and task.work_done_at is None
+    # a push carrying T1 holds quiescence back while it is open, however long
+    k.claim("@carol", t, ["footer.html"], revises=c, release=True)
+    chain, _ = k.run()
+    pending = k.push("@bob", link_of(chain, p).state, {"src/a.py": "a = 5\n"}, task=t.id)   # @alice's line
+    chain, _ = at(k, pending.logged_at + Q + 1)
+    assert status(chain, pending) == "window" and chain.tasks[t.id].status == "open"
+    veto = k.veto("@nelson", pending)
+    chain, _ = k.run()
+    assert status(chain, pending) == "vetoed"
+    assert chain.tasks[t.id].status == "work_done" and chain.tasks[t.id].work_done_at == veto.logged_at
+
+
+def test_red_tip_blocks_done_by_quiescence():
+    k, g, t = quiet_base()
+    p = k.push("@bob", g, {"nav.html": "nav\n"}, task=t.id)
+    chain, _ = k.run()
+    l1 = link_of(chain, p)
+    k.test_tip(l1.state, k.tree(p), "fail")
+    chain, _ = at(k, l1.linked_at + Q)
+    task = chain.tasks[t.id]
+    assert chain.red is not None and chain.red.red
+    assert task.status == "work_done" and task.work_done_at == l1.linked_at + Q   # work done, but not done
+    accept_tip(k, chain, t)                                                   # a pass while red does not count
+    chain, _ = k.run()
+    assert chain.tasks[t.id].status == "work_done"
+    fix = k.push("@carol", l1.state, {"fix.txt": "fixed\n"})
+    chain, _ = k.run()
+    l2 = link_of(chain, fix)
+    k.test_tip(l2.state, k.tree(fix), "pass")
+    chain, _ = k.run()
+    assert not chain.red.red and chain.tasks[t.id].status == "work_done"
+    accept = accept_tip(k, chain, t)
+    chain, _ = k.run()
+    task = chain.tasks[t.id]
+    assert task.status == "done" and task.done_at == accept.logged_at and task.done_link == l2.state
+
+
+def test_declaration_fast_path_is_unchanged():
+    k, g, t = quiet_base()
+    c = k.claim("@alice", t, ["**"])
+    p = k.push("@alice", g, {"index.html": "home\n"}, task=t.id)
+    decl = k.claim("@alice", t, ["**"], revises=c, done=True)
+    chain, events = k.run()
+    task = chain.tasks[t.id]
+    assert task.status == "work_done" and task.work_done_at == decl.logged_at and task.work_done_by == "declared"
+    assert task.quiet_until is None
+    accept = accept_tip(k, chain, t)
+    chain, _ = k.run()
+    assert chain.tasks[t.id].status == "done" and chain.tasks[t.id].done_at == accept.logged_at
+    assert chain.tasks[t.id].done_at < link_of(chain, p).linked_at + Q
+    # a holder that keeps its claim alive is never overtaken by quiescence
+    t2 = k.task("@nelson", "two", cmds=["true"])
+    c2 = k.claim("@alice", t2, ["src/**"])
+    k.push("@alice", chain.tip.state, {"src/z.py": "z\n"}, task=t2.id)
+    for _ in range(4):
+        k.tick(4 * 60_000)
+        k.comment("@alice", c2, "still on it", task=t2.id)
+    chain, _ = k.run()
+    assert chain.tasks[t2.id].status == "claimed" and chain.claims[c2.id].status == "active"
+
+
+def test_quiet_rule_skips_split_and_unlinked_tasks():
+    k, g, t = quiet_base()
+    bare = k.task("@nelson", "nobody touched it")
+    c = k.claim("@alice", t, ["**"])
+    s = k.subtask("@alice", t, "part", files=["a.html"])
+    k.claim("@alice", t, ["**"], revises=c, release=True)
+    k.claim("@bob", s, ["a.html"])
+    k.push("@carol", g, {"b.html": "b\n"}, task=t.id)              # a link carrying the split parent
+    chain, _ = at(k, k.now + 3 * Q)
+    assert chain.tasks[bare.id].status == "open" and chain.tasks[bare.id].quiet_until is None
+    assert chain.tasks[t.id].status == "open" and chain.tasks[t.id].quiet_until is None   # follows its subtask
+    assert chain.tasks[s.id].status == "open"
