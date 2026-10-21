@@ -1,4 +1,4 @@
-"""Event dispatch (SPEC-v1 §19.3, §19.4) and the signing used on the host's HTTP surface.
+"""Event dispatch (SPEC §19.3, §19.4) and the signing used on the host's HTTP surface.
 
 Host side:
 

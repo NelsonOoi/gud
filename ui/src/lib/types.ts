@@ -1,5 +1,5 @@
 // Shapes of the v1 host's UI view API (`gud/host_view.py`, `/api/v1/view/*`). Times are integer
-// unix milliseconds (protocol time, SPEC-v1 §0); ids are 64 hex.
+// unix milliseconds (protocol time, SPEC §0); ids are 64 hex.
 
 export type Hex = string
 export type Ms = number

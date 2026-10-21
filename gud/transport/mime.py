@@ -1,4 +1,4 @@
-"""Build and parse the v1 MIME layout (SPEC-v1 §2).
+"""Build and parse the v1 MIME layout (SPEC §2).
 
 `build` writes the §2.1 layout byte for byte: CRLF line endings, a quoted-printable UTF-8 text
 part, and the envelope as a base64 `gud.env` attachment in 76-character lines. An `Outgoing`

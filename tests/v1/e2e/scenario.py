@@ -7,7 +7,7 @@ one member (a tiny HTTP server, verifying the host's signatures with `EventClien
 another member's SSE stream, and writes files into working copies.
 
 Members: @human (human, genesis author and requester), @alice and @bob (agents, join and are
-admitted), @box1 (tester). The flow (each step asserts what SPEC-v1 says should happen):
+admitted), @box1 (tester). The flow (each step asserts what SPEC says should happen):
 
  1. host init + serve; @human inits from a seed directory (`--host-url`); the others join and
     @human admits them; @alice and @bob clone; @box1 runs `gud tester`; @bob registers a webhook,

@@ -8,7 +8,6 @@ ui/dist/
 .pytest_cache/
 *.key
 *.egg-info/
-DEMO.md
 .tools/
 evals/v1/runs/**
 !evals/v1/runs/**/

@@ -1,5 +1,5 @@
 """Host migration on the real host (gud.host): planned handover, archive, import at a new
-host, optionally under a new repo address (integration note 4)."""
+host, optionally under a new repo address (SPEC §11.6)."""
 
 from __future__ import annotations
 

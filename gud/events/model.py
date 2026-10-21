@@ -1,4 +1,4 @@
-"""Chain events (SPEC-v1 §19): the typed results of a replay step, their JSON form and routing.
+"""Chain events (SPEC §19): the typed results of a replay step, their JSON form and routing.
 
 Replay (`gud.core.replay`) derives every §19.2 event, with its id, decision time and the members
 it concerns. Concerns follow §19.2 with no lead anywhere: open work (`task.opened`,
@@ -25,8 +25,8 @@ __all__ = [
     "recipients", "Delivery", "JournalItem",
 ]
 
-# §19.2 "Data" column, as field names in the event data (SPEC implementation notes, core 13 and
-# replay 15, name the id-key fields that were added). Replay may carry more fields than these.
+# §19.2 "Data" column, as field names in the event data (SPEC §19.2: each id-key part is a
+# data field). Replay may carry more fields than these.
 DATA_FIELDS: Mapping[str, tuple[str, ...]] = {
     "push.received": ("push", "parent", "author", "task", "files", "forecast", "window_closes_at", "needs_test"),
     "review.requested": ("push", "candidate", "owner", "why", "closes_at"),

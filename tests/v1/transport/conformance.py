@@ -1,4 +1,4 @@
-"""Transport conformance checks (SPEC-v1 §20.2), written against the `Mailbox` contract only.
+"""Transport conformance checks (SPEC §20.2), written against the `Mailbox` contract only.
 
 Each `check_*` function takes a `Harness` describing one transport and returns a dict of
 measurements (latencies, sizes, what the provider changed). `test_conformance.py` runs every

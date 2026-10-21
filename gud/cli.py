@@ -1,4 +1,4 @@
-"""`gud`: the command line (INTERFACES.md `gud/cli.py`, SPEC-v1 §21, §22).
+"""`gud`: the command line (INTERFACES.md `gud/cli.py`, SPEC §21, §22).
 
 Global flags (before or after the command): `--home PATH` (default `$GUD_HOME`, else `~/.gud`),
 `--handle @x` (default `$GUD_HANDLE`, else the working copy's or the last init/clone/join's),
@@ -1461,7 +1461,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dir", required=True)
     p = add("handover", cmd_host_handover, "old host: sign the handover to a new host key (§11.6)", host)
     p.add_argument("key", help="the new host's public key (ed25519:...)")
-    p.add_argument("--new-repo", help="the repo's new address, when it moves (integration note 4)")
+    p.add_argument("--new-repo", help="the repo's new address, when it moves (SPEC §11.6)")
     p.add_argument("--dir", help="host directory (default: this member's local host, or the only one)")
     p.add_argument("--repo", help="pick the host directory by repo address")
     p = add("line", cmd_host_line, "members push recording the new host key (and address)", host)

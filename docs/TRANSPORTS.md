@@ -1,6 +1,6 @@
 # gud v1 transports
 
-Each provider adapter in `gud/transport/` implements the `Mailbox` contract of SPEC-v1 §20.1 (`docs/v1/INTERFACES.md`, "gud/transport/base.py"). This file says, per adapter, how to configure it, what `capabilities()` reports, and what was verified and how. The choices the spec left open are under "Implementation notes (transport)" at the end of `SPEC-v1.md`.
+Each provider adapter in `gud/transport/` implements the `Mailbox` contract of SPEC §20.1 (`docs/INTERFACES.md`, "gud/transport/base.py"). This file says, per adapter, how to configure it, what `capabilities()` reports, and what was verified and how. Cursors, `subscribe` and the synthesized `Authentication-Results` are specified in `SPEC.md` §20.1; adapter-specific choices are in its Appendix A.1.
 
 ## Choosing a transport
 
@@ -39,7 +39,7 @@ Built-in names: `fake`, `imap_smtp`, `primitive`, `jmap`, `ses`, `postmark`, `gm
 | `raw_mime` | yes | yes | yes | yes | yes | `RawEmailEnabled` from `GET /server` | yes |
 | §6 envelope budget `B` | 7 340 032 | 7 340 032 at 10 MiB | 7 340 032 | 7 340 032 | 7 340 032 (S3; 61 723 SNS-only) | 7 259 800 | 7 340 032 |
 
-`B` comes from `gud.transport.base.envelope_budget`, which corrects the §6 formula for base64 line breaks (spec note 1).
+`B` comes from `gud.transport.base.envelope_budget`, which implements the §6 formula (with its `57 / 78` factor for base64 line breaks).
 
 ## `fake`
 
@@ -74,12 +74,12 @@ Verified against a local **GreenMail 2.1.3** (`.tools/greenmail-standalone.jar`,
 
 ## `primitive`
 
-`PrimitiveMailbox(api_key, address, *, base_url="https://api.primitive.dev/v1", webhook_secret=None, subscribe_wait=10)` is the v1 port of `gud/mail_primitive.py`. Config keys: `api_key`, `address`, optional `base_url`, `webhook_secret`, `authserv_id`, `send_quota_per_day`, `max_message_bytes`, `subscribe_wait`.
+`PrimitiveMailbox(api_key, address, *, base_url="https://api.primitive.dev/v1", webhook_secret=None, subscribe_wait=10)` talks to Primitive's REST API (`docs/primitive-openapi.json`). Config keys: `api_key`, `address`, optional `base_url`, `webhook_secret`, `authserv_id`, `send_quota_per_day`, `max_message_bytes`, `subscribe_wait`.
 
 - **Send**: `POST /send-mail` with the envelope as an inline attachment (`filename: gud.env`, `application/octet-stream`). Primitive builds the MIME from these fields, which keeps sending simple. A raw-bytes `send` is rendered from its parsed fields with the envelope bytes kept exactly. `to` takes one address; further To addresses go in `cc`. Each call carries a fresh `Idempotency-Key`, so retries of one call are safe and a deliberate resend is really sent. HTTP 429 and 5xx are retried with `Retry-After`; exhausted 429s raise `PrimitiveQuotaError` (a `QuotaExceeded`).
 - **Receive**: `GET /emails?recipient=<address>&since=<cursor>` (the forward tail, oldest first), then `GET /emails/{id}/raw` (checked against `X-Content-SHA256`) and `GET /emails/{id}` for the `auth` verdicts. Rows in every status are read (`rejected` is Primitive's spam verdict, the analogue of a junk folder). Received time is the row's `received_at`.
 - **Cursor**: `<primitive tail cursor>#<skip>`. Primitive's forward-tail cursor marks each page, so a position inside a page is "that page's start, skipping n rows". When a page is used up the cursor settles on Primitive's exact tail cursor.
-- **Authentication-Results**: Primitive reports DMARC as structured JSON next to the raw MIME. The adapter turns that verdict into a header by prepending `primitive.gud.invalid; dmarc=<auth.dmarc> header.from=<From domain>`. Primitive evaluates DMARC on the organisational domain (`dmarcFromDomain`), so a `pass` is kept only when the From domain is that domain or a subdomain of it (spec note 8). A repo on Primitive pins `authserv-id primitive.gud.invalid`.
+- **Authentication-Results**: Primitive reports DMARC as structured JSON next to the raw MIME. The adapter turns that verdict into a header by prepending `primitive.gud.invalid; dmarc=<auth.dmarc> header.from=<From domain>`. Primitive evaluates DMARC on the organisational domain (`dmarcFromDomain`), so a `pass` is kept only when the From domain is that domain or a subdomain of it (SPEC Appendix A.1). A repo on Primitive pins `authserv-id primitive.gud.invalid`.
 - **Push intake**: `subscribe` long-polls `GET /emails?since=&wait=` (it returns as soon as mail arrives), which works without a public URL. With a public URL, mount `accept_webhook(headers, body)` (or `verify` + `parse` from `WebhookVerifier`) on the webhook route. It checks `Primitive-Signature: t=<s>,v1=<hex>` (HMAC-SHA256 over `<t>.<raw body>` with the account secret as UTF-8, ±300 s; the legacy `MyMX-Signature` is accepted too). It takes the raw MIME from the payload when inlined, else from the signed download URL, else by id, and hands the message to subscribers, deduped against the long-poll by provider id.
 
 Verified in CI against `tests/v1/transport/primitive_mock.py`, an `httpx.MockTransport` stand-in. The mock renders MIME with Python's `email` package (a different layout from `gud.transport.mime`, with LF-only line endings like the live service), rewrites Message-IDs like the live service, keeps raw MIME without A-R, reports org-domain DMARC, pages with `<µs>|<id>` cursors and honours `wait`. It also signs webhooks, which tests both with the raw inlined and with fallback fetch by id. Extra tests: retries and quota, refusing an unverified sender domain, cursors inside pages resumed from a fresh instance, and the dmarc alignment rule.
@@ -107,7 +107,7 @@ How Primitive delivers the mail (observed on the stored raw MIME, read back afte
 
 - **Primitive renders its own MIME.** LF-only line endings (no CRLF anywhere), its own boundary (`--_NmP-<hex>-Part_1`), the text part as `7bit`, the attachment as `Content-Type: application/octet-stream; name=gud.env` and `Content-Disposition: attachment; filename=gud.env` (unquoted), base64 in 76-character lines. Primitive signs the message with DKIM (d=`primitive.email`) and adds `X-Primitive-Sent-At`. The envelope bytes arrive unchanged, which is all replay reads.
 - **Primitive assigns the Message-ID** (`<primitive-direct-<sent id>@<from domain>>`), and `Sent.message_id` reports it. gud references messages by content hash, so human replies resolve through the subject tag or that id (§8.2).
-- **No Authentication-Results** in the stored raw MIME. DMARC comes as JSON, evaluated on the organisational domain (`dmarcFromDomain: primitive.email` for mail from `x.primitive.email`), hence the synthesized header and alignment rule.
+- **DMARC comes as structured JSON**, evaluated on the organisational domain (`dmarcFromDomain: primitive.email` for mail from `x.primitive.email`). The adapter writes it into a synthesized header and applies the alignment rule.
 - **Size**: a 9.9 MB message (7 MiB envelope) went through. The documented caps are 30 MiB of decoded attachments and 262 144 bytes of `body_text` per send, so the 40 MiB `max_message_bytes` is derived from them; the envelope cap of 7 MiB keeps every gud message near 10 MB.
 - **Covered by the local suites**: the outside-MTA forgery variants (positive control and forged A-R) run on fake, GreenMail and the mock, since the test machine sends no outbound port-25 mail; live webhooks need a public URL for the host.
 
@@ -115,7 +115,7 @@ Not covered here: the host noticing mail through `/endpoints` webhooks, and the 
 
 ## Webhook-fed adapters (SES, Postmark)
 
-SES and Postmark have no mailbox-listing API comparable to IMAP, JMAP or Gmail: mail reaches gud only when the provider calls a webhook. Both adapters follow the v0 `HostedMailbox` pattern. The webhook handler calls `accept_webhook(headers, body)`, which verifies the request and writes the message into a `gud.transport.spool.Spool`. That is an on-disk store, safe across processes, at `GUD_HOME/inbound/<transport>/<address>/` unless `store` is configured. `list`, `wait` and `subscribe` read the spool. The cursor is the spool sequence number. Each provider id is stored once, and the first copy wins, so the stored bytes (and an unsigned message's gud id) never change. `catch_up()` fetches from the provider's own store whatever the webhook missed: S3 for SES, message search for Postmark. `subscribe` runs it every `catchup_interval` seconds (default 60) and `wait` runs it while idle. Mount the webhook on HTTPS. Answer 2xx when `accept_webhook` returns, and 401/403 when it raises, so the provider retries real failures only.
+SES and Postmark have no mailbox-listing API comparable to IMAP, JMAP or Gmail: mail reaches gud only when the provider calls a webhook. Both adapters keep a local cache of delivered mail. The webhook handler calls `accept_webhook(headers, body)`, which verifies the request and writes the message into a `gud.transport.spool.Spool`. That is an on-disk store, safe across processes, at `GUD_HOME/inbound/<transport>/<address>/` unless `store` is configured. `list`, `wait` and `subscribe` read the spool. The cursor is the spool sequence number. Each provider id is stored once, and the first copy wins, so the stored bytes (and an unsigned message's gud id) never change. `catch_up()` fetches from the provider's own store whatever the webhook missed: S3 for SES, message search for Postmark. `subscribe` runs it every `catchup_interval` seconds (default 60) and `wait` runs it while idle. Mount the webhook on HTTPS. Answer 2xx when `accept_webhook` returns, and 401/403 when it raises, so the provider retries real failures only.
 
 ## `jmap`
 

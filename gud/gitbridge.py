@@ -124,7 +124,7 @@ def _cat_blobs(git: str, git_dir: Path, oids: Sequence[str]) -> dict[str, bytes]
 # ---------------------------------------------------------------- import
 
 DEFAULT_CONFIG = b"""\
-# gud repo config (SPEC-v1 section 10.5). Changing this file needs quorum.
+# gud repo config (SPEC section 10.5). Changing this file needs quorum.
 window 60s
 grace 30s
 skew 120s
@@ -141,7 +141,7 @@ checkpoint 1000
 """
 
 DEFAULT_TEST = b"""\
-# gud test policy (SPEC-v1 section 10.4). With no `command`, no push needs a test.
+# gud test policy (SPEC section 10.4). With no `command`, no push needs a test.
 # command pytest -q
 # image python:3.12-slim
 # timeout 10m
@@ -153,7 +153,7 @@ DEFAULT_TEST = b"""\
 """
 
 DEFAULT_OWNERS = b"""\
-# gud declared owners (SPEC-v1 section 10.3): glob rule owners...
+# gud declared owners (SPEC section 10.3): glob rule owners...
 # rule is lazy, explicit or quorum; the last matching line applies.
 # src/auth/** explicit @alice @bob
 # docs/** lazy @carol
@@ -262,7 +262,7 @@ def import_git(git_dir: Path, *, ref: str = "main", roster: Path, host_key: str,
             warnings.append(f"skipped {path}: unsupported git mode {mode}")
             continue
         if not valid_path(path):
-            warnings.append(f"skipped {path}: not a valid gud path (SPEC-v1 5.1)")
+            warnings.append(f"skipped {path}: not a valid gud path (SPEC 5.1)")
             continue
         wanted.append((path, mode, oid))  # type: ignore[arg-type]
     blobs = _cat_blobs(git, gd, sorted({oid for _, _, oid in wanted}))

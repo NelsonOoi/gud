@@ -1,4 +1,4 @@
-"""Member-side client of the host mirror (SPEC-v1 §21), and the local host mode.
+"""Member-side client of the host mirror (SPEC §21), and the local host mode.
 
 `RepoClient` is what every member tool (CLI, working copy, tester, agent) talks to. It
 
@@ -197,7 +197,7 @@ class HttpMirror:
         import httpx
         headers = {"Content-Type": "application/json"} if body else {}
         if signed:
-            # X-Gud-Time is whole unix seconds (wc note 7)
+            # X-Gud-Time is whole unix seconds (SPEC §21)
             headers.update(sign_request(self.handle, self._key, method, self._prefix + path, body,
                                         math.floor(self._clock())))
         try:
@@ -329,7 +329,7 @@ class LocalHost:
 
     def handover(self, new_public: str, *, repo: str | None = None) -> LogEntry:
         """Old host, before `gud export-archive --host`: sign the §11.6 handover to `new_public`
-        (and the repo's new address, integration note 4). Nothing is logged after it."""
+        (and the repo's new address, SPEC §11.6). Nothing is logged after it."""
         if self.served():
             raise RemoteError(f"{self.root} is being served; stop `gud host serve` first")
         with _flock(self.root / "lock"):
@@ -723,7 +723,7 @@ class RepoClient:
     @property
     def repo_address(self) -> str:
         """Where this member sends: the repo address of the latest `open` in the verified log, so
-        members follow a handover that moved the repo (integration note 4). `repo` stays the
+        members follow a handover that moved the repo (SPEC §11.6). `repo` stays the
         address the cache is named after."""
         log = self._replayer.log()
         return (log.repo if len(log) else None) or self.repo

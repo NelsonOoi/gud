@@ -1,4 +1,4 @@
-"""Working copy end to end against the real v1 host (gud.host; SPEC-v1 §21, §22)."""
+"""Working copy end to end against the real v1 host (gud.host; SPEC §21, §22)."""
 
 from __future__ import annotations
 

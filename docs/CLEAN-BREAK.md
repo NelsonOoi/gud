@@ -97,7 +97,7 @@ All are v0 only. None is imported by a v1 module.
 | `RESULTS.md` | the v0 scripted comparisons |
 | `VIDEO.md` | a video script for the v0 comparison |
 | `SPEC.md` | the v0 wire spec, replaced by the v1 spec |
-| `README.md`, `DEMO.md` | v0 content; rewritten for v1 (below) |
+| `README.md`, `DEMO.md` | v0 content; rewritten for v1. `DEMO.md` was an ignored, untracked file in the main checkout; the v1 one is tracked (its `.gitignore` line is removed), so move the old local copy aside before checking this branch out there. |
 
 ### Dependencies (`pyproject.toml`)
 
@@ -140,3 +140,16 @@ All are v0 only. None is imported by a v1 module.
 | `docs/v1/TRANSPORTS.md`, `docs/v1/PLAN.md` | `docs/TRANSPORTS.md`, `docs/PLAN.md` | PLAN is marked as the v1 design record |
 | `docs/v1/CLEAN-BREAK.md` | `docs/CLEAN-BREAK.md` | this file, once `docs/v1/` is empty |
 | eval arms `gud1-cc`, `gud1-ref` | `gud-cc`, `gud-ref` | `evals/v1/gud1_arm.py` becomes `evals/v1/gud_arm.py`, `Gud1CCArm`/`Gud1RefArm` become `GudCCArm`/`GudRefArm`, the summary block `gud1` becomes `gud`, `analyze.gud1_metrics` becomes `analyze.gud_metrics`, `evals/v1/tests/test_gud1.py` becomes `test_gud.py`. `report.py` still reads historical summaries (their `gud1` block). |
+
+## Kept, though it might look like it should be gone
+
+| What | Why |
+| --- | --- |
+| v0 module names in `docs/PLAN.md` | PLAN is the v1 design record and describes v0 as it was; a note at its top says so. |
+| v0 and `gud1-*` names in `evals/v1/runs/` | historical summaries and reports, left as written (the smoke runs' `gud` arm is v0). `evals/v1/README.md` explains the names. |
+| `gud1-cc` in two regression docstrings (`tests/v1/mcp/test_tools.py`, `tests/v1/replay/test_tasks.py`) | they name the historical eval runs the regressions came from |
+| `tests/v1/` and `evals/v1/` | there is no other suite or eval now, but every report, summary path, test id and SPEC reference uses these paths |
+| the word "v1" in docstrings and the wire (`Gud-Version: 1`, `/api/v1/`, "gud v1 MCP server") | it names the wire version, not a module generation |
+| `gudv1-*` temp-directory prefix of eval runs | an eval-internal name the harness tests check |
+| "v0" in SPEC §24 deviations and §2.3 | history of why the protocol is shaped as it is, and the statement that v0 is not read |
+| `docs/primitive-openapi.json` | the provider reference for `gud/transport/primitive.py` |

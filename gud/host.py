@@ -1,4 +1,4 @@
-"""The v1 host process (SPEC-v1 §11.2, §19, §21): HTTP mirror + intake + dispatch.
+"""The v1 host process (SPEC §11.2, §19, §21): HTTP mirror + intake + dispatch.
 
 Endpoints (`create_app`):
 

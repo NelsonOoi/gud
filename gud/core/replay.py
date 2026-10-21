@@ -31,7 +31,7 @@ Every `feed`/`advance` returns a `ChainDelta`:
   changed.
 - `red`: the new `RedState` when the red/green state changed, else None.
 - `events`: every §19.2 event derived in the step, sorted by (at, EVENT_TYPES order, id).
-  Event data always carries the event-id key fields (SPEC implementation notes, core 13).
+  Event data always carries the event-id key fields (SPEC §19.2).
 - `next_wakeup`: the earliest time > t at which a time-only step can change anything (it can
   only be reached once the log head passes it).
 - `missing_mail`: logged ids at or after the processing position whose raw mail is missing.

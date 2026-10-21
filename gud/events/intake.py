@@ -1,4 +1,4 @@
-"""Host-side intake (SPEC-v1 §11, PLAN Phase 1b): the single entry point for "an email arrived".
+"""Host-side intake (SPEC §11, PLAN Phase 1b): the single entry point for "an email arrived".
 
 Every path ends in `on_received`: the adapter's push intake (`Mailbox.subscribe`: IMAP IDLE,
 JMAP EventSource, Gmail Pub/Sub, a provider long-poll), provider webhooks (`on_webhook`, through
@@ -453,7 +453,7 @@ class Intake:
             if email.envelope is None and self.next_wakeup is not None and head.time < when - 1 \
                     and self.next_wakeup <= when - 1:
                 # §8.1 is judged at "the tip at received time": the tip after every timer before
-                # `when` and before anything decided at `when` (replay note 1). Bring replay there.
+                # `when` and before anything decided at `when` (SPEC §12.4). Bring replay there.
                 tick = self._log.append_tick(self._key, when - 1)
                 self._persist_entry(tick)
                 self.stats["ticks"] += 1
@@ -501,7 +501,7 @@ class Intake:
 
     def catch_up(self) -> int:
         """`list()` from the stored cursor (on start and after reconnect). Returns how many
-        messages were newly logged. Only list cursors are persisted (transport note 4)."""
+        messages were newly logged. Only list cursors are persisted (SPEC §20.1)."""
         with self._catch_lock:
             cursor = self._cursor
             logged = 0
@@ -548,7 +548,7 @@ class Intake:
 
     def handover(self, new_public: str, *, repo: str | None = None) -> LogEntry:
         """Planned handover (§11.6): append `handover` naming the new host key (and the repo's new
-        address, integration note 4). After it this host logs nothing; export the archive
+        address, SPEC §11.6). After it this host logs nothing; export the archive
         (`gud.ops.archive.export_archive(intake, ...)`) for the new host."""
         with self._lock:
             head = self._log.head

@@ -1,4 +1,4 @@
-"""The working copy (SPEC-v1 §22): an ordinary directory plus `.gud/BASE` and `.gud/local/`.
+"""The working copy (SPEC §22): an ordinary directory plus `.gud/BASE` and `.gud/local/`.
 
 - **Materialise** writes a link's tree byte-exactly: modes (`100755` sets the executable bits,
   `100644` clears them), symlinks as symlinks, no newline conversion. Nothing is written
@@ -461,7 +461,7 @@ class WorkingCopy:
                 if ignore.ignored(rel):
                     continue
                 if not valid_path(rel):
-                    self.warnings.append(f"skipped {rel!r}: not a valid gud path (SPEC-v1 5.1)")
+                    self.warnings.append(f"skipped {rel!r}: not a valid gud path (SPEC 5.1)")
                     continue
                 full = os.path.join(dirpath, name)
                 try:

@@ -1,6 +1,6 @@
 [project]
 name = "gud"
-version = "0.1.0"
+version = "1.0.0"
 description = "Source control where the email chain is the repo"
 requires-python = ">=3.11"
 dependencies = [

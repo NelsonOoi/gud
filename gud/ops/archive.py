@@ -486,7 +486,7 @@ def load_archive(path: Path, *, trusted_keys: Sequence[str] = (), host_key: str 
 def plan_handover(log: HostLog, old_private: bytes, new_public: str, now: Ms, *,
                   repo: str | None = None) -> LogEntry:
     """Old host, before exporting: append the `handover` entry naming the new host key (§11.6)
-    and, when the repo moves, its new address (integration note 4). The old host must log
+    and, when the repo moves, its new address (SPEC §11.6). The old host must log
     nothing after it."""
     if log.head is None:
         raise ArchiveError("the log is not open")
@@ -508,7 +508,7 @@ def import_archive(archive: Path, *, repo: str | None, host_private: bytes, mail
       this key trusted locally; members must `gud host trust` it too.
 
     `repo` must be the address the continued log will have: the archived log's, or the new
-    address a final planned `handover` names (integration note 4); None takes that address.
+    address a final planned `handover` names (SPEC §11.6); None takes that address.
     Raw mail is re-delivered
     byte-exactly to `mailbox` when it can inject raw bytes (`mailbox.deliver`), in log order, and
     written to `mail_store/<gud id>.eml` when given (both hosts read that layout); `log_path`

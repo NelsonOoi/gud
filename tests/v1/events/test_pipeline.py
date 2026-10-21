@@ -397,7 +397,7 @@ def test_rate_limit_applies_to_non_members_only(tmp_path):
 
 def test_unsigned_mail_is_judged_at_the_tip_at_its_received_time(world):
     # A removal of @dana links at close + G by a timer. Dana's mail arrives after that with no
-    # tick in between: the host first ticks to just before it (replay note 1), so the removal
+    # tick in between: the host first ticks to just before it (SPEC §12.4), so the removal
     # has linked and the mail fails §8.1 (3).
     w = world
     g = w.genesis({"app.py": "a = 1\n"}, author="@alice")

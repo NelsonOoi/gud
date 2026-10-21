@@ -1,5 +1,7 @@
 # gud v1: a portable, email-native replacement for git for agent swarms
 
+> **Design record.** This is the plan gud v1 was built from, kept as written. It describes v0 as it stood then (`gud/replay.py`, `gud/worker.py`, `gud/mcp_server.py`, the lead, `demo_repo/` and so on); all of that was deleted in the v1 clean break (tag `v0-final`, `docs/CLEAN-BREAK.md`). File names it gives for v1 work (`SPEC-v1.md`, `gud1`, `*_v1.py`) are now `SPEC.md`, `gud` and the unsuffixed modules. Where this plan and `SPEC.md` differ, `SPEC.md` wins; SPEC §24 lists every deviation.
+
 ## Context
 
 gud started as a working hackathon prototype. The repo is the set of emails at a repo address, pushes are signed diffs, links are decided by replaying the mailbox (`gud/replay.py`), and consent comes from blame. It already runs live over email (the rate-limit demo, the Acme site build). v1 grows that core into a framework people can adopt, in six directions:

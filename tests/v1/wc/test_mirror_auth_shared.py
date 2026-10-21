@@ -54,7 +54,7 @@ def test_member_requests_verify_at_the_host_with_a_path_prefix():
     mirror.delivery({"sse": True})
     (m1, url1, b1, h1), (m2, url2, b2, h2) = http.calls
     assert url1 == "https://host.example/gud/api/v1/log?since=3&limit=10"
-    assert h1["X-Gud-Time"] == str(math.floor(now))          # whole seconds (wc note 7)
+    assert h1["X-Gud-Time"] == str(math.floor(now))          # whole seconds (SPEC §21)
     # the host sees the prefixed path and verifies with the same code
     assert host_mod.verify_request(members, m1, "/gud/api/v1/log?since=3&limit=10", b1, h1, now) == "@alice"
     assert host_mod.verify_request(members, m2, "/gud/api/v1/delivery", b2, h2, now) == "@alice"

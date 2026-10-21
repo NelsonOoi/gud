@@ -33,7 +33,7 @@ def test_e2e_fake(tmp_path: Path, capsys):
 
 
 def test_e2e_migration_to_a_new_address(tmp_path: Path):
-    """Host migration with a new repo address (integration note 4), all through the CLI: the
+    """Host migration with a new repo address (SPEC §11.6), all through the CLI: the
     old host signs a handover naming the new key and address, exports; the new host imports and
     serves; members follow, record the new host line, and keep pushing to the new address."""
     t = fake_transport(tmp_path)
