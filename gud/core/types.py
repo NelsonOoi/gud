@@ -1,4 +1,4 @@
-"""Plain v1 data types shared by every module. See docs/v1/INTERFACES.md and SPEC-v1.md."""
+"""Plain v1 data types shared by every module. See docs/INTERFACES.md and SPEC.md."""
 
 from __future__ import annotations
 

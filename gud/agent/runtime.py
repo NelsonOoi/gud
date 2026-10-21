@@ -10,7 +10,7 @@ One process per member. It
    through `POST /api/v1/delivery`), or from the host's SSE stream, and always by polling the
    repo (`RepoClient.sync_log()`; replay derives the same events with the same ids), which is the
    only channel in local host mode and the fallback elsewhere. Every channel feeds the member's
-   event journal (`gud.mcp_v1.MemberEvents`), deduped by event id; the runtime routes journal
+   event journal (`gud.mcp.MemberEvents`), deduped by event id; the runtime routes journal
    entries after its persisted cursor, so a restart resumes where it stopped and never routes an
    event twice;
 2. **routes** each event to a warm session per thread (`SessionManager`), debounced about 1 s;
@@ -18,7 +18,7 @@ One process per member. It
    work keeps one context;
 3. runs each turn in a **Claude Agent SDK** session whose cwd is the member's working copy, with
    the native Read/Edit/Write/Bash/Grep/Glob tools and the gud MCP server (`python -m
-   gud.mcp_v1`, bound to this member and working copy), and one general system prompt;
+   gud.mcp`, bound to this member and working copy), and one general system prompt;
 4. charges **budgets** per member and per (root) task; when one runs out it escalates
    (`comment` with `Gud-Escalate: budget`), releases the claims concerned and stops spending;
 5. **closes** sessions whose threads are finished, keeping their summaries as notes for later
@@ -45,7 +45,7 @@ from typing import Any, Callable, Mapping, Sequence
 from gud.core.types import LIVE_STATUSES, Chain, Event, Hex
 from gud.events.dispatch import EventClient
 from gud.events.model import thread_key
-from gud.mcp_v1 import GudTools, MemberEvents, ToolError, is_echo, journal_deltas, open_member
+from gud.mcp import GudTools, MemberEvents, ToolError, is_echo, journal_deltas, open_member
 from gud.wc.copy import WcError, WorkingCopy
 from gud.wc.remote import RemoteError, RepoClient
 from gud.wc.review import declare_hints, declare_text
@@ -605,7 +605,7 @@ class AgentRuntime:
         env = {"PYTHONPATH": str(Path(gud.__file__).resolve().parents[1]), "GUD_HOME": str(self.client.home),
                "GUD_HANDLE": self.me, **self.mcp_env}
         return {"gud": {"type": "stdio", "command": sys.executable,
-                        "args": ["-m", "gud.mcp_v1", "--home", str(self.client.home), "--handle", self.me,
+                        "args": ["-m", "gud.mcp", "--home", str(self.client.home), "--handle", self.me,
                                  "--wc", str(self.wc.root)], "env": env}}
 
     def options(self, resume: str | None = None) -> Any:

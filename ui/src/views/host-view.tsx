@@ -63,7 +63,7 @@ export function HostPanel() {
             <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Agents connected</h2>
             {connected.length === 0 ? (
               <p className="text-[12px] text-muted-foreground">
-                No webhook or SSE registrations: every member gets events by email (notify). Agents register with <code>gud1 delivery --webhook URL</code> or <code>--sse</code>.
+                No webhook or SSE registrations: every member gets events by email (notify). Agents register with <code>gud delivery --webhook URL</code> or <code>--sse</code>.
               </p>
             ) : (
               <ul className="space-y-1">

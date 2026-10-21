@@ -24,7 +24,7 @@ from typing import Any, Callable
 from gud.core import envelope as E
 from gud.events.dispatch import EventClient
 from gud.events.model import Delivery
-from gud.host_v1 import Host, open_host
+from gud.host import Host, open_host
 from gud.transport import mime
 from gud.transport.base import Outgoing
 from gud.transport.fake import Faults, FakeNetwork

@@ -1,4 +1,4 @@
-"""Event dispatch (SPEC-v1 §19.3, §19.4) and the signing used on the host's HTTP surface.
+"""Event dispatch (SPEC §19.3, §19.4) and the signing used on the host's HTTP surface.
 
 Host side:
 
@@ -24,7 +24,7 @@ Member side:
 - `Debouncer`: batches bursts per session thread for about a second before an agent acts.
 
 Mirror request auth v1 (§21) lives here too (`sign_request` / `verify_request`), because both
-the host app and the member-side SSE client need it; `gud.host_v1` re-exports it.
+the host app and the member-side SSE client need it; `gud.host` re-exports it.
 """
 
 from __future__ import annotations
@@ -125,7 +125,7 @@ def verify_hook(headers: Mapping[str, str], body: bytes, host_keys: Sequence[str
 # ---------------------------------------------------------------- mirror request auth v1 (§21)
 
 def format_time(now: float) -> str:
-    """Stable decimal form of a unix time (the v0 `hostauth.format_time` form): whole seconds
+    """Stable decimal form of a unix time (§21 `X-Gud-Time`): whole seconds
     have no fraction, otherwise up to 6 digits without trailing zeros."""
     text = format(float(now), ".6f")
     if "." in text:

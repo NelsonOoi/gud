@@ -9,7 +9,7 @@ from gud.core import envelope as E
 from gud.core.objects import BlameMap
 from gud.core.replay import Snapshot, snapshot_at
 from gud.core.types import Seen
-from gud.host_v1 import sign_request
+from gud.host import sign_request
 from gud.transport import mime
 from tests.v1.events.harness import World
 

@@ -1,5 +1,5 @@
-"""Host migration on the real host (gud.host_v1): planned handover, archive, import at a new
-host, optionally under a new repo address (integration note 4)."""
+"""Host migration on the real host (gud.host): planned handover, archive, import at a new
+host, optionally under a new repo address (SPEC §11.6)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import pytest
 
 from gud.core import envelope as E
 from gud.core.hostlog import HostLog
-from gud.host_v1 import open_host
+from gud.host import open_host
 from gud.ops.archive import ArchiveError, export_archive, import_archive, verify_archive
 from tests.v1.events.harness import World
 from tests.v1.kit import REPO

@@ -1,6 +1,6 @@
-"""`gud1` smoke tests: every command runs as a subprocess with `--json` over the fake transport
+"""`gud` smoke tests: every command runs as a subprocess with `--json` over the fake transport
 (one shared mail root, one GUD_HOME per member), twice: in local host mode, and against the real
-host (`gud host serve`, gud.host_v1) as a separate process."""
+host (`gud host serve`, gud.host) as a separate process."""
 
 from __future__ import annotations
 
@@ -24,13 +24,13 @@ def gud(home: Path, *args: str, cwd: Path | None = None, code: int = 0, handle: 
     env["PYTHONPATH"] = str(ROOT)
     env["GUD_WAIT"] = "5"
     Path(home).mkdir(parents=True, exist_ok=True)
-    argv = [sys.executable, "-m", "gud.cli_v1", "--home", str(home), "--json"]
+    argv = [sys.executable, "-m", "gud.cli", "--home", str(home), "--json"]
     if handle:
         argv += ["--handle", handle]
     proc = subprocess.run(argv + list(args), cwd=cwd or home, capture_output=True, text=True, env=env, timeout=120)
-    assert proc.returncode == code, f"gud1 {' '.join(args)} -> {proc.returncode}\n{proc.stdout}\n{proc.stderr}"
+    assert proc.returncode == code, f"gud {' '.join(args)} -> {proc.returncode}\n{proc.stdout}\n{proc.stderr}"
     lines = proc.stdout.strip().splitlines()
-    assert lines, f"no JSON output from gud1 {' '.join(args)}: {proc.stderr}"
+    assert lines, f"no JSON output from gud {' '.join(args)}: {proc.stderr}"
     return json.loads(lines[-1])
 
 
@@ -305,25 +305,25 @@ def test_import_from_git_and_mirror(repo: Repo, tmp_path: Path):
     assert imp["dir"] is None and imp["files"] == 5
 
 
-@pytest.mark.parametrize("command,module", [("agent", "gud.agent.runtime"), ("mcp", "gud.mcp_v1")])
+@pytest.mark.parametrize("command,module", [("agent", "gud.agent.runtime"), ("mcp", "gud.mcp")])
 def test_agent_and_mcp_get_the_globals(tmp_path: Path, monkeypatch, command: str, module: str):
     """`gud agent` / `gud mcp` run the module's main with the global --home/--handle (and --wc
     inside a working copy, --json for mcp) followed by the command's own options."""
-    from gud import cli_v1
+    from gud import cli
     seen: list = []
     mod = importlib.import_module(module)
     monkeypatch.setattr(mod, "main", lambda argv: seen.append(argv) or 0)
     wc = tmp_path / "wc"
     (wc / ".gud").mkdir(parents=True)
     (wc / ".gud" / "BASE").write_text("0" * 64 + "\n")
-    code = cli_v1.main(["--home", str(tmp_path / "h"), "--handle", "alice", "--json", "-C", str(wc), command,
-                        "--model", "m", "--listen", ":9"])
+    code = cli.main(["--home", str(tmp_path / "h"), "--handle", "alice", "--json", "-C", str(wc), command,
+                     "--model", "m", "--listen", ":9"])
     assert code == 0
     expected = ["--home", str((tmp_path / "h").resolve()), "--handle", "@alice", "--wc", str(wc.resolve())]
     expected += (["--json"] if command == "mcp" else []) + ["--model", "m", "--listen", ":9"]
     assert seen == [expected]
     with pytest.raises(SystemExit):
-        cli_v1.main(["status", "--bogus"])                 # other commands still refuse unknown options
+        cli.main(["status", "--bogus"])                 # other commands still refuse unknown options
 
 
 def test_errors_are_json(repo: Repo):

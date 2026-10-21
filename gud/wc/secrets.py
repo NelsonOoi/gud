@@ -1,4 +1,4 @@
-"""Pre-push secret scan (SPEC-v1 §22).
+"""Pre-push secret scan (SPEC §22).
 
 Every member receives every diff, so a secret pushed once is leaked for good. `scan` runs the
 §22 patterns over the bytes of every added or changed file and reports each hit with its

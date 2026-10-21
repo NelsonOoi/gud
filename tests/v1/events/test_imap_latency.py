@@ -10,7 +10,7 @@ import time
 from gud.core import envelope as E
 from gud.core.types import Seen
 from gud.events.model import Delivery
-from gud.host_v1 import open_host
+from gud.host import open_host
 from gud.transport import mime
 from gud.transport.base import Outgoing
 from gud.transport.imap_smtp import ImapSmtpMailbox

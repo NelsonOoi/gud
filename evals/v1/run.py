@@ -1,6 +1,6 @@
 """Real-agent eval: git vs gud as the coordination layer for a swarm of coding agents.
 
-    .venv/bin/python evals/v1/run.py --arm gud --spec acme-site --agents 2 --trials 1 \\
+    .venv/bin/python evals/v1/run.py --arm gud-cc --spec acme-site --agents 2 --trials 1 \\
         --budget-usd 4 --timeout 1200
 
 Every agent is the same headless Claude Code session (same model, same built-in tools, same task text,
@@ -44,8 +44,8 @@ def find_claude() -> str:
     return shutil.which("claude") or str(Path.home() / ".local" / "bin" / "claude")
 
 
-ARMS = ("git", "gud", "gud1-cc", "gud1-ref")
-ARM_SETS = {"both": ("git", "gud"), "v1": ("git", "gud1-cc", "gud1-ref")}
+ARMS = ("git", "gud-cc", "gud-ref")
+ARM_SETS = {"v1": ("git", "gud-cc", "gud-ref")}
 
 
 def make_arm(name: str, root: Path, spec, handles: list[str], window: float, policy: str = "tip", gud_config=None):
@@ -53,15 +53,12 @@ def make_arm(name: str, root: Path, spec, handles: list[str], window: float, pol
     if name == "git":
         from git_arm import GitArm
         return GitArm(root, spec, handles)
-    if name == "gud":
-        from gud_arm import GudArm
-        return GudArm(root, spec, handles, window=window)
-    if name == "gud1-cc":
-        from gud1_arm import Gud1CCArm
-        return Gud1CCArm(root, spec, handles, window=window, policy=policy, **gud_config)
-    if name == "gud1-ref":
-        from gud1_arm import Gud1RefArm
-        return Gud1RefArm(root, spec, handles, window=window, policy=policy, **gud_config)
+    if name == "gud-cc":
+        from gud_arm import GudCCArm
+        return GudCCArm(root, spec, handles, window=window, policy=policy, **gud_config)
+    if name == "gud-ref":
+        from gud_arm import GudRefArm
+        return GudRefArm(root, spec, handles, window=window, policy=policy, **gud_config)
     raise SystemExit(f"unknown arm {name!r}")
 
 
@@ -210,8 +207,8 @@ def _run_one(*, arm_name: str, spec, n: int, trial: int, budget: float, timeout:
     agent_budget = budget / n
     arm = make_arm(arm_name, root, spec, handles, window, policy, gud_config)
     try:
-        v1 = arm_name.startswith("gud1")
-        ref = arm_name == "gud1-ref"
+        v1 = arm_name.startswith("gud-")
+        ref = arm_name == "gud-ref"
         print(f"[{run_dir.name}] work root {root}", flush=True)
         tools = list(DEFAULT_TOOLS) + (["mcp__gud__*"] if arm_name != "git" else [])
         summary: dict = {
@@ -306,7 +303,7 @@ def _run_one(*, arm_name: str, spec, n: int, trial: int, budget: float, timeout:
         escalations = sum(1 for row in agents_out if row["escalated"])
         if v1:
             escalations = sum(1 for row in agents_out if row["escalated"]) + (
-                0 if ref else len(coordination["gud1"]["escalations"]["task"]))
+                0 if ref else len(coordination["gud"]["escalations"]["task"]))
         summary.update({
             "outcome": outcome_reason,
             "harness_errors": harness_errors,
@@ -370,18 +367,14 @@ def _run_one(*, arm_name: str, spec, n: int, trial: int, budget: float, timeout:
               f"${summary['cost_usd']:.2f}, {summary['wall_s']:.0f}s, integrations {summary['integrations']}", flush=True)
         return summary
     finally:
-        close = getattr(arm, "close", None)      # gud1: the host serves the replay until here
+        close = getattr(arm, "close", None)      # gud arms: the host serves the replay until here
         if close is not None:
             close()
 
 
 def _keep_artifacts(arm, arm_name: str, root: Path, run_dir: Path) -> None:
-    if arm_name.startswith("gud1"):
+    if arm_name.startswith("gud-"):
         arm.keep_artifacts(run_dir)
-    elif arm_name == "gud":
-        mailbox = root / "gud-home" / "mailbox.jsonl"
-        if mailbox.exists():
-            shutil.copy(mailbox, run_dir / "mailbox.jsonl")
     else:
         prs = root / "prs"
         if prs.exists():
@@ -404,13 +397,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--model", default=DEFAULT_MODEL, help="'' lets the CLI pick its default")
     ap.add_argument("--agent-cmd", default=None, help="agent command; default: the claude CLI")
-    ap.add_argument("--ref-cmd", default=None, help="gud1-ref agent command (default: python -m gud.agent.runtime)")
-    ap.add_argument("--window", type=float, default=None, help="consent window in seconds (gud 30, gud1 20)")
-    ap.add_argument("--gud-test-policy", default="tip", choices=("tip", "gate"), help="gud1 arms' .gud/test")
-    ap.add_argument("--gud-lease", default=None, help="gud1 arms' .gud/config lease (default 10m)")
-    ap.add_argument("--gud-task-quiet", default=None, help="gud1 arms' .gud/config task-quiet (default: the lease)")
+    ap.add_argument("--ref-cmd", default=None, help="gud-ref agent command (default: python -m gud.agent.runtime)")
+    ap.add_argument("--window", type=float, default=None, help="consent window in seconds (default 20)")
+    ap.add_argument("--gud-test-policy", default="tip", choices=("tip", "gate"), help="gud arms' .gud/test")
+    ap.add_argument("--gud-lease", default=None, help="gud arms' .gud/config lease (default 10m)")
+    ap.add_argument("--gud-task-quiet", default=None, help="gud arms' .gud/config task-quiet (default: the lease)")
     ap.add_argument("--wait-done", action="store_true",
-                    help="gud1: after the agents stop, keep the host and tester running until T1 is done or the timeout")
+                    help="gud arms: after the agents stop, keep the host and tester running until T1 is done or the timeout")
     ap.add_argument("--cap-usd", type=float, default=None, help="hard cap on total spend across runs (ledger)")
     ap.add_argument("--ledger", type=Path, default=HERE / "runs" / "spend.json")
     ap.add_argument("--keep-work", action="store_true", help="keep the temp workspaces")
@@ -428,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
     results = []
     for trial in range(args.trial_start, args.trial_start + args.trials):
         for arm in arms:
-            window = args.window if args.window is not None else (30.0 if arm == "gud" else 20.0)
+            window = args.window if args.window is not None else 20.0
             results.append(run_one(
                 arm_name=arm, spec_name=args.spec, n=args.agents, trial=trial, budget=args.budget_usd,
                 timeout=args.timeout, out=out, agent_cmd=agent_cmd, model=args.model or None,

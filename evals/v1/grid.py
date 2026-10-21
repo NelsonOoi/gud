@@ -1,7 +1,7 @@
 """Run a grid of eval cells (spec × arm × trial) under one hard spending cap.
 
     .venv/bin/python evals/v1/grid.py --specs acme-site-shared todo-stack refactor-guard \\
-        --arms git gud1-cc gud1-ref --agents 4 --trials 2 --budget-usd 1.2 --cap-usd 30 \\
+        --arms git gud-cc gud-ref --agents 4 --trials 2 --budget-usd 1.2 --cap-usd 30 \\
         --out evals/v1/runs/<stamp>-v1 --parallel 3
 
 Each cell is one `run.py` process (one arm, one spec, one trial), so a crash in one cell cannot take the

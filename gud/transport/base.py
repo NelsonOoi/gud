@@ -1,4 +1,4 @@
-"""The v1 Mailbox contract (SPEC-v1 §20.1, INTERFACES.md "gud/transport/base.py").
+"""The v1 Mailbox contract (SPEC §20.1, INTERFACES.md "gud/transport/base.py").
 
 Every provider adapter implements `Mailbox`. Adapters with webhook intake also implement
 `WebhookVerifier`. This module depends only on `gud.core.types`.
@@ -118,7 +118,7 @@ def envelope_budget(max_message_bytes: int, host_max_message_bytes: int | None =
     in 76-character lines each ending in CRLF, so 57 envelope bytes take 78 bytes of MIME, not
     76. Using 3/4 lets a full-budget message exceed M whenever the formula (not the 7 MiB cap)
     binds. This uses 57/78, which is never larger than the §6 value, so a sender using it still
-    obeys the §6 MUST (see "Implementation notes (transport)" in SPEC-v1.md)."""
+    obeys the §6 MUST (SPEC §6)."""
     m = max_message_bytes if host_max_message_bytes is None else min(max_message_bytes, host_max_message_bytes)
     return max(0, min(ENVELOPE_CAP, (m - MIME_OVERHEAD) * 57 // 78))
 

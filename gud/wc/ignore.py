@@ -1,4 +1,4 @@
-"""`.gudignore` rules (SPEC-v1 §22): gitignore syntax over repo paths.
+"""`.gudignore` rules (SPEC §22): gitignore syntax over repo paths.
 
 Syntax, one pattern per line (the file is read as UTF-8, invalid bytes replaced):
 
@@ -144,7 +144,7 @@ def _parse_line(raw: str) -> _Rule | None:
 # Local build output that is never source (every member receives every diff, so it must not be
 # pushed by accident). Written as the default `.gudignore`; `artifacts()` finds such paths.
 DEFAULT_GUDIGNORE = """\
-# gud ignore rules (gitignore syntax, SPEC-v1 section 22): never pushed
+# gud ignore rules (gitignore syntax, SPEC section 22): never pushed
 __pycache__/
 *.pyc
 *.pyo

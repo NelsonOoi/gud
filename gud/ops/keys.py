@@ -350,7 +350,7 @@ def revoke_member(client: MemberClient, handle: Handle, reason: str) -> Hex:
 
 def host_key_push(client: MemberClient, new_public: str, *, reason: str = "", address: str | None = None) -> Hex:
     """Members push moving the `host` line to `new_public` (§11.6, after the log handover) and,
-    when the repo moved, to its new `address` (integration note 4)."""
+    when the repo moved, to its new `address` (SPEC §11.6)."""
     reader, _ = _tip(client)
     host = reader.members().host()
     if host.public_key == new_public and (address is None or address == host.address):

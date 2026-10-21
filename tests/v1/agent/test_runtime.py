@@ -19,7 +19,7 @@ from gud.core.envelope import make_event
 from gud.core.types import Event
 from gud.events.dispatch import sign_hook
 from gud.events.model import to_json
-from gud.mcp_v1 import GudTools
+from gud.mcp import GudTools
 from gud.wc.copy import WorkingCopy
 
 from tests.v1.kit import REPO

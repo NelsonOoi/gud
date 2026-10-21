@@ -1,4 +1,4 @@
-"""Authentication-Results helpers for adapters (SPEC-v1 §8.1, §20.1).
+"""Authentication-Results helpers for adapters (SPEC §8.1, §20.1).
 
 The parser lives in `gud.core.envelope` (replay needs it); this module re-exports it under the
 transport names and adds what adapters need on top: synthesizing a header for providers that

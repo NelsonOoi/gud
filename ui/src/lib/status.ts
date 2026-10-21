@@ -42,7 +42,7 @@ export const STATUS_LABEL: Record<ProposalStatus, string> = {
   bad_config: "bad config",
 }
 
-/** What a proposal is waiting for, in words (mirrors `gud.mcp_v1.explain_proposal`). */
+/** What a proposal is waiting for, in words (mirrors `gud.mcp.explain_proposal`). */
 export function explain(status: ProposalStatus): string {
   switch (status) {
     case "window":

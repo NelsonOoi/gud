@@ -81,7 +81,7 @@ ROWS = [
     ("tokens per agent (all kinds)", lambda rows: span(_agent(rows, lambda a: None if "ledger" in (a.get("tokens") or {})
                                                               else sum((a.get("tokens") or {}).values())),
                                                        lambda v: f"{v:,.0f}")),
-    ("ledger tokens per agent (gud1-ref)", lambda rows: span(_agent(rows, lambda a: (a.get("tokens") or {}).get("ledger")),
+    ("ledger tokens per agent (gud-ref)", lambda rows: span(_agent(rows, lambda a: (a.get("tokens") or {}).get("ledger")),
                                                              lambda v: f"{v:,.0f}")),
     ("output tokens per agent", lambda rows: span(_agent(rows, lambda a: (a.get("tokens") or {}).get("output")),
                                                   lambda v: f"{v:,.0f}")),
@@ -97,12 +97,6 @@ ROWS = [
     ("conflicts", lambda rows: span([r.get("conflicts_total") for r in rows], _count)),
     ("conflicts resolved", lambda rows: span([r.get("conflicts_resolved") for r in rows], _count)),
     ("escalations", lambda rows: span([r.get("escalations") for r in rows], _count)),
-    ("emails per link (gud)", lambda rows: span([(r.get("gud") or {}).get("emails_per_link") for r in rows],
-                                                lambda v: f"{v:.1f}")),
-    ("superseded / stale (gud)", lambda rows: span([((r.get("gud") or {}).get("superseded") or 0)
-                                                    + ((r.get("gud") or {}).get("stale") or 0)
-                                                    for r in rows if r.get("gud")], _count)),
-    ("objections (gud)", lambda rows: span([(r.get("gud") or {}).get("objections") for r in rows], _count)),
     ("PRs opened (git)", lambda rows: span([(r.get("git") or {}).get("prs_opened") for r in rows], _count)),
     ("merge rejections (git)", lambda rows: span([sum(((r.get("git") or {}).get("merge_rejections") or {}).values())
                                                   for r in rows if r.get("git")], _count)),
@@ -110,11 +104,19 @@ ROWS = [
 ]
 
 
+def gud_block(r: dict) -> dict | None:
+    """The gud arms' replay metrics of one run. Runs written before the clean break call the block `gud1`
+    (arms `gud1-cc`/`gud1-ref`); a `gud` block in such an old run belongs to the deleted v0 arm and is skipped."""
+    if r.get("gud1"):
+        return r["gud1"]
+    return r.get("gud") if str(r.get("arm", "")).startswith("gud-") else None
+
+
 def _g1(rows, fn):
-    """Values from the gud1 block of the runs that have one."""
+    """Values from the gud block of the runs that have one."""
     out = []
     for r in rows:
-        g = r.get("gud1")
+        g = gud_block(r)
         if g:
             try:
                 out.append(fn(g))
@@ -133,41 +135,41 @@ def _mix_g1(rows, fn):
 
 
 ROWS_V1 = [
-    ("links per min (gud1)", lambda rows: span(_g1(rows, lambda g: g["links_per_min"]), lambda v: f"{v:.2f}")),
-    ("test runs per link (gud1)", lambda rows: span(_g1(rows, lambda g: g["test_runs_per_link"]), lambda v: f"{v:.2f}")),
-    ("pushes (gud1)", lambda rows: span(_g1(rows, lambda g: g["pushes"]), _count)),
-    ("carried links (gud1)", lambda rows: span(_g1(rows, lambda g: g["carried_links"]), _count)),
-    ("superseded pushes (gud1)", lambda rows: span(_g1(rows, lambda g: g["superseded"]), _count)),
-    ("colliding pushes (gud1)", lambda rows: span(_g1(rows, lambda g: g["colliding_pushes"]), _count)),
-    ("pushes refused before sending: stale base (gud1)", lambda rows: span(_ana(rows, "stale_base_refusals"), _count)),
-    ("claims won (gud1)", lambda rows: span(_g1(rows, lambda g: g["claims"]["won"]), _count)),
-    ("claim updates / releases (gud1)", lambda rows: span(_g1(rows, lambda g: g["claims"]["updates"]), _count)
+    ("links per min (gud)", lambda rows: span(_g1(rows, lambda g: g["links_per_min"]), lambda v: f"{v:.2f}")),
+    ("test runs per link (gud)", lambda rows: span(_g1(rows, lambda g: g["test_runs_per_link"]), lambda v: f"{v:.2f}")),
+    ("pushes (gud)", lambda rows: span(_g1(rows, lambda g: g["pushes"]), _count)),
+    ("carried links (gud)", lambda rows: span(_g1(rows, lambda g: g["carried_links"]), _count)),
+    ("superseded pushes (gud)", lambda rows: span(_g1(rows, lambda g: g["superseded"]), _count)),
+    ("colliding pushes (gud)", lambda rows: span(_g1(rows, lambda g: g["colliding_pushes"]), _count)),
+    ("pushes refused before sending: stale base (gud)", lambda rows: span(_ana(rows, "stale_base_refusals"), _count)),
+    ("claims won (gud)", lambda rows: span(_g1(rows, lambda g: g["claims"]["won"]), _count)),
+    ("claim updates / releases (gud)", lambda rows: span(_g1(rows, lambda g: g["claims"]["updates"]), _count)
      + " / " + span(_g1(rows, lambda g: g["claims"]["releases"]), _count)),
-    ("subtasks posted (gud1)", lambda rows: span(_g1(rows, lambda g: g["task"]["subtasks"]), _count)),
-    ("claim overlaps (gud1)", lambda rows: span(_g1(rows, lambda g: g["overlaps"]["total"]), _count)),
-    ("overlap settlement (gud1)", lambda rows: ", ".join(
+    ("subtasks posted (gud)", lambda rows: span(_g1(rows, lambda g: g["task"]["subtasks"]), _count)),
+    ("claim overlaps (gud)", lambda rows: span(_g1(rows, lambda g: g["overlaps"]["total"]), _count)),
+    ("overlap settlement (gud)", lambda rows: ", ".join(
         f"{k} ×{v}" for k, v in sorted(_sum_dicts(_g1(rows, lambda g: g["overlaps"]["by_settlement"])).items())) or "—"),
-    ("comments (gud1)", lambda rows: span(_g1(rows, lambda g: g["comments"]["total"]), _count)),
-    ("objections reason / evidence (gud1)", lambda rows: span(_g1(rows, lambda g: g["objections"]["reason"]), _count)
+    ("comments (gud)", lambda rows: span(_g1(rows, lambda g: g["comments"]["total"]), _count)),
+    ("objections reason / evidence (gud)", lambda rows: span(_g1(rows, lambda g: g["objections"]["reason"]), _count)
      + " / " + span(_g1(rows, lambda g: g["objections"]["evidence"]), _count)),
-    ("consent escalations (gud1)", lambda rows: span(_g1(rows, lambda g: len(g["escalations"]["consent"])), _count)),
-    ("escalations resolved by (gud1)", lambda rows: ", ".join(
+    ("consent escalations (gud)", lambda rows: span(_g1(rows, lambda g: len(g["escalations"]["consent"])), _count)),
+    ("escalations resolved by (gud)", lambda rows: ", ".join(
         f"{k} ×{v}" for k, v in sorted(_sum_dicts(_g1(rows, lambda g: g["escalations"]["resolved_by"])).items())) or "—"),
-    ("task escalations (gud1)", lambda rows: span(_g1(rows, lambda g: len(g["escalations"]["task"])), _count)),
-    ("red-tip episodes (gud1)", lambda rows: span(_g1(rows, lambda g: g["red_tip"]["episodes"]), _count)),
-    ("median time to green (gud1)", lambda rows: span(_g1(rows, lambda g: g["red_tip"]["median_to_green_s"]),
+    ("task escalations (gud)", lambda rows: span(_g1(rows, lambda g: len(g["escalations"]["task"])), _count)),
+    ("red-tip episodes (gud)", lambda rows: span(_g1(rows, lambda g: g["red_tip"]["episodes"]), _count)),
+    ("median time to green (gud)", lambda rows: span(_g1(rows, lambda g: g["red_tip"]["median_to_green_s"]),
                                                       lambda v: f"{v:.0f} s")),
-    ("red at end (gud1)", lambda rows: _mix_g1(rows, lambda g: g["red_tip"]["red_at_end"])),
-    ("T1 status at end (gud1)", lambda rows: _mix_g1(rows, lambda g: g["task"]["status"])),
+    ("red at end (gud)", lambda rows: _mix_g1(rows, lambda g: g["red_tip"]["red_at_end"])),
+    ("T1 status at end (gud)", lambda rows: _mix_g1(rows, lambda g: g["task"]["status"])),
     ("files read per agent", lambda rows: span(_ana(rows, "files_read_per_agent"), lambda v: f"{v:.1f}")),
     ("reads outside own changes per agent", lambda rows: span(_ana(rows, "reads_outside_own_changes_per_agent"),
                                                                lambda v: f"{v:.1f}")),
-    ("reads outside claimed scope per agent (gud1)", lambda rows: span(_ana(rows, "reads_outside_claims_per_agent"),
+    ("reads outside claimed scope per agent (gud)", lambda rows: span(_ana(rows, "reads_outside_claims_per_agent"),
                                                                         lambda v: f"{v:.1f}")),
-    ("colliding pushes with inflight before (gud1)", lambda rows: span(_ana(rows, "colliding_with_inflight_before"), _count)
+    ("colliding pushes with inflight before (gud)", lambda rows: span(_ana(rows, "colliding_with_inflight_before"), _count)
      + " of " + span(_ana(rows, "colliding_pushes"), _count)),
-    ("colliding pushes with comment before (gud1)", lambda rows: span(_ana(rows, "colliding_with_comment_before"), _count)),
-    ("inflight / comment calls (gud1)", lambda rows: span(_ana(rows, "inflight_calls"), _count) + " / "
+    ("colliding pushes with comment before (gud)", lambda rows: span(_ana(rows, "colliding_with_comment_before"), _count)),
+    ("inflight / comment calls (gud)", lambda rows: span(_ana(rows, "inflight_calls"), _count) + " / "
      + span(_ana(rows, "comment_calls"), _count)),
     ("guard file read by an agent (context check)", lambda rows: _mix([bool((r.get("context_check") or {}).get("read_by"))
                                                                      for r in rows if r.get("context_check")]) if any(
@@ -215,7 +217,7 @@ def report(paths: list[Path]) -> str:
         lines.append("")
         lines.append("| | " + " | ".join(f"{k[2]}" for k in cols) + " |")
         lines.append("| --- | " + " | ".join("---" for _ in cols) + " |")
-        v1 = any(r.get("gud1") or r.get("analysis") for k in cols for r in groups[k])
+        v1 = any(gud_block(r) or r.get("analysis") for k in cols for r in groups[k])
         for title, fn in ROWS + (ROWS_V1 if v1 else []):
             lines.append(f"| {title} | " + " | ".join(fn(groups[k]) for k in cols) + " |")
         lines.append("")

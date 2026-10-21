@@ -299,7 +299,7 @@ class HostLog:
 
     def handover(self, old_private: bytes, new_public: str, now: Ms, *, repo: str | None = None) -> LogEntry:
         """Planned handover (§11.6) to `new_public`; `repo` names the repo's new address when the
-        new host takes it to another one (integration note 4)."""
+        new host takes it to another one (SPEC §11.6)."""
         fields: tuple[tuple[str, str], ...] = (("next", new_public),)
         if repo is not None and repo != self._repo:
             fields += (("repo", repo),)

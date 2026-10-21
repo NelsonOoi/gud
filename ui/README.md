@@ -2,7 +2,7 @@
 
 The dashboard of a gud v1 host. `gud host serve` serves it at `/` on the host's own port and the page
 reads the host's UI view API (`/api/v1/view/*`, `gud/host_view.py`, documented in
-`docs/v1/INTERFACES.md` under "Addendum: ui view API"). Everything on it is derived from the host's
+`docs/INTERFACES.md` under "gud/host_view.py"). Everything on it is derived from the host's
 replay of its log: the chain with carried links and tip verdicts, proposals with their consent plan,
 window and grace countdowns, holds, objections (reason or evidence, confirmed or refuted) and
 negotiation rounds, escalations with their deadline and default, the red tip with `first_bad` and its
@@ -16,8 +16,8 @@ cd ui
 npm ci
 npm run build              # tsc + vite build into ui/dist
 cd ..
-gud1 host serve --dir <host dir> --ui-home <a human member's GUD_HOME>
-# or: python -m gud.cli_v1 host serve ...
+gud host serve --dir <host dir> --ui-home <a human member's GUD_HOME>
+# or: python -m gud.cli host serve ...
 ```
 
 Open the URL it prints (default [http://127.0.0.1:8787](http://127.0.0.1:8787)). `--ui-home` (repeatable,

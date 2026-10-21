@@ -1,9 +1,9 @@
 """A hard spending cap across eval runs (and concurrent run processes), kept in one JSON ledger file.
 
     ledger = CapLedger(Path("evals/v1/runs/spend.json"), cap_usd=30)
-    grant = ledger.reserve("gud1-cc-todo-stack-n4-t1", want=1.20)   # 0.0 when the cap is reached
+    grant = ledger.reserve("gud-cc-todo-stack-n4-t1", want=1.20)   # 0.0 when the cap is reached
     ... run with a run budget of `grant` (the supervisor kills every agent when the run reaches it) ...
-    ledger.commit("gud1-cc-todo-stack-n4-t1", spent=0.87)
+    ledger.commit("gud-cc-todo-stack-n4-t1", spent=0.87)
 
 A run reserves its whole budget before it starts and releases the unused part when it commits, so the sum
 of committed spend and open reservations never exceeds the cap, however many runs are in flight. Every

@@ -1,5 +1,5 @@
-"""Harness pieces that need no model: stream parsing, cost, the supervisor's kill rules, both arms end
-to end with a deterministic fake agent, the PR protocol, and the report."""
+"""Harness pieces that need no model: stream parsing, cost, the supervisor's kill rules, the git arm
+end to end with a deterministic fake agent, the PR protocol, and the report."""
 
 from __future__ import annotations
 
@@ -130,8 +130,9 @@ def fake_env(monkeypatch):
     monkeypatch.setenv("FAKE_DEADLINE", "90")
 
 
-@pytest.mark.parametrize("arm", ["git", "gud"])
-def test_arm_end_to_end_with_fake_agents(arm, tmp_path, fake_env):
+def test_git_arm_end_to_end_with_fake_agents(tmp_path, fake_env):
+    """The gud arms run end to end in test_gud.py."""
+    arm = "git"
     out = tmp_path / "out"
     summary = run.run_one(arm_name=arm, spec_name="acme-site", n=2, trial=1, budget=5.0, timeout=150,
                           out=out, agent_cmd=AGENT_CMD, model="claude-sonnet-5-5", window=3.0,
@@ -157,36 +158,13 @@ def test_arm_end_to_end_with_fake_agents(arm, tmp_path, fake_env):
     assert (run_dir / "agents" / "a1" / "stream.jsonl").stat().st_size > 0
     readme = (run_dir / "final_tree" / "README.md").read_text()
     assert "Owner note from @a1" in readme and "Owner note from @a2" in readme
-    if arm == "git":
-        git = summary["git"]
-        assert git["merges"] == 2 and git["approvals"] >= 2
-        assert git["merge_rejections"].get("rebase_conflict", 0) >= 1
-        assert (run_dir / "prs" / "events.jsonl").exists()
-    else:
-        gud = summary["gud"]
-        assert gud["links"] >= 2 and gud["emails_per_link"] > 1
-        assert gud["superseded"] + gud["stale"] >= 1
-        assert (run_dir / "mailbox.jsonl").exists()
+    git = summary["git"]
+    assert git["merges"] == 2 and git["approvals"] >= 2
+    assert git["merge_rejections"].get("rebase_conflict", 0) >= 1
+    assert (run_dir / "prs" / "events.jsonl").exists()
     text = report.report([out])
     assert f"| {arm} |" in text and "hidden-test pass rate" in text and "100%" in text
     assert not any(Path(tmp_path).glob("gudv1-*")), "temp workspaces are removed"
-
-
-def test_both_arms_get_the_same_prompt_preamble(tmp_path):
-    from git_arm import GitArm
-    from gud_arm import GudArm
-
-    spec = specs.load("todo-cli")
-    handles = ["@a1", "@a2"]
-    git_arm, gud_arm = GitArm(tmp_path / "g", spec, handles), GudArm(tmp_path / "u", spec, handles)
-    git_arm.setup()
-    gud_arm.setup()
-    git = run.prompt_for(git_arm, spec, "@a1", handles, 1.5)
-    gud = run.prompt_for(gud_arm, spec, "@a1", handles, 1.5)
-    head = lambda text: text.split("# How this repo works")[0]  # noqa: E731
-    assert head(git) == head(gud)
-    assert spec.text in head(git)
-    assert "test_hidden" not in git + gud
 
 
 # -- the PR protocol -------------------------------------------------------------------------------

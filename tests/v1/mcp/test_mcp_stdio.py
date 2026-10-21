@@ -1,4 +1,4 @@
-"""gud.mcp_v1 over a real stdio MCP client session (`python -m gud.mcp_v1 --json`), against a repo in
+"""gud.mcp over a real stdio MCP client session (`python -m gud.mcp --json`), against a repo in
 local host mode over the fake transport. @alice talks through the MCP server; @bob acts in process
 with the same tool bodies."""
 
@@ -8,7 +8,7 @@ import asyncio
 import json
 from typing import Any
 
-from gud.mcp_v1 import TOOL_NAMES
+from gud.mcp import TOOL_NAMES
 
 from tests.v1.kit import status
 from tests.v1.mcp.conftest import LocalRepo

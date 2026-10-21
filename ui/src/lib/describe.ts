@@ -5,7 +5,7 @@ const s = (v: unknown): string => (typeof v === "string" ? v : v == null ? "" : 
 const list = (v: unknown): string => (Array.isArray(v) ? v.map(s).join(", ") : s(v))
 const h = (v: unknown): string => shortHash(s(v))
 
-/** One line per §19.2 event, in the words of `gud.mcp_v1.describe_event`. */
+/** One line per §19.2 event, in the words of `gud.mcp.describe_event`. */
 export function describeEvent(e: GudEvent): { who: string; text: string; target: string | null } {
   const d = e.data
   switch (e.type) {

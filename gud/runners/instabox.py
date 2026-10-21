@@ -1,14 +1,14 @@
 """`InstaBoxRunner`: run the `.gud/test` command in an InstaBox Firecracker VM.
 
-Ported from v0 `gud/build.py` (copied, not imported: v1 modules never import v0 ones). The API
-notes there still apply; in short (OpenAPI `https://api.instabox.sh/v1/openapi.json`):
+Ported from the v0 InstaBox runner (tag `v0-final`). The API
+notes, in short (OpenAPI `https://api.instabox.sh/v1/openapi.json`):
 `X-API-Key` or `Authorization: Bearer`; `POST /v1/machines` (202 + operation, `Idempotency-Key`
 required), `GET /v1/operations/{id}?wait=25s`, `POST /v1/machines/{id}/exec` runs `bash -lc`
 with `stdin` <= 1 MiB and `timeoutSeconds` <= 600 and returns `stdout`/`stderr`/`exitCode`/
 `timedOut`/`truncated` (a timeout kills the process group, exit 124); `wake`/`start` resume a
 machine; 5 machines per account (`429 quota_exceeded`).
 
-Changes from v0, for v1 trees and policies:
+Changes from the v0 runner, for v1 trees and policies:
 
 - The tree is uploaded as a byte-exact tarball (`runners.base.tree_tarball`): binary contents,
   modes `100755`, and symlinks survive. It is base64'd into `exec` stdin in chunks under 1 MiB.

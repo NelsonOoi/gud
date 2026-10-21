@@ -34,7 +34,7 @@ import specs  # noqa: E402
 from gud.core import envelope as E  # noqa: E402
 from gud.core.types import Record  # noqa: E402
 from gud.gitbridge import DEFAULT_OWNERS, parse_roster  # noqa: E402
-from gud.tester_v1 import Tester, TesterIdentity, make_runner  # noqa: E402
+from gud.tester import Tester, TesterIdentity, make_runner  # noqa: E402
 from gud.transport.fake import FakeMailbox  # noqa: E402
 from gud.wc.copy import create_genesis  # noqa: E402
 from gud.wc.remote import LocalHost, RepoClient, save_key, write_transport_toml  # noqa: E402

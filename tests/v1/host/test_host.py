@@ -16,7 +16,7 @@ from gud.core import envelope as E
 from gud.core.hostlog import decode_entry
 from gud.events.dispatch import EventClient, parse_sse
 from gud.events.model import from_json
-from gud.host_v1 import open_host, sign_request, verify_request
+from gud.host import open_host, sign_request, verify_request
 from gud.transport import mime
 from gud.transport.base import Outgoing
 from gud.transport.primitive import PrimitiveMailbox, signature_header
@@ -261,7 +261,7 @@ def test_admin_endpoints_are_loopback_only(world):
     raw = mime.build(Outgoing(from_addr=w.kit.address("@nelson"), to=(REPO,), subject="x", envelope=E.encode(env)))
     r = local.post("/api/v1/admin/inject", content=raw).json()
     assert r["logged"] and "task.opened" in r["events"] and w.intake.log.seq_of(gid) is not None
-    assert local.get("/api/v1/log").status_code == 200          # loopback reads are trusted, as in v0
+    assert local.get("/api/v1/log").status_code == 200          # loopback reads are trusted
 
 
 # ---------------------------------------------------------------- provider webhooks

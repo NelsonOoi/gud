@@ -1,4 +1,4 @@
-"""Subprocess helpers for the CLI and end-to-end tests: run `gud1` (python -m gud.cli_v1) with this
+"""Subprocess helpers for the CLI and end-to-end tests: run `gud` (python -m gud.cli) with this
 checkout on PYTHONPATH, and run long-lived `gud host serve` / `gud tester` processes."""
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
 
 
 def argv(home: Path, *args: str, handle: str | None = None, json_out: bool = True) -> list[str]:
-    a = [sys.executable, "-m", "gud.cli_v1", "--home", str(home)] + (["--json"] if json_out else [])
+    a = [sys.executable, "-m", "gud.cli", "--home", str(home)] + (["--json"] if json_out else [])
     if handle:
         a += ["--handle", handle]
     return a + list(args)
@@ -34,14 +34,14 @@ def argv(home: Path, *args: str, handle: str | None = None, json_out: bool = Tru
 
 def gud(home: Path, *args: str, cwd: Path | None = None, code: int | None = 0, handle: str | None = None,
         timeout: float = 180, extra_env: Mapping[str, str] | None = None) -> dict:
-    """Run one gud1 command with --json; assert its exit code (unless None); return its JSON."""
+    """Run one gud command with --json; assert its exit code (unless None); return its JSON."""
     Path(home).mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(argv(home, *args, handle=handle), cwd=cwd or home, capture_output=True, text=True,
                           env=env(extra_env), timeout=timeout)
     if code is not None:
-        assert proc.returncode == code, f"gud1 {' '.join(args)} -> {proc.returncode}\n{proc.stdout}\n{proc.stderr}"
+        assert proc.returncode == code, f"gud {' '.join(args)} -> {proc.returncode}\n{proc.stdout}\n{proc.stderr}"
     lines = proc.stdout.strip().splitlines()
-    assert lines, f"no JSON output from gud1 {' '.join(args)}: {proc.stderr}"
+    assert lines, f"no JSON output from gud {' '.join(args)}: {proc.stderr}"
     out = json.loads(lines[-1])
     out.setdefault("_code", proc.returncode)
     return out
@@ -54,7 +54,7 @@ def free_port() -> int:
 
 
 class Proc:
-    """A long-running gud1 subprocess (host serve, tester) with its output in a log file."""
+    """A long-running gud subprocess (host serve, tester) with its output in a log file."""
 
     def __init__(self, home: Path, *args: str, log: Path, handle: str | None = None,
                  extra_env: Mapping[str, str] | None = None, cwd: Path | None = None) -> None:

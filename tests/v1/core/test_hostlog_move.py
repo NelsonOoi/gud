@@ -1,4 +1,4 @@
-"""Host migration to a new repo address (integration note 4): a `handover` may name the repo's
+"""Host migration to a new repo address (SPEC §11.6): a `handover` may name the repo's
 new address; the continuing `open` must then name it."""
 
 from __future__ import annotations

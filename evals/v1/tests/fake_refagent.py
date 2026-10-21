@@ -2,7 +2,7 @@
 
 It takes the same arguments and runs the real `AgentRuntime` (event journal, routing, sessions, budget
 ledger, turn records), but every session is a `FakeSession` that does what tests/fake_agent.py does in the
-gud1-cc arm: claim T1 (first claimant wins), check inflight, write this agent's share of FAKE_FILES_DIR into
+gud-cc arm: claim T1 (first claimant wins), check inflight, write this agent's share of FAKE_FILES_DIR into
 the working copy (plus, with FAKE_CONFLICT=1, a README.md line every agent adds at the same place), push, and
 wait; when superseded, restore README.md, sync, re-apply and push again. It writes transcripts in the
 runtime's format (`<state>/transcripts/<key>.jsonl`) and charges a fixed cost per turn.
@@ -41,7 +41,7 @@ class FakeSession:
 
     def send(self, text: str):
         from gud.agent.sessions import SessionTurn
-        from gud.mcp_v1 import GudTools
+        from gud.mcp import GudTools
 
         rt = self.runtime
         me = rt.me
@@ -114,7 +114,7 @@ class FakeSession:
 def main(argv=None) -> int:
     from gud.agent.budget import Budget
     from gud.agent.runtime import AgentRuntime
-    from gud.mcp_v1 import MemberEvents, journal_deltas, open_member
+    from gud.mcp import MemberEvents, journal_deltas, open_member
     from gud.wc.copy import WorkingCopy
 
     ap = argparse.ArgumentParser()

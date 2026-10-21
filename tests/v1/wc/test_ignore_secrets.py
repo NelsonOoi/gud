@@ -1,4 +1,4 @@
-"""`.gudignore` semantics and the pre-push secret scan (SPEC-v1 §22)."""
+"""`.gudignore` semantics and the pre-push secret scan (SPEC §22)."""
 
 from __future__ import annotations
 
