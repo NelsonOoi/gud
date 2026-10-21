@@ -7,9 +7,35 @@ gud is built for swarms of coding agents, with humans as members too:
 - **Consent from blame.** A push that rewrites lines someone else owns opens a short window for them to object. A push that touches nobody's lines links on its own. Ownership fades with time and links. `.gud/owners` adds lazy, explicit or quorum rules per path, and humans can always veto.
 - **Tests from a tester member.** A tester replies to pushes and to the tip with signed results, under the repo's `.gud/test` policy: gate pushes, or test the tip, bisect a red tip, and open a fix task for whoever broke it.
 - **Leaderless tasks.** Anyone opens a task. Agents claim it with a file scope and a lease, split it into subtasks, and declare it done. Replay derives done-ness, and a quiet, landed task becomes done by itself.
+- **Fewer tokens spent on coordination.** Agents never clone, branch, rebase, resolve merge conflicts or manage pull requests. A push is a small diff, and a push that loses a race is carried forward instead of redone. In real-agent runs, gud agents wrote **16–45% fewer output tokens** than git agents for the same passing result, and threw away less work ([Token savings](#token-savings)).
 - **Any mail provider.** The protocol needs only what IMAP+SMTP, JMAP, API providers and the Gmail API all offer: raw MIME, a delivery time, a cursor. The envelope travels as a `gud.env` attachment, so providers can rewrite Message-IDs and bodies without breaking anything.
 
 The contract is [SPEC.md](SPEC.md). The Python interfaces are in [docs/INTERFACES.md](docs/INTERFACES.md), provider setup in [docs/TRANSPORTS.md](docs/TRANSPORTS.md), the design record in [docs/PLAN.md](docs/PLAN.md), and measured results in [RESULTS.md](RESULTS.md).
+
+## Token savings
+
+With git, a coding agent spends a large share of its tokens on plumbing: cloning, pulling, branching, rebasing, resolving conflict markers, opening and reviewing pull requests, and redoing work that lost a merge race. gud removes that plumbing:
+
+- **No clone and no pull.** The agent works in a local working copy that `sync` keeps current. There's no branch to manage.
+- **A push is one small diff.** `push` sends the working copy's change against its base. There's no PR to write, update or rebase.
+- **Lost races are carried, not redone.** If another push lands first and the files don't overlap, gud carries the push onto the new tip itself.
+- **Conflicts are settled where they happen.** A push that rewrites someone's recent lines gets a short consent window on the thread, instead of a conflict file and a retry loop.
+- **Collisions are caught before anyone codes.** Claims declare their files, so overlapping work shows up as `claim.overlap` before any tokens go into it.
+- **Tests aren't a per-push gate.** The tester checks the tip and bisects if it turns red, so agents don't wait on CI and re-push.
+
+**Measured** with real Claude Code agents, N=4, the same model, tools, prompt preamble and budget in both arms ([RESULTS.md](RESULTS.md#real-agent-evals)). Every run in both arms passed every hidden test.
+
+| Spec | Output tokens per run: git | Output tokens per run: gud (current v1) | Change |
+| --- | ---: | ---: | ---: |
+| todo-stack (library + CLI + HTTP API + docs) | 22,104 | 17,465 | **−21%** |
+| acme-site-shared (five pages, shared nav and styles) | 17,723 | 12,322 | **−30%** |
+| refactor-guard (feature plus an unnamed guard) | 20,129 | 14,949 | **−26%** |
+
+- **Every cell wrote fewer output tokens.** The table is the current v1 batch. In the first grid, before the coordination fixes, the savings were 16–45%, so every cell of both batches wrote fewer. Output tokens are the code, messages and tool calls the model writes.
+- **Less work thrown away.** git runs left 1.5–4 duplicate PRs unmerged; gud-cc left 0–2.5 superseded or stale pushes in the first grid, and 0 on todo-stack after the fixes.
+- **Cost per run was about the same.** gud agents take more turns to read the task board and each other's in-flight diffs, so their input and context-read tokens were similar or higher, and cost per run landed in the same range ($0.40–0.77 against $0.52–0.69).
+
+These are small samples: two trials per cell, local transports. The full tables are in [evals/v1/runs/](evals/v1/runs/).
 
 ## Install
 

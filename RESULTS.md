@@ -90,6 +90,18 @@ Hidden acceptance tests that no agent sees score the final tree. Sources: [evals
 | acme-site-shared: five pages sharing nav and styles | 278 s (261–295), $0.52 | **94 s (84–104)**, $0.69 | 123 s (99–146), $0.38 |
 | refactor-guard: feature plus an unnamed guard | 99 s (71–127), $0.54 | **67 s**, $0.51 | 122 s, $0.47 |
 
+### Tokens (current v1, gud-cc against git)
+
+Same model, tools, prompt preamble and budget in both arms. Totals are per run (four agents).
+
+| Spec | Output: git | Output: gud-cc | Input + context reads: git | Input + context reads: gud-cc |
+| --- | ---: | ---: | ---: | ---: |
+| todo-stack | 22,104 | **17,465 (−21%)** | 979,930 | 1,296,966 |
+| acme-site-shared | 17,723 | **12,322 (−30%)** | 662,678 | 1,003,444 |
+| refactor-guard | 20,129 | **14,949 (−26%)** | 528,938 | 637,848 |
+
+gud agents write less: there's no git plumbing, no PR text and no redone merges. They read more: the task board and other agents' in-flight diffs. In the first grid, output savings were 16–45%.
+
 ### Coordination on todo-stack (current v1)
 
 | | git | gud-cc | gud-ref |
