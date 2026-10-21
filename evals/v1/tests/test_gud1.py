@@ -86,6 +86,20 @@ def test_gud1_arm_end_to_end_with_fake_agents(arm, tmp_path, fake_env):
     assert not any(Path(tmp_path).glob("gudv1-*")), "temp workspaces are removed"
 
 
+def test_gud1_arm_repo_config_takes_lease_and_task_quiet(tmp_path):
+    from gud.core.config import parse_config
+    from gud1_arm import Gud1CCArm
+
+    spec = specs.load("acme-site")
+    short = Gud1CCArm(tmp_path / "s", spec, ["@a1"], lease="2m", task_quiet="2m").config_bytes()
+    assert parse_config(short).lease == parse_config(short).quiet == 120_000
+    default = Gud1CCArm(tmp_path / "d", spec, ["@a1"]).config_bytes()
+    assert b"lease 10m\n" in default and b"task-quiet" not in default      # the arm's defaults are unchanged
+    assert parse_config(default).quiet == 600_000
+    arm = run.make_arm("gud1-ref", tmp_path / "r", spec, ["@a1"], 20.0, "tip", {"lease": "2m"})
+    assert b"lease 2m\n" in arm.config_bytes()
+
+
 def test_gud1_cc_prompt_shares_the_preamble(tmp_path):
     from git_arm import GitArm
     from gud1_arm import Gud1CCArm

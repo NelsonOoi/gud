@@ -48,7 +48,8 @@ ARMS = ("git", "gud", "gud1-cc", "gud1-ref")
 ARM_SETS = {"both": ("git", "gud"), "v1": ("git", "gud1-cc", "gud1-ref")}
 
 
-def make_arm(name: str, root: Path, spec, handles: list[str], window: float, policy: str = "tip"):
+def make_arm(name: str, root: Path, spec, handles: list[str], window: float, policy: str = "tip", gud_config=None):
+    gud_config = dict(gud_config or {})
     if name == "git":
         from git_arm import GitArm
         return GitArm(root, spec, handles)
@@ -57,10 +58,10 @@ def make_arm(name: str, root: Path, spec, handles: list[str], window: float, pol
         return GudArm(root, spec, handles, window=window)
     if name == "gud1-cc":
         from gud1_arm import Gud1CCArm
-        return Gud1CCArm(root, spec, handles, window=window, policy=policy)
+        return Gud1CCArm(root, spec, handles, window=window, policy=policy, **gud_config)
     if name == "gud1-ref":
         from gud1_arm import Gud1RefArm
-        return Gud1RefArm(root, spec, handles, window=window, policy=policy)
+        return Gud1RefArm(root, spec, handles, window=window, policy=policy, **gud_config)
     raise SystemExit(f"unknown arm {name!r}")
 
 
@@ -145,7 +146,7 @@ def run_one(*, arm_name: str, spec_name: str, n: int, trial: int, budget: float,
             out: Path, agent_cmd: str, model: str | None, window: float, keep_work: bool,
             work_root: Path | None = None, mcp_grace: float = 90.0, policy: str = "tip",
             ledger=None, ref_cmd: list[str] | None = None, ref_settle: float = 90.0,
-            drain_s: float | None = None) -> dict:
+            drain_s: float | None = None, gud_config: dict | None = None, wait_done: bool = False) -> dict:
     spec = specs.load(spec_name)
     run_dir = out / f"{arm_name}-{spec_name}-n{n}-t{trial}"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -164,7 +165,8 @@ def run_one(*, arm_name: str, spec_name: str, n: int, trial: int, budget: float,
         summary = _run_one(arm_name=arm_name, spec=spec, n=n, trial=trial, budget=budget, timeout=timeout,
                            run_dir=run_dir, out=out, agent_cmd=agent_cmd, model=model, window=window,
                            keep_work=keep_work, work_root=work_root, mcp_grace=mcp_grace, policy=policy,
-                           ref_cmd=ref_cmd, ref_settle=ref_settle, drain_s=drain_s)
+                           ref_cmd=ref_cmd, ref_settle=ref_settle, drain_s=drain_s, gud_config=gud_config,
+                           wait_done=wait_done)
         spent = float(summary.get("cost_usd") or 0.0)
         summary["requested_budget_usd"] = requested
         if ledger is not None:
@@ -199,14 +201,14 @@ def _partial_cost(run_dir: Path) -> float:
 def _run_one(*, arm_name: str, spec, n: int, trial: int, budget: float, timeout: float, run_dir: Path, out: Path,
              agent_cmd: str, model: str | None, window: float, keep_work: bool, work_root: Path | None,
              mcp_grace: float, policy: str, ref_cmd: list[str] | None, ref_settle: float,
-             drain_s: float | None) -> dict:
+             drain_s: float | None, gud_config: dict | None = None, wait_done: bool = False) -> dict:
     import analyze
 
     spec_name = spec.name
     root = Path(tempfile.mkdtemp(prefix=f"gudv1-{arm_name}-", dir=work_root)).resolve()
     handles = [f"@a{i + 1}" for i in range(n)]
     agent_budget = budget / n
-    arm = make_arm(arm_name, root, spec, handles, window, policy)
+    arm = make_arm(arm_name, root, spec, handles, window, policy, gud_config)
     try:
         v1 = arm_name.startswith("gud1")
         ref = arm_name == "gud1-ref"
@@ -217,6 +219,7 @@ def _run_one(*, arm_name: str, spec, n: int, trial: int, budget: float, timeout:
             "requested_model": model, "budget_usd": budget, "agent_budget_usd": round(agent_budget, 4),
             "timeout_s": timeout, "window_s": window if arm_name != "git" else None,
             "test_policy": policy if v1 else None,
+            "gud_config": (arm.config_bytes().decode() if v1 else None),
             "agent_cmd": "gud.agent.runtime" if ref else shlex.split(agent_cmd)[-1], "work_root": str(root),
             "fairness": {
                 "agent": "reference agent (Claude Agent SDK)" if ref else "Claude Code headless",
@@ -283,6 +286,8 @@ def _run_one(*, arm_name: str, spec, n: int, trial: int, budget: float, timeout:
             agents_wall = time.time() - t0
             if v1 and outcome_reason != "harness_error":
                 drained = arm.drain(drain_s if drain_s is not None else window + 60)
+                if wait_done:                     # host and tester keep running until T1 is done or the timeout
+                    summary["done_wait"] = arm.wait_task_done(t0 + timeout)
         finally:
             arm.stop_services()
         wall = agents_wall
@@ -402,6 +407,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ref-cmd", default=None, help="gud1-ref agent command (default: python -m gud.agent.runtime)")
     ap.add_argument("--window", type=float, default=None, help="consent window in seconds (gud 30, gud1 20)")
     ap.add_argument("--gud-test-policy", default="tip", choices=("tip", "gate"), help="gud1 arms' .gud/test")
+    ap.add_argument("--gud-lease", default=None, help="gud1 arms' .gud/config lease (default 10m)")
+    ap.add_argument("--gud-task-quiet", default=None, help="gud1 arms' .gud/config task-quiet (default: the lease)")
+    ap.add_argument("--wait-done", action="store_true",
+                    help="gud1: after the agents stop, keep the host and tester running until T1 is done or the timeout")
     ap.add_argument("--cap-usd", type=float, default=None, help="hard cap on total spend across runs (ledger)")
     ap.add_argument("--ledger", type=Path, default=HERE / "runs" / "spend.json")
     ap.add_argument("--keep-work", action="store_true", help="keep the temp workspaces")
@@ -415,6 +424,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cap_usd is not None:
         from cap import CapLedger
         ledger = CapLedger(args.ledger, args.cap_usd)
+    gud_config = {k: v for k, v in (("lease", args.gud_lease), ("task_quiet", args.gud_task_quiet)) if v}
     results = []
     for trial in range(args.trial_start, args.trial_start + args.trials):
         for arm in arms:
@@ -424,6 +434,7 @@ def main(argv: list[str] | None = None) -> int:
                 timeout=args.timeout, out=out, agent_cmd=agent_cmd, model=args.model or None,
                 window=window, keep_work=args.keep_work, work_root=args.work_root, policy=args.gud_test_policy,
                 ledger=ledger, ref_cmd=shlex.split(args.ref_cmd) if args.ref_cmd else None,
+                gud_config=gud_config, wait_done=args.wait_done,
             ))
     from report import report
     print(report([out]))
