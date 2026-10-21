@@ -1,0 +1,835 @@
+{
+  "arm": "gud1-cc",
+  "spec": "acme-site-shared",
+  "agents_n": 4,
+  "trial": 1,
+  "requested_model": "claude-sonnet-5-5",
+  "budget_usd": 1.2,
+  "agent_budget_usd": 0.3,
+  "timeout_s": 1200.0,
+  "window_s": 20.0,
+  "test_policy": "tip",
+  "agent_cmd": "/Users/nelson/.local/bin/claude",
+  "work_root": "/private/var/folders/06/7pjfbw510cz2ch1m7lx8vvl80000gn/T/gudv1-gud1-cc-lh1f5dgm",
+  "fairness": {
+    "agent": "Claude Code headless",
+    "tools": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "mcp__gud__*"
+    ],
+    "test_command": "python -m pytest -q -x",
+    "same_prompt_preamble": true
+  },
+  "outcome": "completed",
+  "harness_errors": [],
+  "killed": {},
+  "model": "claude-sonnet-5-5",
+  "wall_s": 84.2,
+  "drain_s": 0.1,
+  "cost_usd": 0.7122,
+  "tokens": {
+    "input": 9922,
+    "output": 13216,
+    "cache_read": 910974,
+    "cache_creation": 97022
+  },
+  "tokens_total": 1031134,
+  "turns": 63,
+  "hidden": {
+    "passed": 28,
+    "failed": 0,
+    "total": 28,
+    "pass_rate": 1.0
+  },
+  "spec_checks": {
+    "test_build_runs": true,
+    "test_site_is_not_committed": true,
+    "test_page_built[index.html]": true,
+    "test_page_built[features.html]": true,
+    "test_page_built[pricing.html]": true,
+    "test_page_built[about.html]": true,
+    "test_page_built[contact.html]": true,
+    "test_page_basics[index.html]": true,
+    "test_page_basics[features.html]": true,
+    "test_page_basics[pricing.html]": true,
+    "test_page_basics[about.html]": true,
+    "test_page_basics[contact.html]": true,
+    "test_nav_order_and_current[index.html]": true,
+    "test_nav_order_and_current[features.html]": true,
+    "test_nav_order_and_current[pricing.html]": true,
+    "test_nav_order_and_current[about.html]": true,
+    "test_nav_order_and_current[contact.html]": true,
+    "test_nav_shared": true,
+    "test_nav_has_one_source": true,
+    "test_index_hero_cards_cta": true,
+    "test_features_six": true,
+    "test_pricing_table": true,
+    "test_about_story_and_team": true,
+    "test_contact_form": true,
+    "test_styles_cover_components": true,
+    "test_styles_responsive_under_700px": true,
+    "test_one_stylesheet": true,
+    "test_local_links_resolve": true
+  },
+  "final_tests_pass": true,
+  "final_files": [
+    ".gitignore",
+    ".gudignore",
+    "README.md",
+    "build.py",
+    "components/nav.html",
+    "pages/about.html",
+    "pages/contact.html",
+    "pages/features.html",
+    "pages/index.html",
+    "pages/pricing.html",
+    "styles.css",
+    "tests/test_site.py",
+    "tests/test_smoke.py"
+  ],
+  "escalations": 0,
+  "local_test_runs": 6,
+  "hidden_access": [],
+  "integrations": 2,
+  "integrations_per_min": 1.424,
+  "test_runs": 3,
+  "test_runs_per_integration": 1.5,
+  "conflicts_total": 1,
+  "conflicts_resolved": 0,
+  "gud1": {
+    "links": 2,
+    "links_per_min": 1.424,
+    "first_link_s": 14.5,
+    "pushes": 3,
+    "pushes_by_end": {
+      "linked": 2,
+      "superseded": 1
+    },
+    "carried_links": 0,
+    "carried_events": 1,
+    "superseded": 1,
+    "colliding_pushes": 2,
+    "emails": 13,
+    "emails_by_kind": {
+      "claim": 2,
+      "comment": 4,
+      "push": 3,
+      "task": 1,
+      "test": 3
+    },
+    "emails_per_link": 6.5,
+    "test_runs": 3,
+    "test_runs_by_scope": {
+      "tip": 3
+    },
+    "test_failures": 0,
+    "test_runs_per_link": 1.5,
+    "claims": {
+      "won": 1,
+      "lost": 0,
+      "updates": 0,
+      "releases": 1,
+      "lapsed": 0,
+      "scopes": [
+        {
+          "holder": "@a4",
+          "task": "T1",
+          "files": [
+            "pages/about.html",
+            "pages/contact.html"
+          ],
+          "status": "released"
+        }
+      ],
+      "scope_exceeded": 0
+    },
+    "overlaps": {
+      "total": 0,
+      "by_settlement": {},
+      "list": []
+    },
+    "comments": {
+      "total": 4,
+      "by_target": {
+        "task": 4
+      },
+      "escalation_comments": 0
+    },
+    "objections": {
+      "total": 0,
+      "reason": 0,
+      "evidence": 0,
+      "answered": {},
+      "list": []
+    },
+    "approvals": 0,
+    "holds": 0,
+    "escalations": {
+      "consent": [],
+      "task": [],
+      "resolved_by": {}
+    },
+    "red_tip": {
+      "episodes": 0,
+      "closed": 0,
+      "median_to_green_s": null,
+      "red_at_end": false,
+      "fix_tasks": 0,
+      "list": []
+    },
+    "task": {
+      "alias": "T1",
+      "status": "open",
+      "subtasks": 0,
+      "subtask_status": {},
+      "work_done_s": null,
+      "done_s": null,
+      "opened_s": 0.3,
+      "opened_to_done_s": null,
+      "declared_by": null,
+      "last_agent_link_s": 62.7,
+      "agent_links_after_done": 0,
+      "done_after_all_work": null,
+      "subtask_holders": []
+    },
+    "landed_authors": [
+      "@a1",
+      "@a4"
+    ],
+    "events": {
+      "carried": 1,
+      "claim.won": 1,
+      "commented": 4,
+      "linked": 3,
+      "push.received": 3,
+      "review.requested": 2,
+      "superseded": 1,
+      "task.opened": 1,
+      "test.passed": 3,
+      "window.closing": 1
+    },
+    "per_agent": {
+      "@a1": {
+        "pushes": 1,
+        "links": 1,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 1,
+        "claims_won": 0,
+        "claim_msgs": 0,
+        "comments": 2,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [],
+        "claim_scopes_all": []
+      },
+      "@a2": {
+        "pushes": 1,
+        "links": 0,
+        "carried_links": 0,
+        "superseded": 1,
+        "colliding_pushes": 1,
+        "claims_won": 0,
+        "claim_msgs": 0,
+        "comments": 1,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [],
+        "claim_scopes_all": []
+      },
+      "@a3": {
+        "pushes": 0,
+        "links": 0,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 0,
+        "claim_msgs": 0,
+        "comments": 0,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [],
+        "claim_scopes_all": []
+      },
+      "@a4": {
+        "pushes": 1,
+        "links": 1,
+        "carried_links": 0,
+        "superseded": 0,
+        "colliding_pushes": 0,
+        "claims_won": 1,
+        "claim_msgs": 2,
+        "comments": 1,
+        "objections": 0,
+        "approvals": 0,
+        "claim_scopes": [
+          [
+            "pages/about.html",
+            "pages/contact.html"
+          ]
+        ],
+        "claim_scopes_all": [
+          [
+            "pages/about.html",
+            "pages/contact.html"
+          ],
+          [
+            "pages/about.html",
+            "pages/contact.html"
+          ]
+        ]
+      }
+    },
+    "link_list": [
+      {
+        "seq": 1,
+        "author": "@a4",
+        "carried": false,
+        "files": [
+          "pages/about.html",
+          "pages/contact.html"
+        ],
+        "at_s": 14.5,
+        "intent": "Add About and Contact pages"
+      },
+      {
+        "seq": 2,
+        "author": "@a1",
+        "carried": false,
+        "files": [
+          "build.py",
+          "components/nav.html",
+          "pages/features.html",
+          "pages/index.html",
+          "pages/pricing.html",
+          "styles.css",
+          "tests/test_site.py"
+        ],
+        "at_s": 62.7,
+        "intent": "Nav, aria-current in build.py, styles, home/features/pricing pages, tests, .gitignore"
+      }
+    ],
+    "push_list": [
+      {
+        "id": "c4480f69104d",
+        "author": "@a4",
+        "t": 14.5,
+        "files": [
+          "pages/about.html",
+          "pages/contact.html"
+        ],
+        "base_seq": 0,
+        "end": "linked",
+        "end_t": 14.5,
+        "carried": false,
+        "link_seq": 1,
+        "task": "d664302d14cba9b305a58c4b767e3ef3ce6c2b6e4f69e948ea7182eebe97e6f8",
+        "revises": null,
+        "intent": "Add About and Contact pages",
+        "collides_with": []
+      },
+      {
+        "id": "6521f7dfdded",
+        "author": "@a1",
+        "t": 37.7,
+        "files": [
+          "build.py",
+          "components/nav.html",
+          "pages/features.html",
+          "pages/index.html",
+          "pages/pricing.html",
+          "styles.css",
+          "tests/test_site.py"
+        ],
+        "base_seq": 1,
+        "end": "linked",
+        "end_t": 62.7,
+        "carried": false,
+        "link_seq": 2,
+        "task": "d664302d14cba9b305a58c4b767e3ef3ce6c2b6e4f69e948ea7182eebe97e6f8",
+        "revises": null,
+        "intent": "Nav, aria-current in build.py, styles, home/features/pricing pages, tests, .gitignore",
+        "collides_with": [
+          "b19e101fe6c3"
+        ]
+      },
+      {
+        "id": "b19e101fe6c3",
+        "author": "@a2",
+        "t": 60.1,
+        "files": [
+          "build.py",
+          "components/nav.html",
+          "pages/index.html"
+        ],
+        "base_seq": 0,
+        "end": "superseded",
+        "end_t": 62.7,
+        "carried": true,
+        "link_seq": null,
+        "task": "d664302d14cba9b305a58c4b767e3ef3ce6c2b6e4f69e948ea7182eebe97e6f8",
+        "revises": null,
+        "intent": "build.py aria-current, full 5-link nav, home page",
+        "collides_with": [
+          "6521f7dfdded"
+        ]
+      }
+    ],
+    "conflicts": [
+      {
+        "push": "b19e101fe6c3",
+        "author": "@a2",
+        "end": "superseded",
+        "files": [
+          "build.py",
+          "components/nav.html",
+          "pages/index.html"
+        ],
+        "resolved": false,
+        "resolution": "not resolved"
+      }
+    ]
+  },
+  "agents": [
+    {
+      "handle": "@a1",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 69.5,
+      "turns": 21,
+      "tokens": {
+        "input": 2485,
+        "output": 5425,
+        "cache_read": 292602,
+        "cache_creation": 26217
+      },
+      "cost_usd": 0.220076,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 20,
+      "tool_counts": {
+        "Bash": 4,
+        "mcp__gud__claim": 1,
+        "mcp__gud__claim_update": 1,
+        "mcp__gud__comment": 2,
+        "mcp__gud__inbox": 3,
+        "mcp__gud__inflight": 3,
+        "mcp__gud__push": 1,
+        "mcp__gud__sync": 1,
+        "mcp__gud__tasks": 1,
+        "mcp__gud__wait": 3
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "All five pages are built and linked on the shared tip, and the tester passed it with `python -m pytest -q`. I couldn't declare T1 done, because @a4 holds the only claim on it. @a4 or the task owner needs to close it.\n\n- **Split:** @a4 wrote `about.html` and `contact.html`. I wrote the rest in one push (6521f7dfdded):\n  - `build.py` now adds `aria-current=\"page\"` to the current page's nav link.\n  - `components/nav.html` links all five pages in the required order.\n  - `styles.css` covers every required selector, including the `@media (max-width: 700px)` rules.\n  - The Home, Features and Pricing pages.\n  - `tests/test_site.py`, which builds the site and checks the pages.\n- **Overlap:** @a2 said they were also taking `build.py`, the nav, `index.html` and the tests. I commented that my push already covered those. I haven't seen a push from them.\n- **`.gitignore`:** I wrote a `.gitignore` excluding `site/`, but it wasn't in the push's file list. `site/` may not be ignored on the tip.\n- **Reviews:** nothing is waiting on me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 2
+    },
+    {
+      "handle": "@a2",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 72.0,
+      "turns": 19,
+      "tokens": {
+        "input": 2489,
+        "output": 4206,
+        "cache_read": 335373,
+        "cache_creation": 29487
+      },
+      "cost_usd": 0.229529,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 18,
+      "tool_counts": {
+        "Bash": 5,
+        "mcp__gud__approve": 1,
+        "mcp__gud__claim": 1,
+        "mcp__gud__comment": 1,
+        "mcp__gud__inbox": 1,
+        "mcp__gud__inflight": 2,
+        "mcp__gud__push": 1,
+        "mcp__gud__read": 1,
+        "mcp__gud__status": 1,
+        "mcp__gud__sync": 1,
+        "mcp__gud__tasks": 1,
+        "mcp__gud__wait": 2
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "My work is redundant, so I'm stopping without a verified result. I haven't run the full tip's tests, and the tip had no `tests/test_site.py` when I last checked.\n\n@a1's push (6521f7dfdded) linked first and covers `build.py`, the five-link nav, `index.html`, `features.html`, `pricing.html`, `styles.css` and `tests/test_site.py`. @a4's push linked the About and Contact pages. My push b19e101fe6c3 (`build.py`, `components/nav.html`, `pages/index.html`) was still open when I last checked and now conflicts with the tip in `build.py` and `pages/index.html`. It should be dropped; I haven't withdrawn it.\n\nMy `sync` stopped on those conflicts, so my working copy is still on the old base and I haven't run the tip's tests myself. I also didn't get to review @a1's push before it linked.\n\nNo one is waiting on a review from me.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 2
+    },
+    {
+      "handle": "@a3",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 83.6,
+      "turns": 13,
+      "tokens": {
+        "input": 2477,
+        "output": 1786,
+        "cache_read": 172010,
+        "cache_creation": 20938
+      },
+      "cost_usd": 0.138441,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 12,
+      "tool_counts": {
+        "Bash": 5,
+        "mcp__gud__claim": 1,
+        "mcp__gud__inbox": 1,
+        "mcp__gud__inflight": 1,
+        "mcp__gud__push": 1,
+        "mcp__gud__sync": 1,
+        "mcp__gud__tasks": 1,
+        "mcp__gud__wait": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "The site is built in the shared repo and `python -m pytest -q` passes there (14 tests). I synced to the tip to check.\n\nI pushed nothing. Other agents landed all five pages, `build.py`, the nav, `styles.css` and `tests/test_site.py` while I was drafting the pricing and features pages. My push was rejected because they'd already changed those two files, so I dropped my versions and synced. I did not read the landed pages or check them line by line against the task text.\n\nNothing is waiting on a review from me. @a4 still holds the T1 claim, so I'm leaving the \"done\" declaration to them.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 2
+    },
+    {
+      "handle": "@a4",
+      "exit_code": 0,
+      "killed": null,
+      "wall_s": 20.1,
+      "turns": 10,
+      "tokens": {
+        "input": 2471,
+        "output": 1799,
+        "cache_read": 110989,
+        "cache_creation": 20380
+      },
+      "cost_usd": 0.124123,
+      "cost_source": "result",
+      "model": "claude-sonnet-5-5",
+      "result_is_error": false,
+      "terminal_reason": "completed",
+      "mcp_servers": [
+        {
+          "name": "gud",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "tool_calls": 9,
+      "tool_counts": {
+        "Bash": 3,
+        "mcp__gud__claim": 1,
+        "mcp__gud__comment": 1,
+        "mcp__gud__inflight": 1,
+        "mcp__gud__push": 1,
+        "mcp__gud__release": 1,
+        "mcp__gud__tasks": 1
+      },
+      "escalated": false,
+      "escalation": null,
+      "final_text": "I wrote and landed `pages/about.html` and `pages/contact.html`. I did not run `python -m pytest -q` or build the site. I also didn't check the review inbox before stopping, so I don't know whether another agent is waiting on a review from me.\n\n- **About:** the page has a company story of more than 40 words. It also has a `class=\"team\"` section with three `<figure>` entries, each with a `<figcaption>` holding the person's name.\n- **Contact:** the page has a `class=\"contact-form\"` form with labelled name, email (`type=\"email\"`) and message (`<textarea>`) fields and a submit button. It also has a `mailto:hello@acme.example` link.\n\nI released my claim and left a comment on T1 listing what is still open. That is:\n\n- `components/nav.html` still links only Home.\n- `build.py` doesn't yet set `aria-current=\"page\"` on the current page's nav link.\n- `styles.css` still needs its styles and the responsive rules.\n- `pages/features.html` and `pages/pricing.html` don't exist yet, and `pages/index.html` is still a placeholder.\n- The new tests under `tests/` are not written.\n\nI stopped there because of my $0.30 budget, so T1 is not done.",
+      "api_errors": [],
+      "stderr_tail": "",
+      "local_test_runs": 0
+    }
+  ],
+  "analysis": {
+    "summary": {
+      "files_read_per_agent": 5.5,
+      "reads_outside_own_changes_per_agent": 3.0,
+      "reads_outside_claims_per_agent": 5.0,
+      "agents_with_claims": 1,
+      "colliding_pushes": 2,
+      "colliding_with_inflight_before": 2,
+      "colliding_with_comment_before": 2,
+      "colliding_with_inflight_since_last_push": 2,
+      "push_refusals": 1,
+      "stale_base_refusals": 1,
+      "inflight_calls": 7,
+      "comment_calls": 4,
+      "claim_calls": 4,
+      "claim_update_calls": 1,
+      "subtask_calls": 0,
+      "release_calls": 1,
+      "wait_calls": 6,
+      "wait_timeouts": 2,
+      "wait_timeout_s": [
+        30.0,
+        60.0
+      ]
+    },
+    "agents": {
+      "@a1": {
+        "files_read": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/index.html",
+          "styles.css",
+          "tests/test_site.py",
+          "tests/test_smoke.py"
+        ],
+        "files_changed": [
+          "build.py",
+          "components/nav.html",
+          "pages/features.html",
+          "pages/index.html",
+          "pages/pricing.html",
+          "styles.css",
+          "tests/test_site.py"
+        ],
+        "reads_outside_own_changes": [
+          "README.md",
+          "tests/test_smoke.py"
+        ],
+        "gud_tools": {
+          "inflight": 3,
+          "comment": 2,
+          "claim": 1,
+          "claim_update": 1,
+          "tasks": 1,
+          "inbox": 3,
+          "wait": 3,
+          "sync": 1,
+          "push": 1
+        },
+        "claim_scopes": [],
+        "reads_outside_claims": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/index.html",
+          "styles.css",
+          "tests/test_site.py",
+          "tests/test_smoke.py"
+        ],
+        "changes_outside_claims": [
+          "build.py",
+          "components/nav.html",
+          "pages/features.html",
+          "pages/index.html",
+          "pages/pricing.html",
+          "styles.css",
+          "tests/test_site.py"
+        ],
+        "pushes": 1,
+        "colliding_pushes": [
+          {
+            "push": "6521f7dfdded",
+            "files": [
+              "build.py",
+              "components/nav.html",
+              "pages/features.html",
+              "pages/index.html",
+              "pages/pricing.html",
+              "styles.css",
+              "tests/test_site.py"
+            ],
+            "end": "linked",
+            "found_in_transcript": true,
+            "inflight_before": true,
+            "comment_before": true,
+            "inflight_since_last_push": true,
+            "comment_since_last_push": true
+          }
+        ],
+        "push_refusals": []
+      },
+      "@a2": {
+        "files_read": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/index.html",
+          "styles.css",
+          "tests/test_site.py",
+          "tests/test_smoke.py"
+        ],
+        "files_changed": [
+          "build.py",
+          "components/nav.html",
+          "pages/index.html"
+        ],
+        "reads_outside_own_changes": [
+          "README.md",
+          "styles.css",
+          "tests/test_site.py",
+          "tests/test_smoke.py"
+        ],
+        "gud_tools": {
+          "inflight": 2,
+          "comment": 1,
+          "claim": 1,
+          "tasks": 1,
+          "inbox": 1,
+          "wait": 2,
+          "sync": 1,
+          "push": 1,
+          "status": 1,
+          "approve": 1,
+          "read": 1
+        },
+        "claim_scopes": [],
+        "reads_outside_claims": [
+          "README.md",
+          "build.py",
+          "components/nav.html",
+          "pages/index.html",
+          "styles.css",
+          "tests/test_site.py",
+          "tests/test_smoke.py"
+        ],
+        "changes_outside_claims": [
+          "build.py",
+          "components/nav.html",
+          "pages/index.html"
+        ],
+        "pushes": 1,
+        "colliding_pushes": [
+          {
+            "push": "b19e101fe6c3",
+            "files": [
+              "build.py",
+              "components/nav.html",
+              "pages/index.html"
+            ],
+            "end": "superseded",
+            "found_in_transcript": true,
+            "inflight_before": true,
+            "comment_before": true,
+            "inflight_since_last_push": true,
+            "comment_since_last_push": true
+          }
+        ],
+        "push_refusals": []
+      },
+      "@a3": {
+        "files_read": [
+          "build.py",
+          "pages/features.html",
+          "pages/pricing.html"
+        ],
+        "files_changed": [],
+        "reads_outside_own_changes": [
+          "build.py",
+          "pages/features.html",
+          "pages/pricing.html"
+        ],
+        "gud_tools": {
+          "inflight": 1,
+          "claim": 1,
+          "tasks": 1,
+          "inbox": 1,
+          "wait": 1,
+          "sync": 1,
+          "push": 1
+        },
+        "claim_scopes": [],
+        "reads_outside_claims": [
+          "build.py",
+          "pages/features.html",
+          "pages/pricing.html"
+        ],
+        "changes_outside_claims": [],
+        "pushes": 0,
+        "colliding_pushes": [],
+        "push_refusals": [
+          {
+            "error": "error: links since your base changed pages/features.html, pages/pricing.html; the push would not carry onto the tip. Run `gud sync` first",
+            "stale_base": true,
+            "inflight_before": true
+          }
+        ]
+      },
+      "@a4": {
+        "files_read": [
+          "build.py",
+          "components/nav.html",
+          "pages/about.html",
+          "pages/contact.html",
+          "pages/index.html"
+        ],
+        "files_changed": [
+          "pages/about.html",
+          "pages/contact.html"
+        ],
+        "reads_outside_own_changes": [
+          "build.py",
+          "components/nav.html",
+          "pages/index.html"
+        ],
+        "gud_tools": {
+          "inflight": 1,
+          "comment": 1,
+          "claim": 1,
+          "release": 1,
+          "tasks": 1,
+          "push": 1
+        },
+        "claim_scopes": [
+          [
+            "pages/about.html",
+            "pages/contact.html"
+          ],
+          [
+            "pages/about.html",
+            "pages/contact.html"
+          ]
+        ],
+        "reads_outside_claims": [
+          "build.py",
+          "components/nav.html",
+          "pages/index.html"
+        ],
+        "changes_outside_claims": [],
+        "pushes": 1,
+        "colliding_pushes": [],
+        "push_refusals": []
+      }
+    }
+  },
+  "requested_budget_usd": 1.2,
+  "cap": {
+    "cap_usd": 26.0,
+    "spent_usd": 21.202,
+    "reserved_usd": 1.2,
+    "remaining_usd": 3.598
+  }
+}
