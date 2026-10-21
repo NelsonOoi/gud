@@ -1,10 +1,10 @@
-"""gud.mcp_v1 tool bodies in process (the same code the stdio server runs): guards and edge cases."""
+"""gud.mcp tool bodies in process (the same code the stdio server runs): guards and edge cases."""
 
 from __future__ import annotations
 
 import json
 
-from gud.mcp_v1 import artifacts, describe_event, is_echo
+from gud.mcp import artifacts, describe_event, is_echo
 from gud.core.envelope import make_event
 
 from tests.v1.mcp.conftest import LocalRepo

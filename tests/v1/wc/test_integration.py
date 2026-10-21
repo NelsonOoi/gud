@@ -7,7 +7,7 @@ from pathlib import Path
 
 from gud.core.types import Record
 from gud.ops.audit import audit
-from gud.tester_v1 import LocalRunner, Tester, TesterIdentity
+from gud.tester import LocalRunner, Tester, TesterIdentity
 
 from tests.v1.kit import Kit, status
 from tests.v1.wc.conftest import Net

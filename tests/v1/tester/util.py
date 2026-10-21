@@ -9,7 +9,7 @@ from typing import Any
 
 from gud.core.replay import Replayer
 from gud.runners.local import LocalRunner
-from gud.tester_v1 import LocalClient, Tester, TesterIdentity
+from gud.tester import LocalClient, Tester, TesterIdentity
 from tests.v1.kit import Kit
 
 PY = sys.executable

@@ -1,4 +1,4 @@
-"""The gud v1 arms with no model: gud1-cc (fake Claude Code on gud.mcp_v1) and gud1-ref (the real reference
+"""The gud v1 arms with no model: gud-cc (fake Claude Code on gud.mcp) and gud-ref (the real reference
 agent runtime with fake sessions), the replay and transcript analysis, and the spending cap."""
 
 from __future__ import annotations
@@ -27,8 +27,8 @@ def fake_env(monkeypatch):
     monkeypatch.setenv("FAKE_DEADLINE", "90")
 
 
-@pytest.mark.parametrize("arm", ["gud1-cc", "gud1-ref"])
-def test_gud1_arm_end_to_end_with_fake_agents(arm, tmp_path, fake_env):
+@pytest.mark.parametrize("arm", ["gud-cc", "gud-ref"])
+def test_gud_arm_end_to_end_with_fake_agents(arm, tmp_path, fake_env):
     out = tmp_path / "out"
     summary = run.run_one(arm_name=arm, spec_name="acme-site", n=2, trial=1, budget=5.0, timeout=150,
                           out=out, agent_cmd=AGENT_CMD, model="claude-sonnet-5-5", window=3.0,
@@ -38,7 +38,7 @@ def test_gud1_arm_end_to_end_with_fake_agents(arm, tmp_path, fake_env):
     assert summary["final_tests_pass"] is True
     assert ".gud/members" not in summary["final_files"] and ".gudignore" in summary["final_files"]
     assert summary["integrations"] >= 2
-    g = summary["gud1"]
+    g = summary["gud"]
     assert g["links"] == summary["integrations"] and g["links_per_min"] > 0
     # both agents touch README.md from the same base: the later push is superseded (both were sent before
     # either linked) or refused by the working copy before sending (sync first); either way it is pushed again
@@ -80,33 +80,33 @@ def test_gud1_arm_end_to_end_with_fake_agents(arm, tmp_path, fake_env):
     assert (run_dir / "host-log.jsonl").stat().st_size > 0
     assert "tester @tester running" in (run_dir / "tester.log").read_text()
     saved = json.loads((run_dir / "summary.json").read_text())
-    assert "_pushes_full" not in saved["gud1"]
+    assert "_pushes_full" not in saved["gud"]
     text = report.report([out])
     assert f"| {arm} |" in text and "claims won" in text
     assert not any(Path(tmp_path).glob("gudv1-*")), "temp workspaces are removed"
 
 
-def test_gud1_arm_repo_config_takes_lease_and_task_quiet(tmp_path):
+def test_gud_arm_repo_config_takes_lease_and_task_quiet(tmp_path):
     from gud.core.config import parse_config
-    from gud1_arm import Gud1CCArm
+    from gud_arm import GudCCArm
 
     spec = specs.load("acme-site")
-    short = Gud1CCArm(tmp_path / "s", spec, ["@a1"], lease="2m", task_quiet="2m").config_bytes()
+    short = GudCCArm(tmp_path / "s", spec, ["@a1"], lease="2m", task_quiet="2m").config_bytes()
     assert parse_config(short).lease == parse_config(short).quiet == 120_000
-    default = Gud1CCArm(tmp_path / "d", spec, ["@a1"]).config_bytes()
+    default = GudCCArm(tmp_path / "d", spec, ["@a1"]).config_bytes()
     assert b"lease 10m\n" in default and b"task-quiet" not in default      # the arm's defaults are unchanged
     assert parse_config(default).quiet == 600_000
-    arm = run.make_arm("gud1-ref", tmp_path / "r", spec, ["@a1"], 20.0, "tip", {"lease": "2m"})
+    arm = run.make_arm("gud-ref", tmp_path / "r", spec, ["@a1"], 20.0, "tip", {"lease": "2m"})
     assert b"lease 2m\n" in arm.config_bytes()
 
 
-def test_gud1_cc_prompt_shares_the_preamble(tmp_path):
+def test_gud_cc_prompt_shares_the_preamble(tmp_path):
     from git_arm import GitArm
-    from gud1_arm import Gud1CCArm
+    from gud_arm import GudCCArm
 
     spec = specs.load("todo-stack")
     handles = ["@a1", "@a2"]
-    git_arm, cc = GitArm(tmp_path / "g", spec, handles), Gud1CCArm(tmp_path / "u", spec, handles)
+    git_arm, cc = GitArm(tmp_path / "g", spec, handles), GudCCArm(tmp_path / "u", spec, handles)
     git_arm.setup()
     cc.setup()
     try:
@@ -118,20 +118,20 @@ def test_gud1_cc_prompt_shares_the_preamble(tmp_path):
 def _check_preamble(git_arm, cc, spec, handles):
     head = lambda text: text.split("# How this repo works")[0]  # noqa: E731
     git = run.prompt_for(git_arm, spec, "@a1", handles, 1.5)
-    gud1 = run.prompt_for(cc, spec, "@a1", handles, 1.5)
-    assert head(git) == head(gud1)
+    gud = run.prompt_for(cc, spec, "@a1", handles, 1.5)
+    assert head(git) == head(gud)
     assert spec.text in head(git)
-    assert "test_hidden" not in git + gud1
-    assert "subtask" in gud1 and "inflight" in gud1 and "@a2" in gud1
+    assert "test_hidden" not in git + gud
+    assert "subtask" in gud and "inflight" in gud and "@a2" in gud
     assert "todolib.py" not in cc.instructions("@a1"), "nothing pre-splits the work"
     mcp = json.loads(cc.mcp_config("@a1").read_text())["mcpServers"]["gud"]
-    assert mcp["args"][:2] == ["-m", "gud.cli_v1"] and "mcp" in mcp["args"] and mcp["env"]["PYTHONPATH"] == str(run.REPO)
+    assert mcp["args"][:2] == ["-m", "gud.cli"] and "mcp" in mcp["args"] and mcp["env"]["PYTHONPATH"] == str(run.REPO)
     assert (cc.workdir("@a1") / ".gud" / "BASE").is_file() and (cc.workdir("@a1") / "README.md").is_file()
 
 
-def test_gud1_ref_auth_failure_is_harness_error(tmp_path, monkeypatch):
+def test_gud_ref_auth_failure_is_harness_error(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_AGENT_MODE", "authfail")
-    summary = run.run_one(arm_name="gud1-ref", spec_name="todo-cli", n=1, trial=1, budget=1.0, timeout=60,
+    summary = run.run_one(arm_name="gud-ref", spec_name="todo-cli", n=1, trial=1, budget=1.0, timeout=60,
                           out=tmp_path / "out", agent_cmd=AGENT_CMD, model=None, window=3.0, keep_work=False,
                           work_root=tmp_path, ref_cmd=REF_CMD, ref_settle=5.0)
     assert summary["outcome"] == "harness_error"

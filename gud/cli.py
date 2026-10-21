@@ -1,4 +1,4 @@
-"""`gud1`: the v1 command line (INTERFACES.md `gud/cli_v1.py`, SPEC-v1 §21, §22).
+"""`gud`: the command line (INTERFACES.md `gud/cli.py`, SPEC-v1 §21, §22).
 
 Global flags (before or after the command): `--home PATH` (default `$GUD_HOME`, else `~/.gud`),
 `--handle @x` (default `$GUD_HANDLE`, else the working copy's or the last init/clone/join's),
@@ -348,7 +348,7 @@ def _host_dir(ctx: Ctx, args: argparse.Namespace) -> Path:
 
 def cmd_host_serve(args: argparse.Namespace) -> int:
     ctx = Ctx(args)
-    from gud import host_v1
+    from gud import host as host_mod
     root = _host_dir(ctx, args)
     if not (root / "host.json").exists():
         raise CliError(f"{root} is not a host directory (run `gud host init`)", 2)
@@ -371,7 +371,7 @@ def cmd_host_serve(args: argparse.Namespace) -> int:
                 + (f"; UI acts as {', '.join(usable)}" if usable else ""))
         sys.stdout.flush()
 
-    host_v1.serve_dir(root, bind=args.bind, webhook_bind=args.webhook_bind, on_ready=ready,
+    host_mod.serve_dir(root, bind=args.bind, webhook_bind=args.webhook_bind, on_ready=ready,
                       ui_signers=signers, ui_dist=dist if dist else False)
     return 0
 
@@ -1323,20 +1323,20 @@ def _delegate(command: str, module: str) -> Callable[[argparse.Namespace], int]:
 
 
 cmd_agent = _delegate("agent", "gud.agent.runtime")
-cmd_mcp = _delegate("mcp", "gud.mcp_v1")
+cmd_mcp = _delegate("mcp", "gud.mcp")
 
 
 def cmd_tester(args: argparse.Namespace) -> int:
-    """`gud tester`: this member (role tester) runs the repo's test policy (gud.tester_v1)."""
+    """`gud tester`: this member (role tester) runs the repo's test policy (gud.tester)."""
     ctx = Ctx(args)
     import logging
 
-    from gud import tester_v1
+    from gud.tester import Tester, TesterIdentity, make_runner
     client = ctx.client(args.host_url, args.repo) if args.host_url else ctx.client()
     ctx.need_sender(client)
-    tester = tester_v1.Tester(client, tester_v1.make_runner(args.runner),
-                              identity=tester_v1.TesterIdentity(client.handle, client.private_raw),
-                              parallel=args.parallel, state_dir=ctx.home / "tester" / client.handle)
+    tester = Tester(client, make_runner(args.runner),
+                    identity=TesterIdentity(client.handle, client.private_raw),
+                    parallel=args.parallel, state_dir=ctx.home / "tester" / client.handle)
     if args.once:
         sent = tester.step()
         return ctx.out({"handle": client.handle, "sent": sent}, f"tester {client.handle}: {len(sent)} results sent")
@@ -1412,7 +1412,7 @@ def _common() -> argparse.ArgumentParser:
 
 def build_parser() -> argparse.ArgumentParser:
     common = _common()
-    parser = argparse.ArgumentParser(prog="gud1", description="gud v1: email-native source control", parents=[common])
+    parser = argparse.ArgumentParser(prog="gud", description="gud: email-native source control", parents=[common])
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
     sub.required = True
 
@@ -1446,7 +1446,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--set", action="append", metavar="KEY=VALUE")
     p.add_argument("--bugs")
     p.add_argument("--dir", help="host directory (default GUD_HOME/host/<repo>)")
-    p = add("serve", cmd_host_serve, "serve a host directory: intake, dispatch and the §21 mirror (gud.host_v1)", host)
+    p = add("serve", cmd_host_serve, "serve a host directory: intake, dispatch and the §21 mirror (gud.host)", host)
     p.add_argument("--bind", default="127.0.0.1:8787")
     p.add_argument("--webhook-bind", help="a second port with only the provider webhook route")
     p.add_argument("--dir", help="host directory (default: this member's local host, or the only one)")
@@ -1613,9 +1613,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = add("agent", cmd_agent, "run the reference agent as this member (gud.agent.runtime; its options follow)")
     p.set_defaults(passthrough=True)
-    p = add("mcp", cmd_mcp, "run the MCP server (stdio) as this member (gud.mcp_v1; its options follow)")
+    p = add("mcp", cmd_mcp, "run the MCP server (stdio) as this member (gud.mcp; its options follow)")
     p.set_defaults(passthrough=True)
-    p = add("tester", cmd_tester, "run the tester (gud.tester_v1) as this member")
+    p = add("tester", cmd_tester, "run the tester (gud.tester) as this member")
     p.add_argument("--runner", default="local", choices=["local", "docker", "instabox"])
     p.add_argument("--parallel", type=int, default=1)
     p.add_argument("--interval", type=float, default=5.0, help="seconds between passes")

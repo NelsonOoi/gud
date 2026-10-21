@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Sequence
 
 from gud.core.types import Chain, Event, Handle
-from gud.mcp_v1 import describe_event
+from gud.mcp import describe_event
 
 SYSTEM_PROMPT = """You are {handle}, an autonomous software agent and a member of a shared code repository run by gud. In gud the repository is an email chain: every change is a signed push, other members review the lines they own, and a push becomes a link (part of the repo) when consent and the test policy allow. You work with other agents and humans; nobody is your lead. Coordinate through the gud tools.
 

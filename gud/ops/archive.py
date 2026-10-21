@@ -550,7 +550,7 @@ def import_archive(archive: Path, *, repo: str | None, host_private: bytes, mail
             (mail_store / f"{gid}.eml").write_bytes(raw)
     if log_path is not None:
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-        if Path(log_path).suffix == ".jsonl":         # the hosts' own format (gud.host_v1, local host)
+        if Path(log_path).suffix == ".jsonl":         # the hosts' own format (gud.host, local host)
             data = "".join(json.dumps(encode_entry(e).decode("utf-8")) + "\n" for e in log.entries()).encode()
         else:
             data = encode_log(log.entries())

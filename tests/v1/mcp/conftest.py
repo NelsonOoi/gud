@@ -1,5 +1,5 @@
 """A repo in local host mode over the fake transport, with one GUD_HOME per member, so the MCP
-server can run as a real stdio subprocess (`python -m gud.mcp_v1`) next to in-process tools."""
+server can run as a real stdio subprocess (`python -m gud.mcp`) next to in-process tools."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any, Mapping
 
 import pytest
 
-from gud.mcp_v1 import GudTools
+from gud.mcp import GudTools
 from gud.transport.fake import FAKE_AUTHSERV_ID, FakeMailbox
 from gud.wc.copy import WorkingCopy, create_genesis
 from gud.wc.remote import LocalHost, RepoClient, save_key, write_transport_toml
@@ -39,7 +39,7 @@ class LocalRepo:
         return self.tmp / "wc" / handle.lstrip("@")
 
     def member(self, handle: str) -> Path:
-        """GUD_HOME for `handle`: key, transport.toml and remote.json, as `gud1` writes them."""
+        """GUD_HOME for `handle`: key, transport.toml and remote.json, as `gud` writes them."""
         home = self.home(handle)
         if not (home / "members" / handle / "key").exists():
             save_key(home, handle, self.kit.key(handle))
@@ -87,7 +87,7 @@ class LocalRepo:
         env = {k: v for k, v in os.environ.items() if not k.startswith("GUD_")}
         env.update({"PYTHONPATH": str(ROOT), "GUD_WAIT": "5"})
         return StdioServerParameters(command=sys.executable, args=[
-            "-m", "gud.mcp_v1", "--home", str(self.member(handle)), "--handle", handle,
+            "-m", "gud.mcp", "--home", str(self.member(handle)), "--handle", handle,
             "--wc", str(self.wc_dir(handle)), "--json"], env=env, cwd=str(self.tmp))
 
 

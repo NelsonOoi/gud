@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from gud.core import envelope as E
 from gud.events.dispatch import parse_sse
 from gud.host_view import EventFeed, load_signers
-from gud.host_v1 import sign_request
+from gud.host import sign_request
 from tests.v1.events.harness import World
 from tests.v1.host.view_world import EVIDENCE, G, W, Story, build
 

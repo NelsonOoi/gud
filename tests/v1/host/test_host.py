@@ -16,7 +16,7 @@ from gud.core import envelope as E
 from gud.core.hostlog import decode_entry
 from gud.events.dispatch import EventClient, parse_sse
 from gud.events.model import from_json
-from gud.host_v1 import open_host, sign_request, verify_request
+from gud.host import open_host, sign_request, verify_request
 from gud.transport import mime
 from gud.transport.base import Outgoing
 from gud.transport.primitive import PrimitiveMailbox, signature_header

@@ -24,7 +24,7 @@ Member side:
 - `Debouncer`: batches bursts per session thread for about a second before an agent acts.
 
 Mirror request auth v1 (§21) lives here too (`sign_request` / `verify_request`), because both
-the host app and the member-side SSE client need it; `gud.host_v1` re-exports it.
+the host app and the member-side SSE client need it; `gud.host` re-exports it.
 """
 
 from __future__ import annotations

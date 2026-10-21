@@ -14,7 +14,7 @@
 
 Two mirror back ends implement the same small interface (`Mirror`):
 
-- `HttpMirror`: the §21 HTTP endpoints of a host (`gud host serve`, `gud.host_v1`).
+- `HttpMirror`: the §21 HTTP endpoints of a host (`gud host serve`, `gud.host`).
 - `LocalHost`: **local host mode**. The client is itself the host: it reads the repo address's
   mailbox through its transport, appends signed host log entries (§11.1), keeps the raw mail,
   and serves the same calls in process. A `host_url` of `local:<dir>` selects it; several
@@ -249,7 +249,7 @@ class LocalHost:
         host.json           {"repo", "bugs"}
         transport.toml      the repo mailbox's transport (gud.transport.registry form)
         log.jsonl           host log, one JSON string (entry text incl. sig line) per line
-        mail/<2 hex>/<id>.eml  raw MIME of every logged message, as received (the host_v1 layout)
+        mail/<2 hex>/<id>.eml  raw MIME of every logged message, as received (the host's layout)
         cursor              the repo mailbox cursor
         checkpoints.json    snapshot sha256 -> log seq, from logged checkpoint messages
         snapshots/<sha256>  computed snapshot bytes
@@ -508,7 +508,7 @@ class LocalHost:
     def mail(self, gud_id: Hex) -> bytes | None:
         if not E.is_hex64(gud_id):
             return None
-        # the host_v1 layout (mail/<2 hex>/<id>.eml), so `gud host serve` can serve this directory;
+        # the host's layout (mail/<2 hex>/<id>.eml), so `gud host serve` can serve this directory;
         # flat mail/<id>.eml is read too
         for path in (self.root / "mail" / gud_id[:2] / f"{gud_id}.eml", self.root / "mail" / f"{gud_id}.eml"):
             if path.exists():
@@ -667,7 +667,7 @@ class RepoClient:
         self._info: dict | None = None
         self.last_problems: list[str] = []
         # called with every delta `sync_log` produces (including the syncs WorkingCopy runs), so
-        # tools that journal events (gud.mcp_v1, gud.agent) see all of them
+        # tools that journal events (gud.mcp, gud.agent) see all of them
         self.on_delta: list[Callable[[ChainDelta], None]] = []
 
     # ------------------------------------------------------------ cache

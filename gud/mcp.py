@@ -1,12 +1,12 @@
-"""gud v1 MCP server (INTERFACES.md `gud/mcp_v1.py`, PLAN Phase 4 "Full repo context").
+"""gud v1 MCP server (INTERFACES.md `gud/mcp.py`, PLAN Phase 4 "Full repo context").
 
 One server process per member session, bound to that member's key, `RepoClient` and working
 copy. Run it as
 
-    python -m gud.mcp_v1 [--home GUD_HOME] [--handle @x] [--wc DIR] [--json]
+    python -m gud.mcp [--home GUD_HOME] [--handle @x] [--wc DIR] [--json]
 
 The repo comes from the working copy's `.gud/local/config.json`, else `GUD_HOME/remote.json`
-(what `gud1 init`, `clone` and `join` write); the member's transport from
+(what `gud init`, `clone` and `join` write); the member's transport from
 `GUD_HOME/members/<handle>/transport.toml`.
 
 Agents get the whole repo, with no file allowlist and no truncation of repo content:
@@ -412,7 +412,7 @@ def _describe(event: Event, chain: Chain | None) -> str:
 
 def open_member(home: Path | str | None = None, handle: Handle | None = None, wc: Path | str | None = None,
                 *, clock: Callable[[], float] = time.time) -> tuple[RepoClient, Path | None]:
-    """(RepoClient, working copy root or None) for a member, found the way `gud1` finds it:
+    """(RepoClient, working copy root or None) for a member, found the way `gud` finds it:
     the working copy's `.gud/local/config.json`, else `GUD_HOME/remote.json`."""
     home_p = Path(home or os.environ.get("GUD_HOME") or "~/.gud").expanduser().resolve()
     wc_root: Path | None = None
@@ -431,7 +431,7 @@ def open_member(home: Path | str | None = None, handle: Handle | None = None, wc
     host_url = local.get("host_url") or remote.get("host_url")
     repo = local.get("repo") or remote.get("repo")
     if not host_url:
-        raise ToolError("no repo: the working copy and GUD_HOME/remote.json name no host (run `gud1 clone` or join)")
+        raise ToolError("no repo: the working copy and GUD_HOME/remote.json name no host (run `gud clone` or join)")
     key = load_key(home_p, handle)
     mailbox = None
     from gud.transport.registry import member_config, open_mailbox
@@ -1810,7 +1810,7 @@ def build_server(tools: GudTools) -> Any:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="gud.mcp_v1", description="gud v1 MCP server (stdio), one per member session")
+    parser = argparse.ArgumentParser(prog="gud.mcp", description="gud v1 MCP server (stdio), one per member session")
     parser.add_argument("--home", default=None, help="GUD_HOME (default $GUD_HOME or ~/.gud)")
     parser.add_argument("--handle", default=None, help="member handle (default $GUD_HANDLE or the working copy's)")
     parser.add_argument("--wc", default=None, help="the member's working copy (default: the one containing cwd)")
@@ -1819,7 +1819,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         client, wc_root = open_member(args.home, args.handle, args.wc)
     except (ToolError, RemoteError, TransportError) as exc:
-        print(f"gud.mcp_v1: {exc}", file=sys.stderr)
+        print(f"gud.mcp: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
     tools = GudTools(client, wc_root, json=args.json)
     build_server(tools).run("stdio")

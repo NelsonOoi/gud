@@ -131,7 +131,7 @@ def fake_env(monkeypatch):
 
 
 def test_git_arm_end_to_end_with_fake_agents(tmp_path, fake_env):
-    """The gud arms run end to end in test_gud1.py."""
+    """The gud arms run end to end in test_gud.py."""
     arm = "git"
     out = tmp_path / "out"
     summary = run.run_one(arm_name=arm, spec_name="acme-site", n=2, trial=1, budget=5.0, timeout=150,

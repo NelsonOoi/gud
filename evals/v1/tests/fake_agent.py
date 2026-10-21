@@ -148,16 +148,16 @@ def _union_resolve(path: Path) -> None:
     path.write_text("".join(keep))
 
 
-# -- gud v1 arm (gud1-cc) ---------------------------------------------------------------------------
+# -- gud v1 arm (gud-cc) ---------------------------------------------------------------------------
 
-def gud1_work(out: Out, handle: str, mcp_path: str) -> str:
+def gud_work(out: Out, handle: str, mcp_path: str) -> str:
     """Claim T1 (the first claimant wins; the rest work unclaimed), check inflight, write this agent's files
     into the working copy, push, and wait. When the push is superseded (another agent's link touched
     README.md), restore README.md to the base, sync, re-apply the note and push again."""
     cfg = json.loads(Path(mcp_path).read_text())["mcpServers"]["gud"]
     args = cfg["args"]
     sys.path.insert(0, cfg["env"]["PYTHONPATH"])
-    from gud.mcp_v1 import GudTools, open_member
+    from gud.mcp import GudTools, open_member
 
     client, wc_root = open_member(args[args.index("--home") + 1], handle, args[args.index("--wc") + 1])
     tools = GudTools(client, wc_root, poll_s=0.3)
@@ -244,7 +244,7 @@ def main() -> int:
         time.sleep(600)
         return 0
     if "--mcp-config" in opts:
-        text = gud1_work(out, handle, opts["--mcp-config"])
+        text = gud_work(out, handle, opts["--mcp-config"])
     else:
         text = git_work(out, handle)
     if os.environ.get("FAKE_ESCALATE") == "1" and handle == "@a1":

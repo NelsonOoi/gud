@@ -16,7 +16,7 @@ import pytest
 from gud.runners.base import LOG_LIMIT, RunnerError, materialize, tail, tree_tarball
 from gud.runners.docker import DockerRunner
 from gud.runners.local import LocalRunner
-from gud.tester_v1 import make_runner
+from gud.tester import make_runner
 from tests.v1.kit import status
 from tests.v1.tester.util import PY, chain_tests, make_tester, repo
 

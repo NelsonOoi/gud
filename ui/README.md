@@ -16,8 +16,8 @@ cd ui
 npm ci
 npm run build              # tsc + vite build into ui/dist
 cd ..
-gud1 host serve --dir <host dir> --ui-home <a human member's GUD_HOME>
-# or: python -m gud.cli_v1 host serve ...
+gud host serve --dir <host dir> --ui-home <a human member's GUD_HOME>
+# or: python -m gud.cli host serve ...
 ```
 
 Open the URL it prints (default [http://127.0.0.1:8787](http://127.0.0.1:8787)). `--ui-home` (repeatable,

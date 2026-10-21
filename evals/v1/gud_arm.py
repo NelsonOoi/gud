@@ -1,18 +1,18 @@
 """The gud v1 arms: a real v1 host (`gud host serve`), a real tester (`gud tester`), and either Claude Code
-sessions on the gud v1 MCP server (`gud1-cc`, `gud mcp`) or reference agents (`gud1-ref`, `gud agent`).
+sessions on the gud v1 MCP server (`gud-cc`, `gud mcp`) or reference agents (`gud-ref`, `gud agent`).
 
-Everything goes through the gud v1 command line (`python -m gud.cli_v1 --home H --handle @x ...`, with this
+Everything goes through the gud v1 command line (`python -m gud.cli --home H --handle @x ...`, with this
 checkout on PYTHONPATH), the same way `tests/v1/e2e/scenario.py` drives it:
 
-    gud1 host init --repo repo@gud.local --transport fake --set root=<mail> --dir <host>   (as @hoster)
-    gud1 host serve --dir <host> --bind 127.0.0.1:<port>                                   (long-lived)
-    gud1 keys new --address <x>@gud.local --transport fake --set root=<mail>               (every member)
-    gud1 init <seed dir> --repo ... --member-file <roster with every key> --host-url <url> (as @nelson)
-    gud1 task new "<title>" -m "<spec text>" --accept-cmd "python -m pytest -q"            (as @nelson)
-    gud1 clone <url> <agents/aK>                                                           (every agent)
-    gud1 tester --interval 2                                                               (as @tester)
-    gud1 mcp --wc <agents/aK>          gud1-cc: the --mcp-config server of agent K
-    gud1 agent --wc <agents/aK> ...    gud1-ref: the reference agent K
+    gud host init --repo repo@gud.local --transport fake --set root=<mail> --dir <host>   (as @hoster)
+    gud host serve --dir <host> --bind 127.0.0.1:<port>                                   (long-lived)
+    gud keys new --address <x>@gud.local --transport fake --set root=<mail>               (every member)
+    gud init <seed dir> --repo ... --member-file <roster with every key> --host-url <url> (as @nelson)
+    gud task new "<title>" -m "<spec text>" --accept-cmd "python -m pytest -q"            (as @nelson)
+    gud clone <url> <agents/aK>                                                           (every agent)
+    gud tester --interval 2                                                               (as @tester)
+    gud mcp --wc <agents/aK>          gud-cc: the --mcp-config server of agent K
+    gud agent --wc <agents/aK> ...    gud-ref: the reference agent K
 
 Layout under the run's work root:
 
@@ -21,7 +21,7 @@ Layout under the run's work root:
     homes/<x>/         GUD_HOME of each member (key, transport.toml, remote.json, replay cache, objects)
     seed/              @nelson's working copy (the genesis tree)
     agents/<aK>/       agent K's working copy: its cwd
-    mcp/<aK>.json      gud1-cc: agent K's --mcp-config
+    mcp/<aK>.json      gud-cc: agent K's --mcp-config
     logs/              host.log
 
 Members: @a1..@aN (agent), @tester (tester), @nelson (human requester and sponsor; signs genesis and the
@@ -65,8 +65,8 @@ POLICIES = {
 }
 
 
-class Gud1Error(RuntimeError):
-    """A gud1 command failed during setup (a harness error, not an agent result)."""
+class GudError(RuntimeError):
+    """A gud command failed during setup (a harness error, not an agent result)."""
 
 
 def _free_port() -> int:
@@ -75,9 +75,9 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-class Gud1Arm:
-    name = "gud1"
-    metrics_key = "gud1"
+class GudArm:
+    name = "gud"
+    metrics_key = "gud"
 
     def __init__(self, root: Path, spec, handles: list[str], *, window: float = 20.0, python: str = sys.executable,
                  policy: str = "tip", grace: float = 5.0, lease: str = "10m", task_quiet: str | None = None):
@@ -104,7 +104,7 @@ class Gud1Arm:
         self._t0 = 0.0
         self._nelson = None
 
-    # -- the gud1 command line -------------------------------------------------------------
+    # -- the gud command line -------------------------------------------------------------
 
     def env(self) -> dict[str, str]:
         """Environment of every gud process: this checkout on PYTHONPATH, the venv's python first on PATH."""
@@ -116,10 +116,10 @@ class Gud1Arm:
         return env
 
     def argv(self, handle: str, *args: str) -> list[str]:
-        return [self.python, "-m", "gud.cli_v1", "--home", str(self.home(handle)), "--handle", handle, *args]
+        return [self.python, "-m", "gud.cli", "--home", str(self.home(handle)), "--handle", handle, *args]
 
-    def gud1(self, handle: str, *args: str, cwd: Path | None = None, timeout: float = 180) -> dict:
-        """Run one `gud1 --json` command as `handle`; its JSON, or Gud1Error."""
+    def gud(self, handle: str, *args: str, cwd: Path | None = None, timeout: float = 180) -> dict:
+        """Run one `gud --json` command as `handle`; its JSON, or GudError."""
         argv = self.argv(handle, "--json", *args)
         proc = subprocess.run(argv, cwd=cwd or self.root, env=self.env(), capture_output=True, text=True,
                               timeout=timeout)
@@ -129,7 +129,7 @@ class Gud1Arm:
         except ValueError:
             out = {}
         if proc.returncode != 0 or "error" in out:
-            raise Gud1Error(f"gud1 {' '.join(args)} ({handle}) -> {proc.returncode}: {proc.stdout[-800:]}"
+            raise GudError(f"gud {' '.join(args)} ({handle}) -> {proc.returncode}: {proc.stdout[-800:]}"
                             f"{proc.stderr[-800:]}")
         return out
 
@@ -158,7 +158,7 @@ class Gud1Arm:
     def nelson(self):
         """@nelson's RepoClient over the host's HTTP mirror (read-only use: the harness's own view)."""
         if self._nelson is None:
-            from gud.mcp_v1 import open_member
+            from gud.mcp import open_member
             self._nelson, _ = open_member(self.home("@nelson"), "@nelson", self.root / "seed")
         return self._nelson
 
@@ -176,7 +176,7 @@ class Gud1Arm:
 
         self.root.mkdir(parents=True, exist_ok=True)
         self.mail.mkdir(parents=True, exist_ok=True)
-        made = self.gud1("@hoster", "host", "init", "--repo", REPO_ADDR, *self.transport(), "--dir", str(self.host_dir))
+        made = self.gud("@hoster", "host", "init", "--repo", REPO_ADDR, *self.transport(), "--dir", str(self.host_dir))
         port = _free_port()
         self._spawn("host", self.argv("@hoster", "host", "serve", "--dir", str(self.host_dir), "--bind",
                                       f"127.0.0.1:{port}"), self.root / "logs" / "host.log")
@@ -184,7 +184,7 @@ class Gud1Arm:
         self._wait_host(made.get("host_key"))
         keys = {}
         for handle in self.handles + ["@tester", "@nelson"]:
-            keys[handle] = self.gud1(handle, "keys", "new", "--address", self.address(handle),
+            keys[handle] = self.gud(handle, "keys", "new", "--address", self.address(handle),
                                      *self.transport())["public_key"]
         roster = self.root / "roster"
         roster.write_text("\n".join(
@@ -203,19 +203,19 @@ class Gud1Arm:
         (seed_dir / ".gud").mkdir(exist_ok=True)
         (seed_dir / ".gud" / "config").write_bytes(self.config_bytes())
         (seed_dir / ".gud" / "test").write_text(POLICIES[self.policy])
-        out = self.gud1("@nelson", "init", str(seed_dir), "--repo", REPO_ADDR, "--member-file", str(roster),
+        out = self.gud("@nelson", "init", str(seed_dir), "--repo", REPO_ADDR, "--member-file", str(roster),
                         "--host-url", self.host_url, "-m", f"genesis: {self.spec.name} seed", cwd=seed_dir)
         self.genesis = out["genesis"]
         for handle in self.handles:
-            self.gud1(handle, "clone", self.host_url, str(self.workdir(handle, create=False)))
-        self.gud1("@tester", "clone", self.host_url, str(self.root / "tester-wc"))   # saves its remote
+            self.gud(handle, "clone", self.host_url, str(self.workdir(handle, create=False)))
+        self.gud("@tester", "clone", self.host_url, str(self.root / "tester-wc"))   # saves its remote
 
     def _wait_host(self, host_key: str | None, timeout: float = 60) -> None:
         import httpx
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self.procs["host"].poll() is not None:
-                raise Gud1Error(f"gud host serve exited: {(self.root / 'logs' / 'host.log').read_text()[-2000:]}")
+                raise GudError(f"gud host serve exited: {(self.root / 'logs' / 'host.log').read_text()[-2000:]}")
             try:
                 info = httpx.get(self.host_url + "/api/v1/info", timeout=2).json()
                 if host_key is None or info.get("host_key") == host_key:
@@ -223,7 +223,7 @@ class Gud1Arm:
             except (httpx.HTTPError, ValueError):
                 pass
             time.sleep(0.2)
-        raise Gud1Error("gud host serve did not answer")
+        raise GudError("gud host serve did not answer")
 
     def start_services(self, log_dir: Path) -> None:
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -240,7 +240,7 @@ class Gud1Arm:
                 "text, so follow it exactly.")
 
     def seed_task(self) -> None:
-        out = self.gud1("@nelson", "task", "new", self.spec.title, "-m", self.task_text(), "--accept-cmd", ACCEPT_CMD,
+        out = self.gud("@nelson", "task", "new", self.spec.title, "-m", self.task_text(), "--accept-cmd", ACCEPT_CMD,
                         cwd=self.root / "seed")
         self.task_id = out.get("id") or out.get("task") or out.get("gud_id")
         deadline = time.time() + 30
@@ -251,7 +251,7 @@ class Gud1Arm:
                 self.task_id = self.task_id or next(iter(tasks))
                 return
             time.sleep(0.3)
-        raise Gud1Error(f"the task was not logged ({out})")
+        raise GudError(f"the task was not logged ({out})")
 
     def live_proposals(self) -> list:
         nelson = self.nelson
@@ -336,7 +336,7 @@ class Gud1Arm:
 
     def metrics(self, wall_s: float, transcripts: dict[str, list[dict]]) -> dict:
         import analyze
-        return analyze.gud1_metrics(self.nelson, t0=self._t0, wall_s=wall_s, genesis=self.genesis,
+        return analyze.gud_metrics(self.nelson, t0=self._t0, wall_s=wall_s, genesis=self.genesis,
                                     task=self.task_id, handles=self.handles)
 
     def keep_artifacts(self, run_dir: Path) -> None:
@@ -351,9 +351,9 @@ class Gud1Arm:
             shutil.copy(host_log, run_dir / "host.log")
 
 
-class Gud1CCArm(Gud1Arm):
-    """Claude Code headless (same invocation as the git arm) with the gud v1 MCP server (`gud1 mcp`)."""
-    name = "gud1-cc"
+class GudCCArm(GudArm):
+    """Claude Code headless (same invocation as the git arm) with the gud v1 MCP server (`gud mcp`)."""
+    name = "gud-cc"
 
     def mcp_config(self, handle: str) -> Path:
         path = self.root / "mcp" / f"{handle.lstrip('@')}.json"
@@ -361,7 +361,7 @@ class Gud1CCArm(Gud1Arm):
         env = {"PYTHONPATH": str(REPO), "PYTHONDONTWRITEBYTECODE": "1"}
         path.write_text(json.dumps({"mcpServers": {"gud": {
             "command": self.python,
-            "args": self.argv(handle, "mcp", "--wc", str(self.workdir(handle)))[1:],     # gud1 ... mcp --wc WC
+            "args": self.argv(handle, "mcp", "--wc", str(self.workdir(handle)))[1:],     # gud ... mcp --wc WC
             "env": env,
         }}}, indent=2))
         return path
@@ -384,9 +384,9 @@ class Gud1CCArm(Gud1Arm):
 - To tell the others what you are taking on, use claims, push intents and comments."""
 
 
-class Gud1RefArm(Gud1Arm):
-    """The reference agent (`gud1 agent`, gud.agent.runtime), one process per member."""
-    name = "gud1-ref"
+class GudRefArm(GudArm):
+    """The reference agent (`gud agent`, gud.agent.runtime), one process per member."""
+    name = "gud-ref"
 
     def mcp_config(self, handle: str) -> None:
         return None
@@ -408,7 +408,7 @@ class Gud1RefArm(Gud1Arm):
         for handle in self.handles:
             log_dir = run_dir / "agents" / handle.lstrip("@")
             log_dir.mkdir(parents=True, exist_ok=True)
-            # `gud1 --home H --handle @aK agent --wc WC <runtime options>`; a test passes its own command,
+            # `gud --home H --handle @aK agent --wc WC <runtime options>`; a test passes its own command,
             # which gets the same --home/--handle and options
             prefix = (list(ref_cmd) + ["--home", str(self.home(handle)), "--handle", handle] if ref_cmd
                       else self.argv(handle, "agent"))

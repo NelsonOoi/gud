@@ -16,7 +16,7 @@ dependencies = [
 agent = ["claude-agent-sdk>=0.2.168"]
 
 [project.scripts]
-gud1 = "gud.cli_v1:main"
+gud = "gud.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["gud*"]

@@ -6,7 +6,7 @@ import time
 
 from gud.core.replay import Replayer
 from gud.runners.base import RunResult
-from gud.tester_v1 import LocalClient, Tester, TesterIdentity, mailbox_sender
+from gud.tester import LocalClient, Tester, TesterIdentity, mailbox_sender
 from gud.transport import mime
 from gud.transport.fake import FakeMailbox
 from tests.v1.kit import REPO, status

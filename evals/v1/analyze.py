@@ -2,7 +2,7 @@
 
 Two halves:
 
-- **Replay** (`gud1_metrics`, gud v1 arms only). A fresh replay of the run's whole host log and mail
+- **Replay** (`gud_metrics`, gud v1 arms only). A fresh replay of the run's whole host log and mail
   (`Replayer.feed` walks log entries and timers in time order, so one feed yields every §19 event the run
   produced, at its decision time) plus the signed messages themselves. From these: links and links/min,
   pushes and how each ended (linked native, linked carried, superseded, rejected), test runs by scope and
@@ -165,7 +165,7 @@ def _episodes(events: Sequence, t_end: int) -> list[dict]:
     return out
 
 
-def gud1_metrics(client, *, t0: float, wall_s: float, genesis: str | None, task: str | None,
+def gud_metrics(client, *, t0: float, wall_s: float, genesis: str | None, task: str | None,
                  handles: Sequence[str]) -> dict:
     from gud.core.config import globs_overlap
 
@@ -351,7 +351,7 @@ def gud1_metrics(client, *, t0: float, wall_s: float, genesis: str | None, task:
 
     resolved = sum(1 for c in conflicts if c["resolved"])
     linked_pushes = [p for p in pushes if p["end"].startswith("linked")]
-    gud1 = {
+    block = {
         "links": n_links,
         "links_per_min": round(n_links / minutes, 3),
         "first_link_s": rel(min((l.linked_at for l in links), default=None)) if links else None,
@@ -408,7 +408,7 @@ def gud1_metrics(client, *, t0: float, wall_s: float, genesis: str | None, task:
         "test_runs_per_integration": round(len(tests) / n_links, 3) if n_links else None,
         "conflicts_total": len(conflicts),
         "conflicts_resolved": resolved,
-        "gud1": gud1,
+        "gud": block,
     }
 
 

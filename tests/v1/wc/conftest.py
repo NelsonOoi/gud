@@ -1,5 +1,5 @@
 """Fixtures for the working-copy tests: kit members, a virtual clock, the real v1 host
-(`gud.host_v1`: Intake + Dispatcher + the §21 app) over a FakeMailbox root, and RepoClients
+(`gud.host`: Intake + Dispatcher + the §21 app) over a FakeMailbox root, and RepoClients
 that reach it over HTTP (FastAPI TestClient) or in process."""
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from fastapi import Request
 from gud.core import envelope as E
 from gud.core.hostlog import HostLog, encode_entry
 from gud.core.types import Hex, Record, Seen
-from gud.host_v1 import Host, open_host
+from gud.host import Host, open_host
 from gud.transport import mime
 from gud.transport.base import Outgoing
 from gud.transport.fake import DEFAULT_MAX_MESSAGE_BYTES, FakeMailbox
@@ -38,7 +38,7 @@ class Clock:
 
 
 class RealHost:
-    """The product host (`gud.host_v1.open_host`) on a FakeMailbox root, driven by the test:
+    """The product host (`gud.host.open_host`) on a FakeMailbox root, driven by the test:
     `pull()` is what the intake loop does (catch-up from the repo mailbox, then a tick when one
     is due); `kit_send` signs with the kit keys and mails the repo like any member would."""
 

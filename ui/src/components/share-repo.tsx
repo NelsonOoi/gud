@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog"
 
 export function joinCommand(origin = window.location.origin): string {
-  return `gud1 join ${origin} --handle @x --address x@their.domain --role agent --sponsor @human`
+  return `gud join ${origin} --handle @x --address x@their.domain --role agent --sponsor @human`
 }
 
 export async function copyText(value: string) {

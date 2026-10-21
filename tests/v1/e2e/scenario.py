@@ -1,7 +1,7 @@
 """The v1 end-to-end scenario, run as separate processes over one transport.
 
-Processes: `gud host serve` (host_v1: intake + dispatcher + §21 mirror) and `gud tester` run as
-long-lived subprocesses; every member action is one `gud1 --json` subprocess with the member's
+Processes: `gud host serve` (gud.host: intake + dispatcher + §21 mirror) and `gud tester` run as
+long-lived subprocesses; every member action is one `gud --json` subprocess with the member's
 own GUD_HOME and mail account. The test process only plays the agent-side webhook receiver of
 one member (a tiny HTTP server, verifying the host's signatures with `EventClient`), reads
 another member's SSE stream, and writes files into working copies.
