@@ -2,6 +2,89 @@
 
 Each provider adapter in `gud/transport/` implements the `Mailbox` contract of SPEC §20.1 (`docs/INTERFACES.md`, "gud/transport/base.py"). This file says, per adapter, how to configure it, what `capabilities()` reports, and what was verified and how. Cursors, `subscribe` and the synthesized `Authentication-Results` are specified in `SPEC.md` §20.1; adapter-specific choices are in its Appendix A.1.
 
+To set up a provider, start with [Terms](#terms) and the [provider recipes](#provider-recipes). The per-adapter sections after them are the reference.
+
+## Terms
+
+**gud's own words**
+
+- **Repo address.** The email address that *is* the repo, for example `repo@yourdomain.com`. Every push, vote and comment is an email to it.
+- **Host.** The process that reads the repo address's mailbox, writes each message into the signed host log, replays the chain and wakes agents (`gud host serve`).
+- **Member.** A human, agent or tester listed in `.gud/members`, with its own key and its own mail address.
+- **Transport** (or adapter). The code that talks to one kind of mail service: `imap_smtp`, `primitive`, `gmail` and so on. Each member and the host pick one.
+- **Envelope.** The `gud.env` attachment on every gud email: the signed, machine-readable message. The text body is a copy for people; replay reads only the envelope.
+- **Signed / unsigned.** Agents (and humans using `gud approve`, `gud object` and so on) sign every message with their Ed25519 key, so it counts whatever the mail provider does. A human may instead reply to a gud email with a plain "approve" from their mail client. That message is *unsigned*, and it counts only if the mail system vouches for who sent it (see DMARC and authserv-id below).
+- **Consent window (`window`) and grace (`grace`).** How long a push waits for objections, and how much extra time a vote sent before the window closed gets to arrive. Both live in `.gud/config`, and `gud doctor` proposes values from your provider's measured delivery time.
+
+**Email words**
+
+- **IMAP / SMTP.** The two standard mail protocols: IMAP reads a mailbox, SMTP sends. Almost every provider offers both.
+- **IMAP IDLE.** An IMAP mode in which the server tells the client the moment new mail arrives, so the host wakes up within a second without polling.
+- **JMAP.** A newer standard that does reading, sending and push notifications over one HTTPS API (Fastmail, Stalwart).
+- **Webhook.** The provider calls a URL of yours when mail arrives. It needs a URL the provider can reach over HTTPS.
+- **Long-poll.** The client asks "any new mail?" and the provider holds the request open until there is some. It wakes up as fast as a webhook, with no public URL.
+- **App password.** A separate password a provider issues for one app's IMAP and SMTP access, used instead of your account password (and required when the account has two-factor sign-in).
+- **MX.** The servers that receive mail for a domain, named in its DNS.
+- **SPF, DKIM, DMARC.** Checks the receiving server runs on every incoming message. SPF checks the sending server is allowed to send for the domain; DKIM checks a cryptographic signature from the domain; **DMARC** passes when one of those succeeds *for the domain in the visible `From` address*. A DMARC pass is what tells gud that an unsigned "approve" from `nelson@gmail.com` really came from Gmail's servers on that account's behalf.
+- **`Authentication-Results` header.** Where the receiving server writes those verdicts, at the top of the message, for example `Authentication-Results: mx.google.com; dkim=pass ...; dmarc=pass header.from=gmail.com`. Anyone can put a fake one lower down in a message they send, so only the receiving server's own header counts.
+- **authserv-id.** The first word of an `Authentication-Results` header: the name of the server that wrote it (`mx.google.com` above). The repo *pins* the receiving server's authserv-id with `authserv-id` in `.gud/config`, and gud reads only the topmost header carrying a pinned id. That is how it tells the real verdict from a forged one. Without a pin, no unsigned human message counts, and signed messages are unaffected. Providers that report verdicts as data rather than a header (Primitive, SES) get a header written by the adapter under a fixed id such as `primitive.gud.invalid`.
+
+## Provider recipes
+
+Each recipe sets up the repo address (the host) and members' own addresses. Everything else, such as the roster, `init`, `clone` and agents, is the same on every provider (README, [Quickstart](../README.md#quickstart)). Settings are passed as `--set KEY=VALUE`; any key ending in `_env` names an environment variable, so secrets never land in a config file.
+
+### Primitive
+
+Tested live (all 11 conformance checks and the end-to-end run, 2026-10-20).
+
+1. **Account and domain.** Create a Primitive account and an API key. Mail to any local part on your account's managed `*.primitive.email` domain, or on a domain you've verified with Primitive, is received, so there's nothing to create per address. Use one address per member and one for the repo, for example `repo@<you>.primitive.email`, `alice@<you>.primitive.email`.
+2. **Host.**
+   ```bash
+   export PRIMITIVE_API_KEY=...
+   gud --home homes/host --handle @host host init --repo repo@<you>.primitive.email --dir hostdir \
+     --transport primitive --set api_key_env=PRIMITIVE_API_KEY
+   gud --home homes/host --handle @host host serve --dir hostdir --bind 127.0.0.1:8787
+   ```
+   The host wakes on new mail by long-poll, so it needs no public URL. To use Primitive's webhooks instead, register `https://<your host>/api/v1/webhook/primitive` as an endpoint in Primitive, add `--set webhook_secret_env=PRIMITIVE_WEBHOOK_SECRET` (the endpoint's signing secret), and serve that route publicly, on its own port with `host serve --webhook-bind` if you like. The webhook path is tested against a mock only.
+3. **Members.**
+   ```bash
+   gud --home ~/.gud-alice --handle @alice keys new --address alice@<you>.primitive.email \
+     --transport primitive --set api_key_env=PRIMITIVE_API_KEY
+   ```
+4. **Pin the authserv-id** for unsigned human replies: add `authserv-id primitive.gud.invalid` to `.gud/config` in the genesis directory, or later as a push.
+5. **Check:** `gud --home ~/.gud-alice --handle @alice doctor`. It should report `push webhook`, a round trip under a few seconds, and `primitive.gud.invalid` as the authserv-id seen.
+
+**Watch out:** an API key can send as *any* address on the account. Members who share one key could send mail as each other. For agents that doesn't matter, because their messages are signed and an address proves nothing. It does matter for a human whose address is on that account, since anyone holding the key could forge that human's unsigned "approve". Either give humans an address outside the shared account (their own Gmail or work mail, for example), or have them sign their replies (`gud approve`).
+
+### Fastmail (IMAP + SMTP)
+
+**Not yet tested against a live Fastmail account.** The `imap_smtp` adapter is tested against a local GreenMail server. The settings below are Fastmail's published ones; confirm them with `gud doctor`, and please report what it prints.
+
+1. **Accounts.** The repo address needs its own Fastmail user, because the host reads that whole inbox. Each member also needs an address that can send over SMTP. That can be its own user, or an alias or custom-domain address that the member's login is allowed to send from.
+2. **App passwords.** In Fastmail's settings, create an app password with IMAP and SMTP access for each login. Your normal password won't work for IMAP.
+3. **Host.**
+   ```bash
+   export REPO_FASTMAIL_PASSWORD=...        # the repo user's app password
+   gud --home homes/host --handle @host host init --repo repo@yourdomain.com --dir hostdir \
+     --transport imap_smtp \
+     --set imap_host=imap.fastmail.com --set smtp_host=smtp.fastmail.com \
+     --set username=repo@yourdomain.com --set password_env=REPO_FASTMAIL_PASSWORD
+   gud --home homes/host --handle @host host serve --dir hostdir --bind 127.0.0.1:8787
+   ```
+   The defaults (IMAP over TLS on 993, SMTP with STARTTLS on 587) match Fastmail. The host wakes with IMAP IDLE, so it needs no public URL. Fastmail's spam folder is found automatically and read too.
+4. **Members.**
+   ```bash
+   export ALICE_FASTMAIL_PASSWORD=...
+   gud --home ~/.gud-alice --handle @alice keys new --address alice@yourdomain.com \
+     --transport imap_smtp --set imap_host=imap.fastmail.com --set smtp_host=smtp.fastmail.com \
+     --set username=alice@yourdomain.com --set password_env=ALICE_FASTMAIL_PASSWORD
+   ```
+   If the member sends from an alias, `username` is the login and `--address` is the alias.
+5. **Find and pin the authserv-id.** Fastmail's receiving servers each write their own name (`mx1.messagingengine.com`, `mx3.messagingengine.com`, …), so pin all of them with a wildcard: `authserv-id *.messagingengine.com` in `.gud/config`. To confirm, run `gud doctor --transport imap_smtp --set ...` with the *repo* user's settings and read the authserv-id it prints. If it prints none (mail between two Fastmail accounts may skip the checks), email the repo address from an outside account such as Gmail, open that message's raw source in Fastmail, and copy the first word of the topmost `Authentication-Results` header.
+6. **Check:** `gud --home ~/.gud-alice --handle @alice doctor` should report `push idle` and a round trip, then propose `window` and `grace`. Commit them to `.gud/config`.
+
+**Other IMAP providers** work the same way with their own host names: Google Workspace (`imap.gmail.com` / `smtp.gmail.com`, app password, authserv-id `mx.google.com`), Microsoft 365 (`outlook.office365.com` / `smtp.office365.com`; Microsoft is phasing out password logins, and the adapter has no OAuth yet), or your own Dovecot and Postfix. Use `gud doctor` to find each one's authserv-id.
+
 ## Choosing a transport
 
 `gud.transport.registry` opens adapters by name, importing them lazily:
@@ -62,13 +145,13 @@ Verified: the conformance suite, always, for both `fake` and `fake_network`. Uni
 | `imap_tls`, `smtp_tls` | `ssl`, `starttls` (`none` only for local test servers) |
 | `folders` | `INBOX,Junk`; `Junk`/`Spam` fall back to the folder LIST marks `\Junk`, missing folders are skipped |
 | `max_message_bytes`, `send_quota_per_day` | SMTP `SIZE` else 10 MiB; none |
-| `authserv_id` | the provider's MX authserv-id (what the repo pins), reported in `capabilities()` |
+| `authserv_id` | the provider's MX authserv-id, reported in `capabilities()` only. The pin replay uses is `authserv-id` in `.gud/config`; `gud doctor` prints the id it sees |
 | `idle_poll` | 10 s: IDLE is re-issued this often, which also bounds how late junk-folder mail is noticed |
 
 - **Cursor**: `<folder>:<UIDVALIDITY>:<UID>` per folder, joined by `;`. A UIDVALIDITY change rescans that folder (duplicates are deduped downstream by gud id).
 - **Received time**: INTERNALDATE (one-second resolution).
 - **Push intake**: IDLE on INBOX over a dedicated connection with reconnect and exponential backoff, catching up with `list()` after every wake-up and reconnect. Python 3.13's `imaplib` has no IDLE, so that connection reads its socket unbuffered and waits with `select()`.
-- **Authentication-Results**: real providers' MXes (Gmail `mx.google.com`, Fastmail, Microsoft 365, Dovecot with OpenDMARC) prepend one; set `authserv_id` to the value they write. GreenMail adds none.
+- **Authentication-Results**: real providers' MXes (Gmail `mx.google.com`, Fastmail `mxN.messagingengine.com`, Microsoft 365, Dovecot with OpenDMARC) prepend one; pin the value they write in `.gud/config` (a provider with several MX names takes a `*.<domain>` pin). GreenMail adds none.
 
 Verified against a local **GreenMail 2.1.3** (`.tools/greenmail-standalone.jar`, Java 11), started by `tests/v1/transport/greenmail.py` on free ports (`-Dgreenmail.smtp.port`, `-Dgreenmail.imap.port`, `-Dgreenmail.api.port` with the matching `.hostname` properties; the `greenmail.setup.test.*` presets must not be combined with explicit ports). Tests skip when java or the jar is missing. GreenMail prepends `Return-Path` and `Received` but no `Authentication-Results`. The human-verification check therefore plays the receiving MTA: it submits the message over SMTP with `Authentication-Results: mx.gud.test; dmarc=<verdict> header.from=<domain>` prepended, with `mx.gud.test` as the pinned authserv-id. The forged message also carries its own forged `dmarc=pass` header with that id further down, and still fails because the MTA's header is topmost. Extra tests cover junk-folder reading (APPEND into `Junk`), a UIDVALIDITY change, a missing junk folder, IDLE reconnect after the socket is shut down, and bad logins. Not yet verified against a hosted IMAP provider (Fastmail, Workspace): PLAN milestone 2 lists one.
 

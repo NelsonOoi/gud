@@ -11,6 +11,7 @@ from email.utils import parseaddr
 from functools import lru_cache
 from typing import Iterable, Literal, Mapping, Sequence
 
+from . import envelope as E
 from .objects import Tree
 from .types import REGULAR_MODES, ROLES, VOTER_ROLES, Handle, Member, Ms, _split_list
 
@@ -471,6 +472,15 @@ def parse_config(data: bytes | None) -> RepoConfig:
             continue
         if attr in values:
             raise ConfigError(f"{CONFIG}:{n}: {key} given twice")
+        if key == "authserv-id":                 # one or more ids (§10.5); one id keeps its bytes
+            pins = E.authserv_pins(" ".join(parts[1:]))
+            if not pins:
+                raise ConfigError(f"{CONFIG}:{n}: authserv-id takes one or more ids")
+            for pin in pins:
+                if (why := E.authserv_pin_error(pin)) is not None:
+                    raise ConfigError(f"{CONFIG}:{n}: authserv-id {why}")
+            values[attr] = " ".join(parts[1:]) if len(parts) == 2 else " ".join(pins)
+            continue
         if len(parts) != 2:
             raise ConfigError(f"{CONFIG}:{n}: {key} takes one value")
         value = parts[1]

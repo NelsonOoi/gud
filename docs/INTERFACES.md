@@ -388,7 +388,10 @@ class AuthResult:
     authserv_id: str
     results: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...]   # (method, result, props) e.g. ("dmarc","pass",(("header.from","x.org"),))
 def parse_authentication_results(value: str) -> AuthResult | None    # RFC 8601, comments stripped; never raises
-def dmarc_pass(auth_results: Sequence[str], authserv_id: str, from_domain: str) -> bool  # topmost header with that authserv-id only
+def dmarc_pass(auth_results: Sequence[str], authserv_id: str, from_domain: str) -> bool  # topmost header matching a pin only
+def authserv_pins(pinned: str) -> tuple[str, ...]           # §10.5: ids split on spaces/commas, lowercased; `*.<domain>` wildcards
+def authserv_pin_error(pin: str) -> str | None              # why a pin is invalid (bare `*`, `*.com`, inner `*`), or None
+def authserv_matches(pinned: str, authserv_id: str) -> bool
 
 # Event ids (§19.1); re-exported by gud.events.model
 EVENT_KEYS: Mapping[str, tuple[str, ...]]            # per type, the data fields forming its id key (§19.2)

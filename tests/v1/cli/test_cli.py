@@ -260,6 +260,8 @@ def test_doctor(repo: Repo):
     names = {c["name"]: c["ok"] for c in out["checks"]}
     assert out["ok"] and names == {"key": True, "transport": True, "mirror": True, "log": True, "membership": True}
     assert out["proposed"]["window_ms"] >= 2 * out["proposed"]["grace_ms"]
+    # the authserv-id the receiving server wrote on the round trip, as the pin to use
+    assert out["authserv_ids_seen"] == ["fake.gud.invalid"] and out["proposed"]["authserv_id"] == "fake.gud.invalid"
 
 
 def test_host_init_and_trust(repo: Repo):

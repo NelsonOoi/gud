@@ -181,6 +181,13 @@ def test_parse_config():
     assert cfg == RepoConfig(90_000, 45_000, 300_000, 0, 172_800_000, 3_600_000, 1_800_000, 86_400_000, "line",
                              60_000, 5, 10, "mx.example.net")
     assert cfg.quiet == 3_600_000                             # task-quiet defaults to the lease (§10.5)
+    # authserv-id takes one or more ids, and wildcards over at least two labels
+    assert parse_config(b"authserv-id MX1.example.net  *.messagingengine.com\n").authserv_id == \
+        "mx1.example.net *.messagingengine.com"
+    assert parse_config(b"authserv-id MX.Example.net\n").authserv_id == "MX.Example.net"   # one id: bytes kept
+    for bad in (b"authserv-id\n", b"authserv-id *\n", b"authserv-id mx.a.org *.com\n"):
+        with pytest.raises(ConfigError):
+            parse_config(bad)
     quiet = parse_config(b"lease 10m\ntask-quiet 2m\n")
     assert quiet.task_quiet == quiet.quiet == 120_000
     # a rules bundle without task-quiet keeps its earlier bytes; with it, the value round-trips

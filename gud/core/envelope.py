@@ -756,15 +756,44 @@ def parse_authentication_results(value: str) -> AuthResult | None:
         return None
 
 
+def authserv_pins(pinned: str) -> tuple[str, ...]:
+    """§10.5 `authserv-id`: one or more ids, separated by spaces or commas, lowercased.
+    `*.example.net` names every subdomain of example.net (not example.net itself)."""
+    return tuple(p for p in re.split(r"[\s,]+", (pinned or "").lower()) if p)
+
+
+def authserv_pin_error(pin: str) -> str | None:
+    """Why `pin` is not a valid §10.5 pin, or None. A wildcard is one leading `*.` over at least
+    two labels, so a pin can never match every receiving server."""
+    if pin.startswith("*."):
+        rest = pin[2:]
+        if "*" in rest or rest.count(".") < 1 or not all(rest.split(".")):
+            return f"{pin!r}: a wildcard is *.<domain> with at least two labels"
+    elif "*" in pin:
+        return f"{pin!r}: * is allowed only as a leading *."
+    return None
+
+
+def authserv_matches(pinned: str, authserv_id: str) -> bool:
+    """Whether a header's authserv-id is one of the pinned ids (case-insensitive)."""
+    got = authserv_id.lower()
+    for pin in authserv_pins(pinned):
+        if pin.startswith("*.") and got.endswith(pin[1:]) and len(got) > len(pin) - 1:
+            return True
+        if pin == got:
+            return True
+    return False
+
+
 def dmarc_pass(auth_results: Sequence[str], authserv_id: str, from_domain: str) -> bool:
-    """§8.1(2): the topmost header whose authserv-id equals `authserv_id` reports dmarc=pass
-    with header.from == from_domain (both compared case-insensitively)."""
-    if not authserv_id or not from_domain:
+    """§8.1(2): the topmost header whose authserv-id matches the pinned `authserv_id` (one or
+    more ids, see `authserv_pins`) reports dmarc=pass with header.from == from_domain (both
+    compared case-insensitively)."""
+    if not authserv_pins(authserv_id) or not from_domain:
         return False
-    want = authserv_id.lower()
     for value in auth_results:
         parsed = parse_authentication_results(value)
-        if parsed is None or parsed.authserv_id.lower() != want:
+        if parsed is None or not authserv_matches(authserv_id, parsed.authserv_id):
             continue
         for method, result, props in parsed.results:
             if method == "dmarc" and result == "pass":

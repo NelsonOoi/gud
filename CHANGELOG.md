@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `.gud/config` `authserv-id` takes one or more ids, separated by spaces or commas, and `*.<domain>` wildcards (SPEC §8.1, §10.5), for providers whose receiving servers each write their own name, such as Fastmail's `mxN.messagingengine.com`. A single id parses to the same bytes as before.
+- `gud doctor` prints the authserv-ids on its round-trip message, topmost first, and proposes the topmost as the pin (`authserv_ids_seen`, `proposed.authserv_id` in `--json`).
+- Docs: provider recipes for Primitive and Fastmail, plus a terms section, in `docs/TRANSPORTS.md`. The README's "Run on your email provider" now pins the authserv-id in `.gud/config`, not as a transport setting, which only reports it.
+
 ## 1.0.0: the v1 clean break
 
 gud v1 replaces v0 outright. v0 is deprecated; its last commit is tagged `v0-final`. There is no compatibility layer and no migration path: v0 mailboxes (no host log, `Gud-*` trailers in the body) no longer replay. Start a v1 repo from a v0 project's files with `gud init`, or from a git commit with `gud init --from-git`. The full inventory, with a reason for every path, is [docs/CLEAN-BREAK.md](docs/CLEAN-BREAK.md).

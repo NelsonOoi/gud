@@ -427,6 +427,26 @@ def test_dmarc_pass_uses_the_topmost_matching_header_only():
     assert not E.dmarc_pass(["mx.example.net; dkim=pass header.d=a.org"], "mx.example.net", "a.org")
 
 
+def test_dmarc_pass_with_several_pins_and_wildcards():
+    mx3 = "mx3.messagingengine.com; dmarc=pass header.from=a.org"
+    mx6_fail = "mx6.messagingengine.com; dmarc=fail header.from=a.org"
+    assert E.authserv_pins(" MX1.example.net, mx2.example.net ") == ("mx1.example.net", "mx2.example.net")
+    assert E.dmarc_pass([mx3], "*.messagingengine.com", "a.org")
+    assert E.dmarc_pass([mx3], "mx1.messagingengine.com mx3.messagingengine.com", "a.org")
+    assert E.dmarc_pass([mx3], "mx1.messagingengine.com,mx3.messagingengine.com", "a.org")
+    assert not E.dmarc_pass([mx3], "mx1.messagingengine.com", "a.org")
+    # the topmost header matching any pin decides, so a forged one lower down never counts
+    assert not E.dmarc_pass([mx6_fail, mx3], "*.messagingengine.com", "a.org")
+    assert not E.dmarc_pass([mx6_fail, mx3], "mx3.messagingengine.com mx6.messagingengine.com", "a.org")
+    # a wildcard names subdomains only, and never a look-alike domain
+    assert not E.dmarc_pass(["messagingengine.com; dmarc=pass header.from=a.org"], "*.messagingengine.com", "a.org")
+    assert not E.dmarc_pass(["evilmessagingengine.com; dmarc=pass header.from=a.org"], "*.messagingengine.com", "a.org")
+    assert not E.dmarc_pass([mx3], " , ", "a.org")
+    assert E.authserv_pin_error("*.messagingengine.com") is None and E.authserv_pin_error("mx.a.org") is None
+    for bad in ("*", "*.com", "mx*.a.org", "*.*.a.org", "*.a..org"):
+        assert E.authserv_pin_error(bad) is not None, bad
+
+
 # ---------------------------------------------------------------- events
 
 def test_event_ids():

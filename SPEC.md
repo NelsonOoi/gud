@@ -310,12 +310,12 @@ Field meanings:
 An unsigned message counts only when **all** hold:
 
 1. It is in the host log (section 11).
-2. `.gud/config` at the relevant state sets `authserv-id`, and the **topmost** `Authentication-Results` header (RFC 8601) of the raw message whose authserv-id equals it reports `dmarc=pass` with `header.from` equal (case-insensitively) to the domain of `From`. Other `Authentication-Results` headers are ignored.
+2. `.gud/config` at the relevant state sets `authserv-id`, and the **topmost** `Authentication-Results` header (RFC 8601) of the raw message whose authserv-id matches one of its pins reports `dmarc=pass` with `header.from` equal (case-insensitively) to the domain of `From`. Other `Authentication-Results` headers are ignored.
 3. `From` equals the address of a member with role `human` at the relevant state.
 
 "Relevant state" is the target's parent for a vote on a push, and the tip at the message's received time otherwise.
 
-For (2), the authserv-id and `header.from` are compared case-insensitively. The topmost header with the pinned authserv-id decides even when it carries no `dmarc` result (that is a fail); any `dmarc=pass` in it with a matching `header.from` passes. Result syntax is parsed leniently, so only a value with no authserv-id at all is unparseable, and a malformed top header can never make a lower, forged one count. The reference is `gud.core.envelope.dmarc_pass`.
+For (2), the authserv-id and `header.from` are compared case-insensitively. A pin is an exact id, or `*.<domain>` (at least two labels), which matches any subdomain of that domain but not the domain itself; this covers providers whose receiving servers each write their own name, such as `mx3.messagingengine.com`. The topmost header matching any pin decides even when it carries no `dmarc` result (that is a fail); any `dmarc=pass` in it with a matching `header.from` passes. Result syntax is parsed leniently, so only a value with no authserv-id at all is unparseable, and a malformed top header can never make a lower, forged one count. The reference is `gud.core.envelope.dmarc_pass`.
 
 ### 8.2 Target resolution
 
@@ -465,7 +465,7 @@ auto-revert 30m
 | `lease-thrash` | lapses before escalation | `3` |
 | `task-quiet` | quiescence before a landed, unclaimed root task is work-done (16.6) | the lease `L` |
 | `checkpoint` | links between checkpoints | `1000` |
-| `authserv-id` | pinned authserv-id for unsigned human mail | none (no unsigned mail counts) |
+| `authserv-id` | one or more pinned authserv-ids for unsigned human mail (section 8.1), separated by spaces or commas; `*.<domain>` matches its subdomains | none (no unsigned mail counts) |
 
 Minimums: `own-links` ≥ 0; `lease-thrash`, `checkpoint`, `stack-max` (10.4) and `on-tip links` ≥ 1. `gud host init` and `gud doctor` measure delivery latency and propose `window` and `grace` (`grace` ≥ measured p99 delivery delay; `window` ≥ 2 × `grace`). Changing them is an ordinary push (quorum, section 10.3). Unknown keys are ignored. The values used for a candidate are those at its parent; the lease `L` and `task-quiet` are read at the time of the activity they follow (section 16).
 
@@ -940,7 +940,7 @@ An adapter conforms when, against a live or containerised account:
 
 The checks are in `tests/v1/transport/conformance.py`; select a transport with `-k <name>`. Live runs are opt-in by environment variable (`GUD_LIVE_PRIMITIVE`, `GUD_LIVE_JMAP`, `GUD_LIVE_SES`, `GUD_LIVE_POSTMARK`, `GUD_LIVE_GMAIL`); `docs/TRANSPORTS.md` says which adapters have passed live and which only against mocks.
 
-`gud host init --transport X` checks DNS (SPF, DKIM, DMARC), creates or validates the repo address, warns about spam filtering, sends a round trip, records the authserv-id, measures delivery latency and proposes `window` and `grace`. `gud doctor` re-runs the probe.
+`gud host init --transport X` checks DNS (SPF, DKIM, DMARC), creates or validates the repo address, warns about spam filtering, sends a round trip, records the authserv-id, measures delivery latency and proposes `window` and `grace`. `gud doctor` re-runs the probe and prints the authserv-ids on its round-trip message, topmost first, as the value to pin.
 
 ## 21. Hosting, mirror and auth
 

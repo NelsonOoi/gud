@@ -524,6 +524,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     handle = ctx.handle
     check("key", lambda: E.public_of(ctx.key(handle)))
     latency: dict[str, int] = {}
+    seen_authserv: list[str] = []           # authserv-ids on the round-trip message, topmost first
 
     def transport() -> str:
         if args.transport:
@@ -541,17 +542,23 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             start = time.monotonic()
             mb.send(Outgoing(from_addr=mb.address, to=(mb.address,), subject=f"gud doctor {token}",
                              text=f"gud doctor round trip {token}\n"))
-            got = False
+            got = None
             deadline = start + float(args.timeout)
             cursor = head
-            while time.monotonic() < deadline and not got:
+            while time.monotonic() < deadline and got is None:
                 items = mb.wait(since=cursor, timeout=max(0.0, deadline - time.monotonic()))
                 for item in items:
                     cursor = item.cursor
-                    got = got or token.encode() in item.raw_mime
-            if not got:
+                    if got is None and token.encode() in item.raw_mime:
+                        got = item.raw_mime
+            if got is None:
                 raise CliError(f"round trip did not arrive within {args.timeout}s")
             latency["round_trip_ms"] = int((time.monotonic() - start) * 1000)
+            from gud.transport import mime
+            for value in mime.parse(got).auth_results:   # topmost first: what the receiving server wrote
+                parsed = E.parse_authentication_results(value)
+                if parsed is not None and parsed.authserv_id.lower() not in seen_authserv:
+                    seen_authserv.append(parsed.authserv_id.lower())
         return f"{caps.name}: max {caps.max_message_bytes} bytes, push {caps.push}, raw MIME {caps.raw_mime}"
 
     check("transport", transport)
@@ -584,13 +591,20 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if latency:
         grace = max(30_000, 3 * latency["round_trip_ms"])
         proposed = {"grace_ms": grace, "window_ms": max(60_000, 2 * grace), **latency}
+    if proposed is not None and seen_authserv:
+        proposed["authserv_id"] = seen_authserv[0]
     ok = all(c["ok"] for c in checks)
-    data = {"ok": ok, "checks": checks, "proposed": proposed}
+    data = {"ok": ok, "checks": checks, "proposed": proposed, "authserv_ids_seen": seen_authserv}
 
     def text() -> str:
         lines = [f"{'ok  ' if c['ok'] else 'FAIL'} {c['name']}: {c['detail']}" for c in checks]
         if proposed:
             lines.append(f"proposed .gud/config: window {proposed['window_ms'] // 1000}s grace {proposed['grace_ms'] // 1000}s")
+        if seen_authserv:
+            lines.append(f"Authentication-Results on the round trip, topmost first: {', '.join(seen_authserv)}")
+            lines.append(f"  run this against the repo mailbox and pin the topmost: authserv-id {seen_authserv[0]}")
+        elif latency:
+            lines.append("no Authentication-Results on the round trip: unsigned human mail cannot be verified here")
         return "\n".join(lines)
 
     ctx.out(data, text)

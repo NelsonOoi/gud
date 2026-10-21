@@ -208,49 +208,60 @@ Other commands: `task new|list|show`, `claim`, `release`, `subtask`, `approve`, 
 
 ## Run on your email provider
 
-A repo needs one mail account for the **repo address**, which the host reads, and one for **each member's own address**, which that member sends from. Each can be on a different provider. Transport settings go in `--set KEY=VALUE`; any key ending in `_env` names an environment variable that is read when the mailbox opens, so passwords and API keys never land in a config file.
+A repo needs a mail account for the **repo address**, which the host reads, and one for **each member's own address**, which that member sends from. Each can be on a different provider.
 
-**1. The host, on the repo address.**
+Step-by-step recipes for **[Primitive](docs/TRANSPORTS.md#primitive)** (tested live) and **[Fastmail](docs/TRANSPORTS.md#fastmail-imap--smtp)** (IMAP+SMTP, not yet tested on a live account) are in docs/TRANSPORTS.md, with notes for Google Workspace, Microsoft 365 and self-hosted mail. The [Terms](docs/TRANSPORTS.md#terms) section there explains the email words used here. In short, every setup has the same four steps.
+
+**1. The host, on the repo address.** Settings go in `--set KEY=VALUE`. Any key ending in `_env` names an environment variable, so passwords and API keys never land in a config file.
 
 ```bash
-export REPO_IMAP_PASSWORD=...
+export REPO_FASTMAIL_PASSWORD=...         # an app password for the repo's own mail account
 gud --home homes/host --handle @host host init --repo repo@yourdomain.com --dir hostdir \
   --transport imap_smtp \
   --set imap_host=imap.fastmail.com --set smtp_host=smtp.fastmail.com \
-  --set username=repo@yourdomain.com --set password_env=REPO_IMAP_PASSWORD \
-  --set authserv_id=mx.messagingengine.com
+  --set username=repo@yourdomain.com --set password_env=REPO_FASTMAIL_PASSWORD
 gud --home homes/host --handle @host host serve --dir hostdir --bind 0.0.0.0:8787
 ```
 
-On Primitive, use `--transport primitive --set api_key_env=PRIMITIVE_API_KEY` instead. When it can log in, `host init` also probes the mailbox and reports its size limit, push mode and authserv-id. `gud doctor` (step 3) shows a login failure explicitly.
+On Primitive it's `--transport primitive --set api_key_env=PRIMITIVE_API_KEY` instead. Bind to `0.0.0.0` only when members on other machines need to reach the host; requests from off the machine must be signed by a member.
 
 **2. Each member, on their own address.**
 
 ```bash
-export ALICE_PASSWORD=...
+export ALICE_FASTMAIL_PASSWORD=...
 gud --home ~/.gud-alice --handle @alice keys new --address alice@yourdomain.com \
   --transport imap_smtp --set imap_host=imap.fastmail.com --set smtp_host=smtp.fastmail.com \
-  --set username=alice@yourdomain.com --set password_env=ALICE_PASSWORD
+  --set username=alice@yourdomain.com --set password_env=ALICE_FASTMAIL_PASSWORD
 ```
 
 This creates the key and writes `~/.gud-alice/members/@alice/transport.toml`. Then put the member in the genesis roster, or have them `join` and a sponsor `admit` them ([Use gud with your own agents](#use-gud-with-your-own-agents)).
 
-**3. Check the round trip and set the timing.**
+**3. Check it with `gud doctor`.**
 
 ```bash
 gud --home ~/.gud-alice --handle @alice doctor
 ```
 
-`doctor` sends a message to the member's own address, times how long it takes to come back, and proposes a consent window and grace for `.gud/config`. Commit those as an ordinary push, so every member replays with the same values. Providers that deliver slowly (SMTP greylisting, retries) need a longer grace.
+`doctor` logs in, sends a message to the member's own address and times how long it takes to come back. It then prints:
+- a **consent window and grace** to use, from that delivery time. Slow providers (SMTP greylisting, retries) get a longer grace.
+- the **authserv-id** on the returned message: the name of the server that checked who sent it.
+
+**4. Pin the results in `.gud/config`.** Put them in the genesis directory before `gud init`, or change them later with an ordinary push:
+
+```
+window 60s
+grace 30s
+authserv-id *.messagingengine.com
+```
+
+`authserv-id` matters only for humans who reply from a plain mail client. Agents, and humans using `gud approve`, `gud object` and so on, sign every message with their key, which works on any provider with no pin. A plain "approve" email has no signature, so gud trusts it only when the repo's receiving server vouches for the sender. The server writes its DMARC verdict in an `Authentication-Results` header, and the authserv-id is the name it signs that header with. Pinning it tells gud which header is the real one, rather than one a sender forged lower down. Run `doctor` against the *repo* mailbox (`gud doctor --transport ... --set ...` with the repo's settings) to read the id. A provider whose receiving servers each use their own name, such as Fastmail's `mx1.messagingengine.com`, `mx3.…`, takes a wildcard pin `*.<domain>`. Several ids can be listed, separated by spaces. Without a pin, no unsigned email counts.
 
 **Things to get right:**
-- **`authserv_id`** must match the `Authentication-Results` header that the repo's receiving server writes. A human's plain email reply (approve, object, veto) counts only with a DMARC pass under that id. Signed replies (`gud approve` and friends) work on any provider.
-- **One address per member.** Agents and the host each need their own inbox.
+- **One address per member.** Agents and the host each need their own address. The host reads the repo address's whole inbox.
+- **Shared API keys.** On API providers such as Primitive, one key can send as every address on the account. Give humans an address outside that account, or have them sign their replies.
 - **Webhooks.** IMAP wakes the host with IDLE and Primitive with long-poll, so neither needs a public URL. SES and Postmark deliver only by webhook: expose `/api/v1/webhook/<provider>` over HTTPS, on its own port with `host serve --webhook-bind` if the main port stays private.
-- **Spam filtering.** `imap_smtp` reads `Junk` as well as `INBOX`, but allowlist the members' domains anyway.
+- **Spam filtering.** `imap_smtp` reads the spam folder as well as `INBOX`, but allowlist the members' domains anyway.
 - **Gmail** allows about 500 sends a day on a consumer account, which suits humans and small swarms only.
-
-Every adapter's keys and caveats are in [docs/TRANSPORTS.md](docs/TRANSPORTS.md).
 
 ## Transports
 
