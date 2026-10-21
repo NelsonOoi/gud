@@ -1181,13 +1181,45 @@ class GudTools:
             raise ToolError(f"claim {_short(claim.id)} is {claim.status}")
         return claim
 
-    def _ready_to_declare(self, c: ClaimState, wait_s: float = 60.0) -> None:
+    def _others_at_work(self, chain: Chain, c: ClaimState) -> list[str]:
+        """Signs that other members are still working on the claimed item: their open pushes for it, and
+        their comments on it or on this claim since the claim won."""
+        out = []
+        for p in chain.proposals.values():
+            if p.author != self.me and p.task == c.task and p.status in LIVE_STATUSES:
+                out.append(f"{p.author}'s open push {_short(p.push)}")
+        reader = self.client.reader()
+        log = self.client.replayer().log()
+        seen = set()
+        for target in (c.task, c.id):
+            for email in reader.thread(target):
+                env = email.envelope
+                if env is None or env.kind != "comment" or env.author == self.me or email.gud_id in seen:
+                    continue
+                seq = log.seq_of(email.gud_id)
+                if seq is None or log.at(seq).time < c.won_at:
+                    continue
+                seen.add(email.gud_id)
+                out.append(f"{env.author}'s comment «{_first_line(env.text)[:120]}»")
+        return out
+
+    def _ready_to_declare(self, c: ClaimState, wait_s: float = 60.0, whole: bool = False) -> None:
         """A done declaration counts only when the holder has no live push for the item (§16.6): wait for
-        this member's open pushes on it to settle, then refuse if one is still open."""
+        this member's open pushes on it to settle, then refuse if one is still open. It declares the whole
+        item done, so on a top-level task it is refused while other members are visibly still at work on it,
+        unless `whole` confirms it."""
         chain = self.client.chain()
         t = chain.tasks.get(c.task)
         if t is not None and t.children:
             raise ToolError(f"{t.alias} has subtasks: it is done when all of them are done (nothing to declare)")
+        if t is not None and t.parent is None and not whole:
+            others = self._others_at_work(chain, c)
+            if others:
+                raise ToolError(
+                    f"done declares ALL of {t.alias} complete, not just your files ({','.join(c.files)}), and others "
+                    f"are still working on it: {'; '.join(others)}. If you finished only your part, release(claim="
+                    f"\"{t.alias}\") without done, or split {t.alias} into subtasks; if every part of {t.alias} has "
+                    f"landed, repeat with whole=true")
         deadline = time.monotonic() + wait_s
         while True:
             live = [p for p in chain.proposals.values()
@@ -1213,14 +1245,14 @@ class GudTools:
         return {"declared": True, "task_status": t.status}, f"{t.alias} declared done: {what.get(t.status, t.status)}"
 
     @_tool
-    def claim_update(self, claim: str, files: list[str] | None = None, done: bool = False) -> str:
-        """Replace the file scope of your active claim (narrow it to settle an overlap, or widen it). Also renews the lease. `claim` may be the claim id or its task. done=true declares the claimed item's work complete once your pushes for it have linked (files may then be omitted): a top-level task is done only after its holder declares it and its acceptance check passes on the tip."""
+    def claim_update(self, claim: str, files: list[str] | None = None, done: bool = False, whole: bool = False) -> str:
+        """Replace the file scope of your active claim (narrow it to settle an overlap, or widen it). Also renews the lease. `claim` may be the claim id or its task. done=true declares the WHOLE claimed item complete (every part of its description, whoever did it) once your pushes for it have linked; files may then be omitted. A top-level task is done only after its holder declares it and its acceptance check passes on the tip. If you did only your part, do not declare done: release it, or split the task into subtasks. whole=true confirms a declaration while other members still look busy on the item."""
         c = self._active_claim(claim)
         files = [_norm_path(f) or "**" for f in (files or ()) if str(f).strip()] or (list(c.files) if done else [])
         if not files:
             raise ToolError("claim_update needs files (or done=true)")
         if done:
-            self._ready_to_declare(c)
+            self._ready_to_declare(c, whole=whole)
         headers = {"Gud-Task": c.task, "Gud-Files": E.render_list(files), "Gud-Revises": c.latest}
         if done:
             headers["Gud-Done"] = "yes"
@@ -1233,11 +1265,11 @@ class GudTools:
         return self._out(data, "\n".join(lines))
 
     @_tool
-    def release(self, claim: str, note: str = "", done: bool = False) -> str:
-        """Release your claim so someone else can take the task. `claim` may be the claim id or its task. done=true releases it as finished: it declares the item's work complete (after your pushes for it linked)."""
+    def release(self, claim: str, note: str = "", done: bool = False, whole: bool = False) -> str:
+        """Release your claim so someone else can take the task. `claim` may be the claim id or its task. done=true releases it as finished: it declares the WHOLE item complete (every part of it, not just your files) after your pushes for it linked; if you did only your part, release without done. whole=true confirms a declaration while other members still look busy on the item."""
         c = self._active_claim(claim)
         if done:
-            self._ready_to_declare(c)
+            self._ready_to_declare(c, whole=whole)
         headers = {"Gud-Task": c.task, "Gud-Files": E.render_list(list(c.files) or ["**"]),
                    "Gud-Revises": c.latest, "Gud-Release": "yes"}
         if done:

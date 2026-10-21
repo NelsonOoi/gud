@@ -200,6 +200,27 @@ def test_tool_results_point_at_subtasks_nobody_holds(repo: LocalRepo):
     assert "T1.2 is done" in err and "nothing to release" in err and "T1.1 CLI" in err
 
 
+def test_done_on_a_partial_claim_is_refused_while_others_work_on_the_task(repo: LocalRepo):
+    """Regression (gud1-cc acme-site-shared v1-fixes t1): @a2 claimed T1 with only its two pages, pushed them
+    and called release(done=true) meaning "my part is done", while @a1 had said on the claim that it was
+    building the nav and three more pages. T1 was declared done with most of the site missing."""
+    repo.genesis({"app.py": "x = 1\n"})
+    repo.task("Five-page site")
+    repo.clone("@bob")
+    alice, bob = repo.tools("@alice"), repo.tools("@bob")
+    claim = json.loads(bob.claim("T1", ["pages/features.html"]))
+    repo.client("@alice").sync_log()
+    alice.comment(claim["claim"][:10], "I'm doing the nav, build.py and the home page")
+    (repo.wc_dir("@bob") / "pages").mkdir()
+    (repo.wc_dir("@bob") / "pages" / "features.html").write_text("<h1>Features</h1>\n")
+    assert json.loads(bob.push("features page", task="T1"))["status"] == "linked"
+    err = json.loads(bob.release("T1", done=True))["error"]
+    assert "ALL of T1" in err and "@alice's comment" in err and "without done" in err
+    assert json.loads(bob.task("T1"))["task"]["status"] == "claimed"      # nothing was sent
+    out = json.loads(bob.release("T1", done=True, whole=True))           # an explicit confirmation still works
+    assert out["declared"] is True
+
+
 def test_declaring_done_through_claim_update_and_release(repo: LocalRepo):
     repo.genesis({"app.py": "x = 1\n"})
     repo.task("Docs")

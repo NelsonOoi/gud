@@ -96,7 +96,7 @@ class FakeSession:
             if any(l.push == pid for l in chain.links):
                 outcome = f"linked {pid[:12]}"
                 if any(c.holder == me and c.status == "active" for c in chain.claims.values()):
-                    call("claim_update", claim="T1", done=True)  # the holder declares T1 done (SPEC §16.6)
+                    call("claim_update", claim="T1", done=True, whole=True)  # the holder declares T1 done (SPEC §16.6)
                 break
             prop = chain.push_status(pid)
             if prop is not None and prop.status in ("superseded", "stale", "conflict"):
