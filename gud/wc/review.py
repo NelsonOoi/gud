@@ -40,6 +40,34 @@ def my_claims(chain: Chain, me: Handle) -> list[ClaimState]:
     return [c for c in chain.claims.values() if c.holder == me and c.status == "active"]
 
 
+def declare_hints(chain: Chain, me: Handle) -> list[dict]:
+    """Top-level tasks without subtasks that `me` holds and that other members' links carry (§16.6). Only the
+    holder's declaration (or quiescence, after its claim ends) makes such a task done, so the holder should check
+    the landed work and declare done if the whole task is complete. Items have `type` "declare"."""
+    out = []
+    for c in sorted(my_claims(chain, me), key=lambda c: c.id):
+        t = chain.tasks.get(c.task)
+        if t is None or t.parent is not None or t.children or t.kind == "fix" or t.declared or t.status != "claimed":
+            continue
+        links = [link for link in chain.links if link.task == t.id and link.author != me]
+        if links:
+            out.append({"type": "declare", "claim": c.id, "task": t.id, "alias": t.alias, "title": t.title,
+                        "authors": sorted({link.author for link in links}), "links": len(links),
+                        "files": sorted({f for link in links for f in link.files}), "claim_files": list(c.files)})
+    return out
+
+
+def declare_text(it: dict) -> str:
+    """The hint for one `declare_hints` item (MCP inbox/tasks/wait and the reference agent's turn text)."""
+    alias = it["alias"]
+    files = ", ".join(it["files"][:12]) + (f" and {len(it['files']) - 12} more" if len(it["files"]) > 12 else "")
+    return (f"{alias} is yours (claim on {','.join(it['claim_files'])}), and other members landed work for it: "
+            f"{it['links']} link(s) by {', '.join(it['authors'])} ({files}). Check whether ALL of {alias} is now in "
+            f"the tip (sync, read the files, run the tests). If it is complete, declare it: claim_update(claim="
+            f"\"{alias}\", done=true, whole=true). If parts are missing, do them or split them into subtasks. Nobody "
+            f"else can declare {alias} while you hold it.")
+
+
 def needs(chain: Chain, me: Handle, *, members: Members | None, now: Ms, tip_paths: list[str] | None = None,
           lease_warn_ms: int = LEASE_WARN_MS) -> list[dict]:
     """Everything that needs `me` at `chain` (see the module docstring), in a stable order."""

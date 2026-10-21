@@ -59,7 +59,7 @@ from gud.core.types import (
 from gud.events.model import event_dict, event_from_dict
 from gud.transport.base import TransportError
 from gud.wc.copy import SecretsFound, WcError, WorkingCopy, find_root, push_tree, read_local_config, verify_cache
-from gud.wc.review import my_claims, needs as review_needs, why_text
+from gud.wc.review import declare_hints, declare_text, my_claims, needs as review_needs, why_text
 from gud.wc.remote import RemoteError, RepoClient, load_key
 
 TOOL_NAMES = (
@@ -71,7 +71,7 @@ TOOL_NAMES = (
 
 INSTRUCTIONS = """gud is source control where an email chain is the repo. This server is bound to one member (its key signs everything you send) and to that member's working copy, an ordinary directory you edit with your own file tools.
 
-Workflow: tasks (the whole board) -> claim a task with the files you will touch -> inflight (what others are changing) -> edit files in the working copy, run the tests -> push (sends your working copy's diff against its base) -> wait(push=...) until it links -> when the whole task is in, claim_update(claim=<task>, done=true) (a top-level task is not done until its holder says so; a subtask is done when a push for it links).
+Workflow: tasks (the whole board) -> claim a task with the files you will touch -> inflight (what others are changing) -> edit files in the working copy, run the tests -> push (sends your working copy's diff against its base) -> wait(push=...) until it links -> when the whole task is in, claim_update(claim=<task>, done=true) (a top-level task is not done until its holder says so; a subtask is done when a push for it links). If you hold a task and other members' links carry it, check whether all of it is in and, if so, declare it done (whole=true). A top-level task that nobody holds is also done once its work has landed and nothing (no claim, push or comment for it) has happened on it for the repo's task-quiet time.
 
 Working with other agents: when other agents are idle and a task you claim has separable parts, split it before you start: post subtasks with their files and after (dependencies), claim one of them yourself, and leave the rest for the others; do not claim "**" and do everything alone. When you have nothing to do, claim an open subtask (tasks lists them). sync merges the tip into your working copy (it stops on conflicts and never auto-resolves). If your push touches lines another member wrote recently, they get a consent window to object; a blocking objection needs an answer: a comment on the objection, or a revised push with revises=<your push id>. When inbox or wait says a push needs your review, read its diff (inflight, thread) and approve, object (with a reason, or with a failing test as evidence) or comment. Agents cannot veto.
 
@@ -904,8 +904,16 @@ class GudTools:
             lines.append(f"{pad}  unclaimed: claim(task=\"{t.alias}\", files=[...]) to take it")
         if t.declared_by:
             lines.append(f"{pad}  declared done by {t.declared_by}")
+        elif t.work_done_by == "quiet":
+            lines.append(f"{pad}  work done by quiescence: it landed and nothing happened on it for task-quiet")
         elif t.status == "claimed" and t.parent is None and not t.children and t.kind != "fix":
             lines.append(f"{pad}  not done until its holder declares it: claim_update(claim=\"{t.alias}\", done=true)")
+            hint = next((it for it in declare_hints(chain, self.me) if it["task"] == t.id), None)
+            if hint is not None:
+                lines.append(f"{pad}  ACTION for you: {declare_text(hint)}")
+        elif t.quiet_until is not None and t.status == "open":
+            lines.append(f"{pad}  landed and unclaimed: done by quiescence {_rel(t.quiet_until, now)} if nothing more "
+                         f"happens on it (a claim, push or comment with task=\"{t.alias}\" resets that)")
         for sub, reason in t.no_change:
             lines.append(f"{pad}  no-change {_alias(chain, sub)}: «{reason}»")
         return lines
@@ -989,6 +997,7 @@ class GudTools:
         team, team_text = self._team_line(chain)
         if team_text and lines:
             lines.append(team_text)
+        team["declare"] = declare_hints(chain, self.me)
         return self._out({"tasks": out, "claims": [_jsonable(c) for c in claims], **team},
                          "\n".join(lines) if lines else "no tasks yet")
 
@@ -1432,7 +1441,8 @@ class GudTools:
         reader = self.client.reader()
         members = reader.members() if chain.tip else None
         tip_paths = list(reader.tree().paths()) if chain.tip else []
-        return review_needs(chain, self.me, members=members, now=self._now(), tip_paths=tip_paths)
+        return (review_needs(chain, self.me, members=members, now=self._now(), tip_paths=tip_paths)
+                + declare_hints(chain, self.me))
 
     def _render_need(self, chain: Chain, it: dict) -> str:
         now = self._now()
@@ -1456,6 +1466,8 @@ class GudTools:
         if it["type"] == "overlap":
             return (f"your claim {_short(it['claim'])} overlaps {it['holder']}'s claim {_short(it['other'])} "
                     f"({','.join(it['files'])}): settle it in a comment")
+        if it["type"] == "declare":
+            return declare_text(it)
         return json.dumps(it)
 
     @_tool
@@ -1519,9 +1531,12 @@ class GudTools:
                 tip_lines = [f"tip moved: linked seq {l.seq} {_short(l.state)} by {l.author} for {_alias(chain, l.task)}: "
                              f"«{_first_line(l.intent)}» files {_join(list(l.files))}" for l in moved if l.state not in shown]
                 lines += tip_lines
+                landed = {l.task for l in moved} | {e.data.get("task") for _, e in new if e.type == "linked"}
+                hints = [it for it in declare_hints(chain, self.me) if it["task"] in landed]
+                lines += [declare_text(it) for it in hints]
                 tip = chain.tip
                 return self._out({"outcome": outcome, "events": [{"n": n, **event_dict(e)} for n, e in new],
-                                  "tip_moved": bool(moved),
+                                  "tip_moved": bool(moved), "declare": hints,
                                   "tip": {"seq": tip.seq, "state": tip.state} if tip is not None else None},
                                  "\n".join(lines))
             remaining = deadline - time.monotonic()

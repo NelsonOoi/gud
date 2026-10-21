@@ -48,6 +48,7 @@ from gud.events.model import thread_key
 from gud.mcp_v1 import GudTools, MemberEvents, ToolError, is_echo, journal_deltas, open_member
 from gud.wc.copy import WcError, WorkingCopy
 from gud.wc.remote import RemoteError, RepoClient
+from gud.wc.review import declare_hints, declare_text
 
 from .budget import Budget, Ledger
 from .prompt import SUMMARY_PROMPT, render_batch, system_prompt
@@ -184,11 +185,13 @@ class AgentRuntime:
 
     def ambient(self, event: Event) -> bool:
         """Board news that concerns this member only because every agent follows the tip (§19.2): another
-        member's link that touches none of its claimed scopes or live pushes, tip colour changes, and task.done
-        for items none of its claims waits on. They are quiet; they schedule one debounced board check."""
+        member's link that touches none of its claimed scopes or live pushes and does not carry a task it holds,
+        tip colour changes, and task.done for items none of its claims waits on. They are quiet; they schedule one
+        debounced board check."""
         d = event.data
         if event.type == "linked":
-            return d.get("author") != self.me and not self._touches_mine(d.get("files") or [])
+            return (d.get("author") != self.me and not self._touches_mine(d.get("files") or [])
+                    and self._held_task(d.get("task")) is None)
         if event.type in ("tip.green",):
             return True
         if event.type == "task.done":
@@ -206,6 +209,16 @@ class AgentRuntime:
             if p.author == self.me and p.status in LIVE_STATUSES and set(p.files) & set(files):
                 return True
         return False
+
+    def _held_task(self, task: Any) -> Hex | None:
+        """`task` when this member holds its active claim (another member's link for it asks the holder to
+        check the work and declare done, §16.6)."""
+        if not isinstance(task, str):
+            return None
+        chain = self.chain()
+        t = chain.tasks.get(task)
+        claim = chain.claims.get(t.claim) if t is not None and t.claim else None
+        return task if claim is not None and claim.holder == self.me and claim.status == "active" else None
 
     def _dependent(self, done_task: Any) -> Hex | None:
         """A task this member holds that lists `done_task` in its after (Gud-After), if any."""
@@ -324,6 +337,11 @@ class AgentRuntime:
             if dep is not None:                          # wake the session working on the dependent task
                 tk = f"task:{dep}"
                 return self.manager.aliases.get(tk, tk)
+        if event.type == "linked" and event.data.get("author") != self.me:
+            held = self._held_task(event.data.get("task"))
+            if held is not None:                         # others landed work for my task: its session checks it
+                tk = f"task:{held}"
+                return self.manager.aliases.get(tk, tk)
         base = thread_key(event, self._roots(chain))
         if base in self.manager.aliases:
             return self.manager.aliases[base]
@@ -378,8 +396,9 @@ class AgentRuntime:
             team, team_text = self.tools._team_line(chain)
         except Exception:
             team, team_text = {}, ""
+        declare = [declare_text(it) for it in declare_hints(chain, self.me)]
         return render_batch(events, chain, key=key, notes=notes, status=status, idle=key.startswith("idle"),
-                            team=team_text, idle_agents=team.get("idle_agents") or ())
+                            team=team_text, idle_agents=team.get("idle_agents") or (), declare=declare)
 
     def _mine(self, chain: Chain) -> tuple[set[Hex], set[Hex]]:
         claims = {c.task for c in chain.claims.values() if c.holder == self.me and c.status == "active"}

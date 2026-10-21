@@ -238,3 +238,47 @@ def test_declaring_done_through_claim_update_and_release(repo: LocalRepo):
     rel = json.loads(alice.release("T2", done=True))
     assert rel["status"] == "released" and rel["declared"] is True
     assert "error" in json.loads(alice.claim_update("T1"))                   # no files and no done
+
+
+def test_holder_is_told_to_check_and_declare_when_others_land_its_task(repo: LocalRepo):
+    """Regression (gud1-cc acme-site-shared and refactor-guard, v1-fixes re-run): the holder claimed only its
+    own files while the other agents landed the rest with task=T1, and nobody declared T1 done. inbox, tasks
+    and wait now tell the holder to check the landed work and declare done (whole=true)."""
+    import time as _time
+    repo.genesis({"app.py": "x = 1\n"})
+    repo.task("Five-page site")
+    repo.clone("@alice")
+    alice, bob = repo.tools("@alice"), repo.tools("@bob")
+    assert json.loads(bob.claim("T1", ["index.html"]))["status"] == "active"
+    assert not [n for n in json.loads(bob.inbox())["needs"] if n["type"] == "declare"]
+    th, box = _in_thread(lambda: json.loads(bob.wait(timeout=60, types=["linked"])))
+    _time.sleep(0.5)
+    repo.client("@alice").sync_log()
+    (repo.wc_dir("@alice") / "nav.html").write_text("<nav></nav>\n")
+    assert json.loads(alice.push("nav", task="T1"))["status"] == "linked"
+    th.join(30)
+    waited = box["out"]
+    assert waited["declare"] and waited["declare"][0]["authors"] == ["@alice"]
+    needs = [n for n in json.loads(bob.inbox())["needs"] if n["type"] == "declare"]
+    assert needs and needs[0]["alias"] == "T1" and needs[0]["files"] == ["nav.html"]
+    text = repo.tools("@bob", json_out=False).inbox()
+    assert 'claim_update(claim="T1", done=true, whole=true)' in text and "by @alice" in text
+    board = repo.tools("@bob", json_out=False).tasks()
+    assert "ACTION for you" in board and "whole=true" in board
+    assert json.loads(bob.tasks())["declare"][0]["task"] == needs[0]["task"]
+    assert "ACTION for you" not in repo.tools("@alice", json_out=False).tasks()   # only the holder is asked
+    out = json.loads(bob.claim_update("T1", done=True, whole=True))
+    assert out["declared"] is True
+    assert not [n for n in json.loads(bob.inbox())["needs"] if n["type"] == "declare"]
+
+
+def test_tasks_shows_quiescence_for_a_landed_unclaimed_task(repo: LocalRepo):
+    repo.genesis({"app.py": "x = 1\n"})
+    repo.task("Docs")
+    repo.clone("@alice")
+    alice = repo.tools("@alice")
+    (repo.wc_dir("@alice") / "docs.md").write_text("# docs\n")
+    assert json.loads(alice.push("docs", task="T1"))["status"] == "linked"     # nobody claimed T1
+    board = json.loads(alice.tasks())["tasks"][0]
+    assert board["status"] == "open" and board["quiet_until"] is not None
+    assert "done by quiescence" in repo.tools("@alice", json_out=False).tasks()

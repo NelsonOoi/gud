@@ -486,6 +486,37 @@ def test_a_dependency_landing_wakes_the_session_that_waits_for_it(world: World):
     assert "[task.done]" in session.texts[-1]                  # routed to the session holding T1.2
 
 
+def test_others_landing_my_task_wake_its_session_to_check_and_declare(world: World):
+    """Regression (v1-fixes re-run, "Still unresolved"): the holder of an unsplit T1 claimed only its own file
+    and the others landed the rest; their links were ambient to it, and nobody declared T1 done. Another
+    member's link carrying a task this agent holds now wakes the task's session, and the turn text asks it to
+    check the work and declare done (whole=true)."""
+    def holder(session: FakeSession, text: str) -> SessionTurn:
+        tools = world.tools("@bob")
+        if "[task.opened]" in text:
+            assert json.loads(tools.claim("T1", ["index.html"]))["status"] == "active"
+            return SessionTurn("claimed T1 for index.html")
+        if 'claim_update(claim="T1", done=true, whole=true)' in text:
+            assert json.loads(tools.claim_update("T1", done=True, whole=True))["declared"] is True
+            return SessionTurn("declared T1")
+        return SessionTurn("-")
+
+    bob = world.runtime("@bob", holder)
+    world.repo.task("Site")
+    assert bob.step() == 1
+    t1 = next(t.id for t in bob.chain().tasks.values() if t.alias == "T1")
+    world.repo.clone("@alice")
+    _write_and_push(world, "@alice", "nav.html", "T1")
+    assert bob.step() == 1                                      # not ambient: it carries a task bob holds
+    sent = [(key, text) for op, key, text in world.log if op == "send"]
+    key, text = sent[-1]
+    assert key == bob.manager.aliases.get(f"task:{t1}", f"task:{t1}")     # the task's session
+    assert "[linked]" in text and "other members landed work for it" in text and "by @alice" in text
+    world.repo.client("@nelson").sync_log()
+    task = world.repo.client("@nelson").chain().tasks[t1]
+    assert task.declared_by == "@bob" and task.status == "work_done"
+
+
 def test_turn_text_asks_to_split_only_with_idle_agents(world: World):
     r = world.repo
     tid = r.task("Wide task")
