@@ -1,8 +1,8 @@
-.venv/
+.venv*/
 __pycache__/
 *.pyc
 .env
-.gud-home/
+.gud-home*/
 node_modules/
 ui/dist/
 .pytest_cache/
@@ -13,3 +13,5 @@ evals/v1/runs/**
 !evals/v1/runs/**/
 !evals/v1/runs/**/summary.json
 !evals/v1/runs/*report.md
+build/
+.DS_Store
